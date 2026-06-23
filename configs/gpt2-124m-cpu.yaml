@@ -1,0 +1,48 @@
+# GPT-2 124M — CPU-compatible training config
+# For c5.2xlarge (16GB RAM) or any CPU-only box
+# Reduced batch_size + block_size to fit within 12GB RSS
+# Use this when no GPU is available; switch to gpt2-124m.yaml on A10G/V100
+
+name: gpt2-124m-cpu
+model:
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  block_size: 512     # 2048 → 512 (4× less memory per sequence)
+  vocab_size: 50257
+  bias: true
+
+training:
+  batch_size: 4                      # 12 → 4 (3× less memory per step)
+  gradient_accumulation_steps: 8     # still gives effective batch ~32
+  max_iters: 2000
+  eval_interval: 200
+  eval_iters: 20                     # 200 → 20 (fast eval on CPU)
+  log_interval: 10
+  learning_rate: 6.0e-4
+  min_lr: 6.0e-5
+  warmup_iters: 100
+  lr_decay_iters: 2000
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: float32   # bfloat16 → float32 (CPU stable)
+  compile: false   # never compile on CPU
+
+data:
+  train_bin: data/shards/train.bin
+  val_bin: data/shards/val.bin
+  meta_pkl: data/shards/meta.pkl
+
+checkpoint:
+  out_dir: checkpoints/gpt2-124m
+  eval_only: false
+  init_from: scratch
+
+wandb:
+  enabled: false   # set to true + WANDB_API_KEY to enable
+  project: indicllm-bharat
+  run_name: gpt2-124m-cpu
+
+cloud:
+  instance: c5.2xlarge
+  note: "CPU training run. Switch to gpt2-124m.yaml when GPU (g5.xlarge) is available."
