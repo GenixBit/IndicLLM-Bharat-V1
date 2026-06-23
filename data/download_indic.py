@@ -27,13 +27,11 @@ Outputs (same format as prepare_data.py):
 from __future__ import annotations
 
 import argparse
-import bz2
-import io
 import json
 import os
 import pickle
-import re
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -116,24 +114,32 @@ def fetch_wiki_articles(lang: str, max_articles: int, cache_dir: Path) -> list[s
 
     with open(cache_file, "w", encoding="utf-8") as cache_f:
         attempts = 0
+        retry_delay = 2.0
         while len(texts) < max_articles and attempts < max_articles * 3:
             params = {
                 "action": "query",
                 "format": "json",
                 "generator": "random",
                 "grnnamespace": "0",
-                "grnlimit": "20",          # up to 20 random articles per call
+                "grnlimit": "20",
                 "prop": "extracts",
                 "explaintext": "1",
                 "exsectionformat": "plain",
-                "exchars": "5000",         # first 5000 chars only — fast
+                "exchars": "5000",
             }
             try:
                 resp = session.get(api_url, params=params, timeout=30)
+                if resp.status_code == 429:
+                    print(f"  [{lang}] Rate limited, sleeping {retry_delay:.0f}s...")
+                    time.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, 60)  # cap at 60s
+                    continue
+                retry_delay = 2.0  # reset on success
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as e:
                 print(f"  [{lang}] API error: {e}, retrying...")
+                time.sleep(retry_delay)
                 attempts += 20
                 continue
 
@@ -144,7 +150,8 @@ def fetch_wiki_articles(lang: str, max_articles: int, cache_dir: Path) -> list[s
                     cache_f.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
 
             attempts += 20
-            if len(texts) % 200 == 0 and len(texts) > 0:
+            time.sleep(1.0)  # polite 1s delay between requests
+            if len(texts) % 100 == 0 and len(texts) > 0:
                 print(f"  [{lang}] {len(texts)}/{max_articles}...")
 
     print(f"  [{lang}] {INDIC_LANGS[lang]}: {len(texts)} articles")
