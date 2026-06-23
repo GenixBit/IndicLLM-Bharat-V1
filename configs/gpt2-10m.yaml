@@ -1,0 +1,46 @@
+# GPT-2 10M — local smoke-test on Apple M2 / CPU
+# 6 layers, 384 dim, 6 heads — runs in ~10 min on M2, ~30 min on CPU
+# Use this before paying for cloud time to confirm your data pipeline is correct.
+
+name: gpt2-10m
+model:
+  n_layer: 6
+  n_head: 6
+  n_embd: 384
+  block_size: 512
+  vocab_size: 50257   # GPT-2 tokenizer; overridden by meta.pkl if present
+  bias: false
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  max_iters: 2000
+  eval_interval: 200
+  eval_iters: 50
+  log_interval: 20
+  learning_rate: 1.0e-3
+  min_lr: 1.0e-4
+  warmup_iters: 100
+  lr_decay_iters: 2000
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: float32      # MPS is more stable with float32 for small runs
+  compile: false      # torch.compile not supported on MPS
+
+data:
+  train_bin: data/shards/train.bin
+  val_bin: data/shards/val.bin
+  meta_pkl: data/shards/meta.pkl
+
+checkpoint:
+  out_dir: checkpoints/gpt2-10m
+  eval_only: false
+  init_from: scratch
+
+wandb:
+  enabled: false      # skip W&B for quick local runs; set to true if you want to log
+
+cloud:
+  gpu: none
+  estimated_hours: 0.5   # ~10 min on M2 MPS
+  estimated_cost_usd: 0

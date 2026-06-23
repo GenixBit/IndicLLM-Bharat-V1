@@ -1,0 +1,34 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# ML artifacts
+checkpoints/
+runs/
+wandb/
+*.pt
+*.bin
+*.ckpt
+data/raw/
+data/shards/
+data/tokenizer/
+vendor/nanoGPT/data/
+vendor/nanoGPT/out/
+
+# Secrets
+.env
+.env.local
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/

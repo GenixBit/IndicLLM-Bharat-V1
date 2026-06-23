@@ -1,0 +1,49 @@
+# GPT-2 350M — MVP foundation model
+# 24 layers, 1024 dim, 16 heads
+
+name: gpt2-350m
+model:
+  n_layer: 24
+  n_head: 16
+  n_embd: 1024
+  block_size: 2048
+  vocab_size: 32000
+  bias: false
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 64
+  max_iters: 200000
+  eval_interval: 1000
+  eval_iters: 200
+  log_interval: 10
+  learning_rate: 3.0e-4
+  min_lr: 3.0e-5
+  warmup_iters: 4000
+  lr_decay_iters: 200000
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: bfloat16
+  compile: true
+
+data:
+  train_bin: data/shards/train.bin
+  val_bin: data/shards/val.bin
+  meta_pkl: data/shards/meta.pkl
+  tokenizer_dir: data/tokenizer
+
+checkpoint:
+  out_dir: checkpoints/gpt2-350m
+  eval_only: false
+  init_from: scratch
+
+wandb:
+  enabled: true
+  project: llm-lab
+  run_name: gpt2-350m-pretrain
+
+cloud:
+  gpu: A100-80GB
+  num_gpus: 2
+  estimated_hours: 120
+  estimated_cost_usd: 3000

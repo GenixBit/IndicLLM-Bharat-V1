@@ -1,0 +1,47 @@
+# GPT-2 124M — learning / first cloud run
+# 12 layers, 768 dim, 12 heads, 2048 context
+
+name: gpt2-124m
+model:
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  block_size: 2048
+  vocab_size: 50257
+  bias: true
+
+training:
+  batch_size: 12
+  gradient_accumulation_steps: 40
+  max_iters: 100000
+  eval_interval: 500
+  eval_iters: 200
+  log_interval: 10
+  learning_rate: 6.0e-4
+  min_lr: 6.0e-5
+  warmup_iters: 2000
+  lr_decay_iters: 100000
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: bfloat16
+  compile: true
+
+data:
+  train_bin: data/shards/train.bin
+  val_bin: data/shards/val.bin
+  meta_pkl: data/shards/meta.pkl
+
+checkpoint:
+  out_dir: checkpoints/gpt2-124m
+  eval_only: false
+  init_from: scratch  # scratch | resume | gpt2
+
+wandb:
+  enabled: true
+  project: llm-lab
+  run_name: gpt2-124m-pretrain
+
+cloud:
+  gpu: A100-80GB
+  estimated_hours: 48
+  estimated_cost_usd: 150
