@@ -109,25 +109,60 @@ def stream_sangraha(lang: str, max_docs: int) -> Iterator[str]:
     try:
         from datasets import load_dataset
         print(f"  [{lang}] Loading Sangraha ({INDIC_LANGS.get(lang, lang)})...")
+        # Sangraha has three splits: verified, unverified, synthetic
+        for subset in ["verified", "unverified"]:
+            try:
+                ds = load_dataset(
+                    "ai4bharat/sangraha",
+                    subset,
+                    split="train",
+                    streaming=True,
+                )
+                count = 0
+                for item in ds:
+                    if count >= max_docs:
+                        break
+                    # sangraha has 'text' and 'lang' fields
+                    if item.get("lang", lang) != lang:
+                        continue
+                    text = item.get("text", "")
+                    if is_quality_indic(text, lang):
+                        yield text
+                        count += 1
+                if count > 0:
+                    print(f"  [{lang}] Sangraha/{subset}: {count} docs")
+                    return
+            except Exception:
+                continue
+        print(f"  [{lang}] Sangraha unavailable, trying Wikipedia...")
+        yield from stream_wikipedia(lang, max_docs)
+    except Exception as e:
+        print(f"  [{lang}] Sangraha error ({e}), trying Wikipedia...")
+        yield from stream_wikipedia(lang, max_docs)
+
+
+def stream_wikipedia(lang: str, max_docs: int) -> Iterator[str]:
+    """Wikipedia via wikimedia/wikipedia — Parquet format, no auth needed."""
+    try:
+        from datasets import load_dataset
+        print(f"  [{lang}] Loading Wikipedia ({INDIC_LANGS.get(lang, lang)})...")
         ds = load_dataset(
-            "ai4bharat/sangraha",
-            f"validated/{lang}",
+            "wikimedia/wikipedia",
+            f"20231101.{lang}",
             split="train",
             streaming=True,
-            trust_remote_code=True,
         )
         count = 0
         for item in ds:
             if count >= max_docs:
                 break
             text = item.get("text", "")
-            if is_quality_indic(text, lang):
+            if is_quality_indic(text, lang, min_chars=100):
                 yield text
                 count += 1
-        print(f"  [{lang}] Sangraha: {count} docs")
+        print(f"  [{lang}] Wikipedia: {count} docs")
     except Exception as e:
-        print(f"  [{lang}] Sangraha unavailable ({e}), trying CC-100...")
-        yield from stream_cc100(lang, max_docs)
+        print(f"  [{lang}] Wikipedia unavailable ({e})")
 
 
 def stream_cc100(lang: str, max_docs: int) -> Iterator[str]:
@@ -191,7 +226,6 @@ def stream_indiccorp(lang: str, max_docs: int) -> Iterator[str]:
             lang,
             split="train",
             streaming=True,
-            trust_remote_code=True,
         )
         count = 0
         for item in ds:
@@ -295,7 +329,7 @@ def main():
     parser.add_argument("--val-ratio",   type=float, default=0.005,
                         help="Validation split ratio (default: 0.005)")
     parser.add_argument("--source",      default="sangraha",
-                        choices=["sangraha", "cc100", "indiccorp"],
+                        choices=["sangraha", "cc100", "indiccorp", "wikipedia"],
                         help="Data source (default: sangraha)")
     parser.add_argument("--use-gpt2-tok", action="store_true",
                         help="Use GPT-2 tokenizer instead of training SentencePiece")
@@ -324,8 +358,14 @@ def main():
 
         if args.source == "sangraha":
             texts = list(stream_sangraha(lang, args.max_docs))
+            if not texts:  # auto-fallback to Wikipedia
+                texts = list(stream_wikipedia(lang, args.max_docs))
         elif args.source == "cc100":
             texts = list(stream_cc100(lang, args.max_docs))
+            if not texts:
+                texts = list(stream_wikipedia(lang, args.max_docs))
+        elif args.source == "wikipedia":
+            texts = list(stream_wikipedia(lang, args.max_docs))
         else:
             texts = list(stream_indiccorp(lang, args.max_docs))
 
