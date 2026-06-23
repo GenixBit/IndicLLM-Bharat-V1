@@ -148,9 +148,9 @@ def get_lr(it: int, cfg: dict) -> float:
 
 
 def load_bin(path: Path) -> torch.Tensor:
-    return torch.from_numpy(
-        __import__("numpy").memmap(path, dtype=__import__("numpy").uint16, mode="r")
-    )
+    # Cast uint16 → int64: cross_entropy requires int64 targets
+    data = __import__("numpy").memmap(path, dtype=__import__("numpy").uint16, mode="r")
+    return torch.from_numpy(data.astype(__import__("numpy").int64))
 
 
 @torch.no_grad()
@@ -214,7 +214,8 @@ def main() -> None:
         wandb = _wandb
 
     model = GPT.from_config(model_cfg).to(device)
-    if train_cfg.get("compile") and device != "mps":
+    if train_cfg.get("compile") and device == "cuda":
+        print("  torch.compile enabled (CUDA)")
         model = torch.compile(model)
 
     optimizer = model.configure_optimizers if hasattr(model, "configure_optimizers") else None
