@@ -10,9 +10,9 @@ language:
 
 - Source: [HuggingFaceFW/fineweb-edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)
 - Subset: `sample-10BT`
-- Documents processed: 1,000
-- Train tokens: 1,026,374
-- Val tokens: 10,368
+- Documents processed: 50,000
+- Train tokens: 51,119,900
+- Val tokens: 516,363
 - Vocab size: 50,257
 
 ## Filters applied
