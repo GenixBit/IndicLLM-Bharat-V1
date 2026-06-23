@@ -16,7 +16,7 @@ training:
   batch_size: 4                      # 12 → 4 (3× less memory per step)
   gradient_accumulation_steps: 8     # still gives effective batch ~32
   max_iters: 2000
-  eval_interval: 200
+  eval_interval: 50       # 200 → 50: first log at step 50 (~1min on CPU)
   eval_iters: 20                     # 200 → 20 (fast eval on CPU)
   log_interval: 10
   learning_rate: 6.0e-4

@@ -18,6 +18,8 @@ import time
 from contextlib import nullcontext
 from pathlib import Path
 
+# Force line-buffered stdout so nohup logs appear immediately
+sys.stdout.reconfigure(line_buffering=True)
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -186,6 +188,12 @@ def main() -> None:
         train_cfg["max_iters"] = args.max_iters
 
     device = get_device_preference()
+    print(f"Device      : {device.upper()}")
+    print(f"Config      : {args.config}")
+    print(f"Max iters   : {train_cfg['max_iters']}")
+    print(f"Batch size  : {train_cfg['batch_size']} x grad_accum {train_cfg['gradient_accumulation_steps']}")
+    print(f"Block size  : {model_cfg['block_size']}")
+    sys.stdout.flush()
     dtype_name = train_cfg.get("dtype", "float32")
     if device == "mps" and dtype_name == "bfloat16":
         dtype_name = "float16"
