@@ -1,5 +1,12 @@
-# GPT-2 350M — MVP foundation model
-# 24 layers, 1024 dim, 16 heads
+# GPT-2 350M — Second scale-up after 124M converges
+# 24 layers, 1024 dim, 16 heads — ~350M parameters
+# Requires: 1× A100-40GB or 2× A10G (24GB each, tensor-parallel)
+#
+# Training estimate (A100 40GB):
+#   Batch: 16 × 40 = 640 effective
+#   ~7B tokens for Chinchilla-optimal (20× params)
+#   ~18 hours @ ~350k tokens/sec
+#   Cost: ~$27 on Lambda Labs H100
 
 name: gpt2-350m
 model:
@@ -7,19 +14,19 @@ model:
   n_head: 16
   n_embd: 1024
   block_size: 2048
-  vocab_size: 32000
-  bias: false
+  vocab_size: 50257
+  bias: false         # No bias — faster, similar quality
 
 training:
-  batch_size: 8
-  gradient_accumulation_steps: 64
+  batch_size: 16
+  gradient_accumulation_steps: 40    # effective batch = 640 sequences
   max_iters: 200000
   eval_interval: 1000
   eval_iters: 200
   log_interval: 10
   learning_rate: 3.0e-4
   min_lr: 3.0e-5
-  warmup_iters: 4000
+  warmup_iters: 2000
   lr_decay_iters: 200000
   weight_decay: 0.1
   grad_clip: 1.0
@@ -30,7 +37,6 @@ data:
   train_bin: data/shards/train.bin
   val_bin: data/shards/val.bin
   meta_pkl: data/shards/meta.pkl
-  tokenizer_dir: data/tokenizer
 
 checkpoint:
   out_dir: checkpoints/gpt2-350m
@@ -39,11 +45,12 @@ checkpoint:
 
 wandb:
   enabled: true
-  project: llm-lab
+  project: indicllm-bharat
   run_name: gpt2-350m-pretrain
 
 cloud:
-  gpu: A100-80GB
-  num_gpus: 2
-  estimated_hours: 120
-  estimated_cost_usd: 3000
+  gpu: A100-40GB
+  estimated_hours: 18
+  estimated_cost_usd: 27
+  min_vram_gb: 32
+  note: "Can also run on 2× A10G with DDP. See infra/aws_launch.sh INSTANCE_TYPE=p3.8xlarge"
