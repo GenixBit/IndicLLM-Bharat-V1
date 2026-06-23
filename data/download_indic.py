@@ -79,14 +79,14 @@ INDIC_UNICODE_RANGES = {
 }
 
 
-def is_quality(text: str, lang: str, min_chars: int = 100) -> bool:
+def is_quality(text: str, lang: str, min_chars: int = 50) -> bool:
     text = text.strip()
     if len(text) < min_chars or len(text) > 200_000:
         return False
     if lang in INDIC_UNICODE_RANGES:
         lo, hi = INDIC_UNICODE_RANGES[lang]
         ratio = sum(1 for c in text if lo <= ord(c) <= hi) / max(len(text), 1)
-        if ratio < 0.2:
+        if ratio < 0.10:   # 10% script chars — accepts mixed Indic+English articles
             return False
     return True
 
