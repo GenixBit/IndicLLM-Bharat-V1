@@ -134,7 +134,7 @@ def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int,
             gen_ids.append(tok_id)
             if tok_id == tokenizer.eos_token_id:
                 break
-            x = torch.cat([x, next_tok.unsqueeze(0).unsqueeze(0)], dim=1)
+            x = torch.cat([x, next_tok.view(1, 1)], dim=1)
 
         dt = time.time() - t0
         text = tokenizer.decode(gen_ids, skip_special_tokens=True)
