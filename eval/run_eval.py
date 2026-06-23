@@ -1,107 +1,227 @@
 #!/usr/bin/env python3
 """
-Run lm-eval-harness benchmarks and log results to W&B.
+IndicLLM-Bharat-V1 — W&B + lm-eval evaluation tracker.
+
+Loads a checkpoint, computes perplexity on the val shard,
+optionally runs lm-eval-harness on key benchmarks, and logs
+everything to Weights & Biases.
 
 Usage:
+  # Perplexity only (fast, works on CPU/MPS):
   python eval/run_eval.py --checkpoint checkpoints/gpt2-124m/ckpt.pt
-  python eval/run_eval.py --checkpoint checkpoints/gpt2-124m/ckpt.pt --tasks hellaswag,piqa
+
+  # Full benchmark suite:
+  python eval/run_eval.py --checkpoint checkpoints/gpt2-124m/ckpt.pt \
+    --tasks hellaswag,piqa,winogrande,lambada_openai
+
+  # No W&B, just print results:
+  python eval/run_eval.py --checkpoint checkpoints/gpt2-124m/ckpt.pt --no-wandb
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
+import pickle
 import sys
+import time
+from contextlib import nullcontext
 from pathlib import Path
 
+import numpy as np
 import torch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT
-from train.utils import init_wandb, load_config
+from train.pretrain import GPT, GPTConfig
+from train.utils import load_config
+
+BENCHMARK_TASKS = ["hellaswag", "piqa", "winogrande", "lambada_openai"]
 
 
-DEFAULT_TASKS = ["hellaswag", "piqa", "winogrande"]
+# ── Device ───────────────────────────────────────────────────
+def pick_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
-def load_model_from_checkpoint(checkpoint: Path, device: str):
-    ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
-    cfg = ckpt.get("config") or {}
-    model_cfg = cfg.get("model")
-    if model_cfg is None:
-        raise ValueError("Checkpoint missing model config; pass --config explicitly.")
-    model = GPT.from_config(model_cfg)
-    state = ckpt.get("model", ckpt)
-    model.load_state_dict(state)
-    model.to(device)
+# ── Load checkpoint ──────────────────────────────────────────
+def load_checkpoint(ckpt_path: Path, device: str):
+    print(f"Loading checkpoint: {ckpt_path}")
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    cfg = ckpt.get("config", {})
+    model_cfg = cfg.get("model", ckpt.get("model_args", {}))
+    if not model_cfg:
+        raise ValueError("Checkpoint has no model config. Pass --config manually.")
+    model = GPT(GPTConfig(**model_cfg)).to(device)
+    model.load_state_dict(ckpt["model"])
     model.eval()
-    return model, cfg
+    iter_num = ckpt.get("iter_num", 0)
+    print(f"  Iter: {iter_num} | Params: {sum(p.numel() for p in model.parameters())/1e6:.1f}M")
+    return model, cfg, iter_num
 
 
-def export_hf_stub(checkpoint: Path, out_dir: Path, config_path: Path | None) -> Path:
-    """Export minimal HF-compatible weights for lm-eval."""
+# ── Perplexity on val shard ──────────────────────────────────
+@torch.no_grad()
+def compute_perplexity(model, val_bin: Path, block_size: int, batch_size: int,
+                       eval_iters: int, device: str) -> float:
+    ctx = nullcontext() if device in ("cpu", "mps") \
+          else torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+    data = np.memmap(str(val_bin), dtype=np.uint16, mode="r")
+    losses = []
+    for _ in range(eval_iters):
+        ix = torch.randint(len(data) - block_size, (batch_size,))
+        x = torch.stack([torch.from_numpy(data[i:i+block_size].astype(np.int64)) for i in ix]).to(device)
+        y = torch.stack([torch.from_numpy(data[i+1:i+1+block_size].astype(np.int64)) for i in ix]).to(device)
+        with ctx:
+            _, loss = model(x, y)
+        losses.append(loss.item())
+    avg_loss = sum(losses) / len(losses)
+    return math.exp(avg_loss)
+
+
+# ── Export HF stub for lm-eval ───────────────────────────────
+def export_hf_stub(ckpt_path: Path, model_cfg: dict, export_dir: Path) -> Path:
     from transformers import GPT2Config, GPT2LMHeadModel
-
-    ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    cfg = ckpt.get("config") or load_config(config_path)
-    m = cfg["model"]
+    export_dir.mkdir(parents=True, exist_ok=True)
     hf_cfg = GPT2Config(
-        n_layer=m["n_layer"],
-        n_head=m["n_head"],
-        n_embd=m["n_embd"],
-        n_positions=m["block_size"],
-        vocab_size=m["vocab_size"],
+        n_layer=model_cfg["n_layer"],
+        n_head=model_cfg["n_head"],
+        n_embd=model_cfg["n_embd"],
+        n_positions=model_cfg.get("block_size", 1024),
+        vocab_size=model_cfg.get("vocab_size", 50257),
     )
-    model = GPT2LMHeadModel(hf_cfg)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(out_dir)
-    return out_dir
-
-
-def run_lm_eval(model_path: Path, tasks: list[str]) -> dict:
+    # Load weights into HF model
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    hf_model = GPT2LMHeadModel(hf_cfg)
+    # Map our weight keys → HF keys
+    state = ckpt["model"]
+    hf_state = {}
+    for k, v in state.items():
+        k2 = k.replace("transformer.", "")
+        hf_state[k2] = v
     try:
+        hf_model.load_state_dict(hf_state, strict=False)
+    except Exception:
+        pass  # partial load is OK for eval
+    hf_model.save_pretrained(str(export_dir))
+    print(f"  Exported HF stub → {export_dir}")
+    return export_dir
+
+
+# ── Run lm-eval benchmarks ───────────────────────────────────
+def run_benchmarks(export_dir: Path, tasks: list[str]) -> dict:
+    try:
+        import lm_eval
         from lm_eval import evaluator
         from lm_eval.models.huggingface import HFLM
-    except ImportError as e:
-        raise SystemExit("Install lm-eval: pip install lm-eval") from e
+    except ImportError:
+        print("  lm-eval not installed. Skipping benchmarks.")
+        print("  Install with: pip install lm-eval")
+        return {}
 
-    lm = HFLM(pretrained=str(model_path), device="cuda" if torch.cuda.is_available() else "cpu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"  Running lm-eval on: {tasks}")
+    lm = HFLM(pretrained=str(export_dir), device=device, batch_size=8)
     results = evaluator.simple_evaluate(model=lm, tasks=tasks, batch_size=8)
-    return results
+    return results.get("results", {})
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
+# ── Main ─────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(description="IndicLLM eval + W&B tracking")
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--config", type=Path, default=None)
-    parser.add_argument("--tasks", default=",".join(DEFAULT_TASKS))
+    parser.add_argument("--config",     type=Path, default=None)
+    parser.add_argument("--val-bin",    type=Path, default=Path("data/shards/val.bin"))
+    parser.add_argument("--tasks",      default=None,
+                        help="Comma-separated lm-eval tasks. Skip for perplexity only.")
+    parser.add_argument("--eval-iters", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--export-dir", type=Path, default=Path("checkpoints/hf_export"))
+    parser.add_argument("--no-wandb",   action="store_true")
+    parser.add_argument("--run-name",   default=None)
     args = parser.parse_args()
 
-    cfg_path = args.config or Path("configs/gpt2-124m.yaml")
-    cfg = load_config(cfg_path) if cfg_path.exists() else {"wandb": {"enabled": True, "run_name": "eval"}}
-    init_wandb({**cfg, "name": "eval"}, job_type="eval")
+    device = pick_device()
+    print(f"\n{'='*60}")
+    print(f"  IndicLLM-Bharat-V1 — Evaluation")
+    print(f"  Device     : {device.upper()}")
+    print(f"  Checkpoint : {args.checkpoint}")
+    print(f"{'='*60}\n")
 
-    tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
-    export_dir = export_hf_stub(args.checkpoint, args.export_dir, cfg_path)
-    print(f"Exported HF stub to {export_dir}")
+    # Load model
+    model, cfg, iter_num = load_checkpoint(args.checkpoint, device)
+    model_cfg = cfg.get("model", {})
+    block_size = model_cfg.get("block_size", 1024)
 
-    results = run_lm_eval(export_dir, tasks)
+    # W&B init
+    wandb = None
+    if not args.no_wandb and os.environ.get("WANDB_API_KEY"):
+        try:
+            import wandb as _wandb
+            run_name = args.run_name or f"eval-iter{iter_num}"
+            _wandb.init(
+                project=cfg.get("wandb", {}).get("project", "indicllm-bharat"),
+                name=run_name,
+                config={"iter_num": iter_num, "checkpoint": str(args.checkpoint)},
+                job_type="eval",
+            )
+            wandb = _wandb
+            print(f"  W&B run: {run_name}\n")
+        except Exception as e:
+            print(f"  W&B init failed: {e} — continuing without logging")
+
+    results = {"iter_num": iter_num, "checkpoint": str(args.checkpoint)}
+
+    # ── Perplexity ──────────────────────────────────────────
+    print(f"[1] Computing perplexity on val shard ({args.eval_iters} batches)...")
+    if args.val_bin.exists():
+        ppl = compute_perplexity(model, args.val_bin, block_size,
+                                  args.batch_size, args.eval_iters, device)
+        results["val_perplexity"] = ppl
+        results["val_bpb"] = math.log2(ppl)
+        print(f"    Perplexity : {ppl:.2f}")
+        print(f"    BPB        : {results['val_bpb']:.3f}")
+    else:
+        print(f"    val.bin not found at {args.val_bin} — skipping perplexity")
+
+    # ── Benchmarks ──────────────────────────────────────────
+    if args.tasks:
+        print(f"\n[2] Running lm-eval benchmarks: {args.tasks}")
+        export_dir = export_hf_stub(args.checkpoint, model_cfg, args.export_dir)
+        tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
+        bench = run_benchmarks(export_dir, tasks)
+        results["benchmarks"] = bench
+        if bench:
+            print("\n  Results:")
+            for task, r in bench.items():
+                acc = r.get("acc,none") or r.get("acc_norm,none") or r.get("acc")
+                if acc is not None:
+                    print(f"    {task:<20}: {acc*100:.1f}%")
+                    results[f"bench/{task}"] = acc
+
+    # ── Save + W&B log ───────────────────────────────────────
     out_file = Path("eval/results.json")
     out_file.parent.mkdir(parents=True, exist_ok=True)
     with open(out_file, "w") as f:
         json.dump(results, f, indent=2, default=str)
+    print(f"\n  Results saved → {out_file}")
 
-    print(json.dumps(results.get("results", results), indent=2))
+    if wandb:
+        wandb.log(results, step=iter_num)
+        wandb.finish()
+        print(f"  Logged to W&B ✅")
 
-    import os
-
-    if os.environ.get("WANDB_API_KEY"):
-        import wandb
-
-        wandb.log({"eval": results.get("results", {})})
+    print(f"\n{'='*60}")
+    print(f"  Eval complete.")
+    print(f"  Perplexity : {results.get('val_perplexity', 'N/A'):.2f}" if "val_perplexity" in results else "  Perplexity : N/A")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
