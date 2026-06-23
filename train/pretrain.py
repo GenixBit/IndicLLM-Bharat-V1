@@ -221,9 +221,12 @@ def main() -> None:
     if optimizer is None:
         import inspect
 
+        # Use raw uncompiled model for named_modules (torch.compile wraps with _orig_mod)
+        raw_model = getattr(model, "_orig_mod", model)
+
         decay = set()
         no_decay = set()
-        for mn, m in model.named_modules():
+        for mn, m in raw_model.named_modules():
             for pn, p in m.named_parameters(recurse=False):
                 fpn = f"{mn}.{pn}" if mn else pn
                 if pn.endswith("bias"):
@@ -232,9 +235,11 @@ def main() -> None:
                     no_decay.add(fpn)
                 else:
                     decay.add(fpn)
-        param_dict = {pn: p for pn, p in model.named_parameters()}
+        param_dict = {pn: p for pn, p in raw_model.named_parameters()}
+        decay    = decay    & param_dict.keys()
+        no_decay = no_decay & param_dict.keys()
         optim_groups = [
-            {"params": [param_dict[p] for p in sorted(decay)], "weight_decay": train_cfg["weight_decay"]},
+            {"params": [param_dict[p] for p in sorted(decay)],    "weight_decay": train_cfg["weight_decay"]},
             {"params": [param_dict[p] for p in sorted(no_decay)], "weight_decay": 0.0},
         ]
         fused = "fused" in inspect.signature(torch.optim.AdamW).parameters
