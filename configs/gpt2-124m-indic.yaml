@@ -1,19 +1,18 @@
 # GPT-2 124M — IndicLLM-Bharat configuration
-# Trained on Indic language data with SentencePiece BPE tokenizer
+# Trained on Indic language data (Wikipedia + Sangraha)
 #
-# Differences from gpt2-124m.yaml:
-#   - vocab_size: 32000 (SentencePiece BPE on Indic scripts)
-#   - data: points to data/indic/ shards
-#   - Higher LR for fresh training from scratch on new tokenizer
+# Current tokenizer: GPT-2 BPE (vocab 50257)
+# Switch to SentencePiece after collecting >1B tokens with prepare_indic.py
+# Requires: data/indic/train.bin  (run data/download_indic.py first)
 
 name: gpt2-124m-indic
 model:
   n_layer: 12
   n_head: 12
   n_embd: 768
-  block_size: 2048
-  vocab_size: 32000    # SentencePiece BPE — set from meta.pkl at runtime
-  bias: false          # Slightly faster, no quality loss
+  block_size: 1024        # 1024 for initial run; bump to 2048 once >1B tokens
+  vocab_size: 50257       # GPT-2 BPE — overridden from meta.pkl at runtime
+  bias: false
 
 training:
   batch_size: 12
@@ -50,4 +49,7 @@ cloud:
   gpu: A10G-24GB
   estimated_hours: 12
   estimated_cost_usd: 12
-  note: "Run after prepare_indic.py completes. Requires GPU with ≥16GB VRAM."
+  note: |
+    Run after collecting >500M tokens with download_indic.py.
+    Current shards (226K tokens) are too small for full training.
+    Quick smoke test: reduce max_iters=100, batch_size=4, block_size=512
