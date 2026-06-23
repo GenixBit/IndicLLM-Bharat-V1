@@ -16,7 +16,7 @@ set -euo pipefail
 # ── Config ───────────────────────────────────────────────────
 INSTANCE_TYPE="${INSTANCE_TYPE:-g5.xlarge}"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-AZ="${AZ:-us-east-1b}"                         # cheapest spot AZ
+# AZ auto-selected by AWS for best spot capacity
 AMI_ID="ami-012ba162b9cd2729c"                  # DL PyTorch 2.7 Ubuntu 22.04
 SPOT_MAX_PRICE="${SPOT_MAX_PRICE:-0.80}"        # max $/hr for spot (on-demand = $1.006)
 KEY_NAME="indicllm-key"
@@ -38,7 +38,7 @@ echo "╔═══════════════════════�
 echo "║   IndicLLM-Bharat-V1 — AWS GPU Launch               ║"
 echo "║   Instance : ${INSTANCE_TYPE}  (A10G 24GB GPU)             ║"
 echo "║   AMI      : ${AMI_ID}                    ║"
-echo "║   Region   : ${REGION} / ${AZ}                   ║"
+echo "║   Region   : ${REGION} (auto AZ)                      ║"
 echo "║   Spot max : \$${SPOT_MAX_PRICE}/hr  (on-demand = \$1.006/hr)    ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -80,7 +80,7 @@ SG_ID=$(aws ec2 describe-security-groups --region "$REGION" \
 if [[ "$SG_ID" == "None" || -z "$SG_ID" ]]; then
   SG_ID=$(aws ec2 create-security-group \
     --group-name "$SG_NAME" \
-    --description "IndicLLM training — SSH access" \
+    --description "IndicLLM training - SSH access" \
     --vpc-id "$VPC_ID" \
     --region "$REGION" \
     --query "GroupId" --output text)
@@ -159,14 +159,14 @@ USERDATA
 # ── Step 5: Launch Spot Instance ────────────────────────────
 echo -e "${GREEN}[5/7] Launching spot instance...${NC}"
 
+# On-demand launch (spot quota exceeded on this account)
+# To enable spot: request quota increase at AWS Service Quotas for "Running On-Demand G instances"
 INSTANCE_ID=$(aws ec2 run-instances \
   --image-id "$AMI_ID" \
   --instance-type "$INSTANCE_TYPE" \
   --key-name "$KEY_NAME" \
   --security-group-ids "$SG_ID" \
-  --placement "AvailabilityZone=${AZ}" \
   --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":${VOLUME_SIZE},\"VolumeType\":\"gp3\",\"DeleteOnTermination\":false}}]" \
-  --instance-market-options "{\"MarketType\":\"spot\",\"SpotOptions\":{\"MaxPrice\":\"${SPOT_MAX_PRICE}\",\"SpotInstanceType\":\"persistent\",\"InstanceInterruptionBehavior\":\"stop\"}}" \
   --user-data "$USER_DATA" \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${INSTANCE_NAME}},{Key=Project,Value=IndicLLM-Bharat-V1}]" \
   --region "$REGION" \
@@ -194,6 +194,13 @@ for i in {1..20}; do
 done
 
 # Save state file for teardown script
+# Resolve actual AZ used
+ACTUAL_AZ=$(aws ec2 describe-instances \
+  --instance-ids "$INSTANCE_ID" --region "$REGION" \
+  --query "Reservations[0].Instances[0].Placement.AvailabilityZone" \
+  --output text 2>/dev/null || echo "unknown")
+echo "  AZ assigned: ${ACTUAL_AZ}"
+
 STATE_FILE="${ROOT}/infra/.aws_instance_state"
 cat > "$STATE_FILE" <<STATE
 INSTANCE_ID=${INSTANCE_ID}
