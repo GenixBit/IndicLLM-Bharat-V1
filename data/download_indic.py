@@ -93,10 +93,8 @@ def is_quality(text: str, lang: str, min_chars: int = 100) -> bool:
 
 def fetch_wiki_articles(lang: str, max_articles: int, cache_dir: Path) -> list[str]:
     """
-    Fetch Wikipedia articles via the MediaWiki API using requests.
-    Step 1: collect page titles via allpages generator
-    Step 2: fetch extracts in batches of 20 titles
-    No auth required — public API.
+    Fetch Wikipedia articles using generator=random — no title encoding issues,
+    works cleanly for all Indic scripts.
     """
     cache_file = cache_dir / f"wiki_{lang}_{max_articles}.jsonl"
     if cache_file.exists():
@@ -104,60 +102,48 @@ def fetch_wiki_articles(lang: str, max_articles: int, cache_dir: Path) -> list[s
         if texts:
             print(f"  [{lang}] Cached: {len(texts)} articles")
             return texts
-        cache_file.unlink()  # empty cache — delete and re-fetch
+        cache_file.unlink()
 
     api_url = WIKI_API_URL.format(lang=lang)
     session  = _requests.Session()
-    session.headers["User-Agent"] = "IndicLLM-Bharat/1.0 (research)"
+    session.headers.update({
+        "User-Agent": "IndicLLM-Bharat/1.0 (research)",
+        "Accept-Encoding": "identity",   # disable gzip to avoid decode issues
+    })
 
-    # Step 1: collect up to max_articles*2 titles (more than needed, filter later)
-    titles: list[str] = []
-    gapcontinue = None
-    print(f"  [{lang}] Collecting {INDIC_LANGS[lang]} Wikipedia titles...")
-    while len(titles) < max_articles * 2:
-        params = {
-            "action": "query", "format": "json",
-            "list": "allpages", "apnamespace": "0",
-            "aplimit": "500",
-        }
-        if gapcontinue:
-            params["apcontinue"] = gapcontinue
-        try:
-            data = session.get(api_url, params=params, timeout=30).json()
-        except Exception as e:
-            print(f"  [{lang}] Title fetch error: {e}")
-            break
-        for p in data.get("query", {}).get("allpages", []):
-            titles.append(p["title"])
-        gapcontinue = data.get("continue", {}).get("apcontinue")
-        if not gapcontinue or len(titles) >= max_articles * 2:
-            break
-
-    print(f"  [{lang}] Got {len(titles)} titles, fetching extracts...")
-
-    # Step 2: fetch extracts in batches of 20
     texts: list[str] = []
+    print(f"  [{lang}] Fetching {INDIC_LANGS[lang]} Wikipedia articles via random generator...")
+
     with open(cache_file, "w", encoding="utf-8") as cache_f:
-        for i in range(0, len(titles), 20):
-            if len(texts) >= max_articles:
-                break
-            batch_titles = titles[i:i+20]
+        attempts = 0
+        while len(texts) < max_articles and attempts < max_articles * 3:
             params = {
-                "action": "query", "format": "json",
-                "titles": "|".join(batch_titles),
+                "action": "query",
+                "format": "json",
+                "generator": "random",
+                "grnnamespace": "0",
+                "grnlimit": "20",          # up to 20 random articles per call
                 "prop": "extracts",
-                "explaintext": "1", "exsectionformat": "plain",
+                "explaintext": "1",
+                "exsectionformat": "plain",
+                "exchars": "5000",         # first 5000 chars only — fast
             }
             try:
-                data = session.get(api_url, params=params, timeout=30).json()
+                resp = session.get(api_url, params=params, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
             except Exception as e:
-                print(f"  [{lang}] Extract fetch error: {e}")
+                print(f"  [{lang}] API error: {e}, retrying...")
+                attempts += 20
                 continue
+
             for p in data.get("query", {}).get("pages", {}).values():
                 text = p.get("extract", "").strip()
                 if is_quality(text, lang):
                     texts.append(text)
                     cache_f.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
+
+            attempts += 20
             if len(texts) % 200 == 0 and len(texts) > 0:
                 print(f"  [{lang}] {len(texts)}/{max_articles}...")
 
