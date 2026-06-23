@@ -1,0 +1,59 @@
+{
+  "model": "checkpoints/gpt2-10m/ckpt.pt",
+  "params_m": 30.122112,
+  "iter": 1000,
+  "val": {
+    "loss": 5.482117795944214,
+    "perplexity": 240.35519200165774,
+    "token_accuracy": 0.1916259765625,
+    "eval_iters": 20
+  },
+  "train": {
+    "loss": 5.370590925216675,
+    "perplexity": 214.98987311264239,
+    "token_accuracy": 0.203466796875,
+    "eval_iters": 20
+  },
+  "samples": [
+    {
+      "prompt": "The capital of India is",
+      "generation": " centmen of the area of the country. The rival industry is a major way to see its style of the homeing of the village of Thomas, where we all want to be founded in deterCami and Sarah, both imagine the right of the",
+      "tokens": 50,
+      "time_s": 1.06,
+      "tok_per_sec": 47.2,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "In machine learning, the",
+      "generation": " creation of a list of a policy,\u2019s communications, and in the algorithms, which are regarded as a dispute. The path of the program emerged in the \u2018s\u2019s new application of the methods, to be the most sell",
+      "tokens": 50,
+      "time_s": 1.07,
+      "tok_per_sec": 46.6,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "Once upon a time in a village",
+      "generation": ".\u201d The type of the children were socially judged on the 1920s are \u201cChristian\u201d to be a short-term situation. Thifting from the property of its microwision, the problems of the people, or in a community,",
+      "tokens": 50,
+      "time_s": 1.14,
+      "tok_per_sec": 44.0,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "The most important",
+      "generation": " evidence and the piece of the original description of the page. In the final page or the originalsince of The original \u2018unhere\u2019s by the original name and #90. We are alsoyer of the original form of the Greek,",
+      "tokens": 50,
+      "time_s": 1.02,
+      "tok_per_sec": 48.9,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "Scientists have discovered that",
+      "generation": " they can not have a Creative Commons Attribution: Trends as the authors value the findings and teachers have set on the key laptops on their first. The authors suggest that individuals must have access to their data. It is important to realize that questions are important from",
+      "tokens": 50,
+      "time_s": 1.11,
+      "tok_per_sec": 45.0,
+      "scripts_detected": {}
+    }
+  ]
+}
