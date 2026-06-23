@@ -266,7 +266,7 @@ def main() -> None:
         for pg in optimizer.param_groups:
             pg["lr"] = lr
 
-        if it % train_cfg["eval_interval"] == 0:
+        if it % train_cfg["eval_interval"] == 0 and it > 0:
             losses = estimate_loss(
                 model, data, block_size, batch_size, train_cfg["eval_iters"], device, ctx
             )
