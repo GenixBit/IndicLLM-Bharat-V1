@@ -133,7 +133,7 @@ def generate(model, tokenizer, prompt: str, max_tokens: int = 200,
         if tok_id == tokenizer.eos_token_id:
             break
 
-        x = torch.cat([x, next_token.unsqueeze(0).unsqueeze(0)], dim=1)
+        x = torch.cat([x, next_token.view(1, 1)], dim=1)
 
     dt = time.time() - t0
     gen_text = tokenizer.decode(generated_ids, skip_special_tokens=True)

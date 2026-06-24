@@ -96,19 +96,23 @@ def convert_to_hf(ckpt_path: Path, output_dir: Path) -> dict:
     # Strip _orig_mod prefix if present (from torch.compile)
     state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
 
-    # Our model uses same weight names as GPT2LMHeadModel mostly
-    # but we need to map transformer.* → transformer.*
+    # Our model uses nn.Linear [out_features, in_features]
+    # HF GPT2 uses Conv1D [in_features, out_features] — need transpose
+    # Keys that need transposing: attn.c_attn, attn.c_proj, mlp.c_fc, mlp.c_proj
+    TRANSPOSE_KEYS = {"c_attn.weight", "c_proj.weight", "c_fc.weight"}
+
     mapped = {}
     for k, v in state.items():
-        # Our model doesn't have "transformer." prefix but HF does
-        if k.startswith("transformer."):
-            mapped[k] = v
-        elif k.startswith("lm_head."):
-            mapped[k] = v
-        else:
-            mapped[f"transformer.{k}"] = v
+        hf_key = k if k.startswith("transformer.") or k.startswith("lm_head.") \
+                    else f"transformer.{k}"
 
-    # Try loading with strict=False (partial match is fine)
+        # Transpose 2D weight matrices for Conv1D compatibility
+        if v.ndim == 2 and any(tk in k for tk in TRANSPOSE_KEYS):
+            v = v.t()
+
+        mapped[hf_key] = v
+
+    # Load with strict=False (lm_head may be tied to wte)
     missing, unexpected = hf_model.load_state_dict(mapped, strict=False)
     if missing:
         print(f"        Warning: {len(missing)} missing keys (may be OK for tied weights)")
