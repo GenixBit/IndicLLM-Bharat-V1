@@ -139,7 +139,7 @@ def generate(prompt_ids: list[int], max_new_tokens: int,
 
         tok_id = next_token.item()
         generated.append(tok_id)
-        x = torch.cat([x, next_token.unsqueeze(0).unsqueeze(0)], dim=1)
+        x = torch.cat([x, next_token.view(1, 1)], dim=1)
 
         # Stop at EOT
         if tok_id in (50256, 50257):
@@ -155,9 +155,10 @@ def format_chat_prompt(messages: list[Message]) -> str:
         if msg.role == "system":
             parts.append(f"System: {msg.content}")
         elif msg.role == "user":
-            parts.append(f"<|instruction|>{msg.content}<|response|>")
+            parts.append(f"User: {msg.content}")
         elif msg.role == "assistant":
-            parts.append(msg.content)
+            parts.append(f"Assistant: {msg.content}")
+    parts.append("Assistant:")
     return "\n".join(parts)
 
 
@@ -259,7 +260,6 @@ def load_model(checkpoint: Path):
 
     from transformers import GPT2TokenizerFast
     TOKENIZER = GPT2TokenizerFast.from_pretrained("gpt2")
-    TOKENIZER.add_special_tokens({"additional_special_tokens": ["<|instruction|>", "<|response|>"]})
     print(f"  Tokenizer: GPT-2 (vocab={TOKENIZER.vocab_size})")
 
     MODEL_NAME = checkpoint.parent.name
