@@ -34,16 +34,23 @@ python inference/generate.py --checkpoint checkpoints/gpt2-10m/ckpt.pt
 
 ---
 
-## 📊 First Results — 10M Model
+## 📊 Results — 10M Model (Training Complete ✅)
 
-| Metric | Value |
+| Metric | Iter 1000 | Iter 2000 (Final) | Δ |
+|--------|-----------|-------------------|---|
+| **Val Perplexity** | 240.36 | **167.00** | −30% |
+| **Val Accuracy** | 19.16% | **22.55%** | +3.4 pts |
+| **Train Perplexity** | 214.99 | **144.12** | −33% |
+| **Overfitting** | gap=0.112 | gap=0.147 | ✓ Healthy |
+| **Gen Speed** | 46 tok/s | **64 tok/s** | +39% |
+
+| Detail | Value |
 |--------|-------|
 | **Parameters** | 30.1M (6L / 384d / 6H) |
 | **Training data** | FineWeb-Edu 51M tokens |
-| **Val Perplexity** | 240.36 |
-| **Token Accuracy** | 19.16% |
-| **Overfitting** | ✓ None (gap = 0.112) |
-| **Training** | 2000 iters on AWS c5.2xlarge |
+| **Training time** | ~10 hours on AWS c5.2xlarge |
+| **Checkpoint** | `checkpoints/gpt2-10m/final.pt` (121MB) |
+
 
 <details>
 <summary>Training loss curve</summary>
