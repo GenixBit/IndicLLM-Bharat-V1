@@ -1,0 +1,59 @@
+{
+  "model": "checkpoints/gpt2-10m/ckpt.pt",
+  "params_m": 30.122112,
+  "iter": 2000,
+  "val": {
+    "loss": 5.118023309707642,
+    "perplexity": 167.00492612023132,
+    "token_accuracy": 0.225498046875,
+    "eval_iters": 50
+  },
+  "train": {
+    "loss": 4.970675678253174,
+    "perplexity": 144.12423609109135,
+    "token_accuracy": 0.233232421875,
+    "eval_iters": 50
+  },
+  "samples": [
+    {
+      "prompt": "The capital of India is",
+      "generation": " to be smaller. The capital of the capital of the country of the right of the island is the highest. It is the town of the world. State and its wealth of one in the world. It is generally assumed that the population of the plains is dependent on the land that it is to be destroyed. Ireland is a particularly changing state of India. It is now the nation of the country where the ground is best known to be in the same country, with a threat to the property of the",
+      "tokens": 100,
+      "time_s": 1.58,
+      "tok_per_sec": 63.3,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "In machine learning, the",
+      "generation": " facility of the network is essential for the development of software. ToView a simple approach to the process of manufacturing of manufacturing and the system.\n",
+      "tokens": 30,
+      "time_s": 0.34,
+      "tok_per_sec": 89.3,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "Once upon a time in a village",
+      "generation": ", though there was a crime and it had a reasonable impact that it would be always not even though. If so, it is exactly that effort to attack the feat. The moment, which I do not know below another, and I believe it doesn\u2019t matter. I think did \u2013 \u201cFrom myself,\u201d I think you can make the person you feel? I think that the truth of anything is said, in fact, four of the things you\u2019re trying to know",
+      "tokens": 100,
+      "time_s": 1.59,
+      "tok_per_sec": 62.9,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "The most important",
+      "generation": " feature of this is the result of the major element of a building on a system that applies to the bottom of the product. The design is built on the other surface material that vigor is a monitor method that could be treated as the intensity of the product. The cloud system of an air must be constructed using some of the surface layer. If the valve is replaced, the requirements are not necessary. The system server must be performed with the current solution. The maintenance system is an accomplished safety platform.",
+      "tokens": 100,
+      "time_s": 1.54,
+      "tok_per_sec": 65.0,
+      "scripts_detected": {}
+    },
+    {
+      "prompt": "Scientists have discovered that",
+      "generation": " the tinyfish should be taken to protect the virus from one that, by letting the virus. The method of decreasing the virus to kill Area 2012 is based on the virus from the U.S. Geological Survey. This: polar bears are heavy tide change to the virus and the virus will be launched previously. The substance can be found having the virus to be protected from the virus. \"That is possible.\" Scientists say they are now looking at the CDC and want to find that this is highly dangerous",
+      "tokens": 100,
+      "time_s": 1.54,
+      "tok_per_sec": 64.9,
+      "scripts_detected": {}
+    }
+  ]
+}
