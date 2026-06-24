@@ -144,14 +144,25 @@ def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
     )
 
     hf_model = GPT2LMHeadModel(hf_cfg)
-    # Best-effort weight mapping (partial load is OK)
+
+    # Map weights: strip _orig_mod prefix, add transformer.* prefix, transpose Conv1D
     state = ckpt["model"]
-    try:
-        hf_model.load_state_dict(state, strict=False)
-    except Exception:
-        # Try stripping _orig_mod prefix
-        state2 = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
-        hf_model.load_state_dict(state2, strict=False)
+    state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
+
+    # Keys that need transposing (nn.Linear [out,in] → Conv1D [in,out])
+    TRANSPOSE_KEYS = {"c_attn.weight", "c_proj.weight", "c_fc.weight"}
+
+    mapped = {}
+    for k, v in state.items():
+        hf_key = k if k.startswith("transformer.") or k.startswith("lm_head.") \
+                    else f"transformer.{k}"
+        if v.ndim == 2 and any(tk in k for tk in TRANSPOSE_KEYS):
+            v = v.t()
+        mapped[hf_key] = v
+
+    missing, unexpected = hf_model.load_state_dict(mapped, strict=False)
+    if missing:
+        print(f"  Warning: {len(missing)} missing keys (may be OK for tied weights)")
 
     print(f"  Converted: {params}M params")
     return hf_model, hf_cfg, model_cfg, params
