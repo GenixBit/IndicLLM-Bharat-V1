@@ -8,8 +8,10 @@ import torch
 
 from bharat.posttraining.collators import SFTCollator
 from bharat.posttraining.datasets import SFTDataset
+from bharat.posttraining.sft import SFTConfig, SFTResult, sft_train
 from bharat.posttraining.templates import Template
 from bharat.tokenizer import load_tokenizer
+from train.pretrain import GPT, GPTConfig
 
 
 @pytest.fixture(scope="module")
@@ -39,6 +41,20 @@ def sft_jsonl():
     import os
 
     os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_tiny_model():
+    return GPT(GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False))
+
+
+# ---------------------------------------------------------------------------
+# Dataset tests
+# ---------------------------------------------------------------------------
 
 
 class TestSFTDataset:
@@ -80,6 +96,11 @@ class TestSFTDataset:
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Loss masking tests
+# ---------------------------------------------------------------------------
+
+
 class TestSFTLossMasking:
     def test_assistant_only_loss(self, tokenizer):
         collator = SFTCollator(
@@ -111,7 +132,6 @@ class TestSFTLossMasking:
         result = collator(batch)
         labels = result["labels"][0]
 
-        # Find the assistant prefix in the labels (shifted target positions)
         ap_ids = tokenizer.encode("<|response|>", add_special_tokens=False)
         ap_len = len(ap_ids)
 
@@ -119,8 +139,6 @@ class TestSFTLossMasking:
             "<|instruction|>Hello<|endoftext|><|response|>World<|endoftext|>",
             add_special_tokens=False,
         )
-        # input_ids = full_ids[:-1], target_ids = full_ids[1:]
-        # Find assistant prefix start in full_ids
         ap_start = None
         for i in range(len(full_ids) - ap_len + 1):
             if full_ids[i : i + ap_len] == ap_ids:
@@ -129,7 +147,6 @@ class TestSFTLossMasking:
 
         assert ap_start is not None
 
-        # In target_ids (full_ids[1:]), user tokens are at positions < ap_start - 1
         user_end_in_targets = ap_start - 1
         user_labels = labels[: max(0, user_end_in_targets)]
         assert (user_labels == -100).all(), "User tokens should be fully masked"
@@ -156,11 +173,9 @@ class TestSFTLossMasking:
         result = collator(batch)
         labels = result["labels"][0]
 
-        # System content should be masked
         sys_ids = tokenizer.encode("<|system|>Be concise<|end|>", add_special_tokens=False)
         user_start = len(sys_ids)
 
-        # In target_ids, system is at positions 0 to user_start - 2 (shifted by 1)
         sys_end_in_targets = user_start - 1
         sys_labels = labels[: max(0, sys_end_in_targets)]
         assert (sys_labels == -100).all(), "System tokens should be fully masked"
@@ -179,6 +194,11 @@ class TestSFTLossMasking:
         labels = result["labels"]
         padding_mask = labels == -100
         assert padding_mask.any(), "Should have some padding"
+
+
+# ---------------------------------------------------------------------------
+# Collator tests
+# ---------------------------------------------------------------------------
 
 
 class TestSFTCollator:
@@ -230,10 +250,7 @@ class TestSFTCollator:
         batch = [{"messages": messages}]
         result = collator(batch)
         labels = result["labels"][0]
-        non_masked = labels[labels != -100]
-        assert len(non_masked) > 0, "Should have non-masked labels"
 
-        # The first assistant response token should be among the non-masked labels
         full_ids = tokenizer.encode(
             "<|instruction|>Hi<|endoftext|><|response|>Hello<|endoftext|>",
             add_special_tokens=False,
@@ -248,15 +265,14 @@ class TestSFTCollator:
                 ap_start = i
                 break
 
-        assert ap_start is not None
-        # First response token in full_ids is at ap_start + ap_len
-        # In target_ids, it's at ap_start + ap_len - 1
+        non_masked_mask = labels != -100
+        # First response token in target_ids = ap_start + ap_len - 1
         first_response_idx = ap_start + ap_len - 1
-        if first_response_idx < len(labels):
-            first_label = labels[first_response_idx].item()
-            expected_token = target_ids[first_response_idx]
-            assert first_label != -100, "First response token should not be masked"
-            assert first_label == expected_token, "First response token label should match target"
+        assert first_response_idx < len(labels)
+        assert non_masked_mask[first_response_idx].item(), (
+            f"First response token at index {first_response_idx} should not be masked"
+        )
+        assert labels[first_response_idx].item() == target_ids[first_response_idx]
 
     def test_user_tokens_masked_multi_turn(self, tokenizer):
         collator = SFTCollator(
@@ -283,7 +299,6 @@ class TestSFTCollator:
         )
         full_ids = tokenizer.encode(full_text, add_special_tokens=False)
 
-        # Find all role prefix positions in full_ids
         ap_positions = []
         for i in range(len(full_ids) - len(ap_ids) + 1):
             if full_ids[i : i + len(ap_ids)] == ap_ids:
@@ -294,18 +309,13 @@ class TestSFTCollator:
             if full_ids[i : i + len(up_ids)] == up_ids:
                 up_positions.append(i)
 
-        # For each user turn (between user_prefix and next role marker),
-        # verify those positions in labels are -100
         for up_start in up_positions:
-            # Find where this user turn ends (next role prefix or end)
             up_end = len(full_ids)
             for p in sorted(ap_positions + up_positions):
                 if p > up_start:
                     up_end = p
                     break
 
-            # User content in target_ids = full_ids[1:]
-            # User prefix starts at up_start in full_ids, so in target_ids at up_start-1
             target_start = max(0, up_start - 1)
             target_end = min(len(labels), up_end - 1)
             if target_start < target_end:
@@ -330,12 +340,6 @@ class TestSFTCollator:
         result = collator(batch)
         labels = result["labels"][0]
 
-        # Both assistant responses should have active labels
-        non_masked = labels[labels != -100]
-        assert len(non_masked) > 0
-
-        # There should be active labels in at least two separate regions
-        # (corresponding to the two assistant responses)
         transitions = 0
         prev_masked = True
         for v in labels:
@@ -346,7 +350,6 @@ class TestSFTCollator:
         assert transitions >= 2, f"Expected at least 2 active regions, got {transitions}"
 
     def test_truncated_conversation(self, tokenizer):
-        # Truncation to very small block_size
         small_collator = SFTCollator(
             tokenizer=tokenizer,
             template=INDIC_TEMPLATE,
@@ -360,22 +363,18 @@ class TestSFTCollator:
         result = small_collator(batch)
         labels = result["labels"][0]
 
-        # Even with truncation, no unlabeled active tokens
-        non_masked = labels[labels != -100]
-        assert len(non_masked) >= 0  # May truncate before response, that's OK
-
         # Make sure no label is NaN
         assert not torch.isnan(labels.float()).any()
 
 
+# ---------------------------------------------------------------------------
+# End-to-end training tests
+# ---------------------------------------------------------------------------
+
+
 class TestSFTOneStepTraining:
     def test_empty_dataset_raises(self):
-        from bharat.posttraining.sft import SFTConfig, sft_train
-        from train.pretrain import GPT, GPTConfig
-
-        model = GPT(
-            GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
-        )
+        model = _make_tiny_model()
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write("")
@@ -393,23 +392,49 @@ class TestSFTOneStepTraining:
 
         os.unlink(data_path)
 
-    def test_cpu_backward(self, tokenizer):
-        from bharat.posttraining.sft import SFTConfig, sft_train
+    def test_dataset_smaller_than_batch(self, tokenizer):
+        """1 sample with batch_size=2 must still train successfully."""
+        model = _make_tiny_model()
 
-        # Create a tiny model
-        from train.pretrain import GPT, GPTConfig
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hi"},
+                            {"role": "assistant", "content": "Hello"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
 
-        model_cfg = GPTConfig(
-            vocab_size=50257,
-            n_embd=32,
-            n_head=4,
-            n_layer=2,
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=2,
             block_size=64,
-            bias=False,
+            learning_rate=1e-3,
+            warmup_iters=0,
+            device="cpu",
         )
-        model = GPT(model_cfg)
+        config.output_dir = tempfile.mkdtemp()
 
-        # Create tiny SFT data
+        result = sft_train(model, config, tokenizer)
+        assert isinstance(result, SFTResult)
+        assert result.final_loss > 0
+        assert result.completed_steps == 1
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(config.output_dir, ignore_errors=True)
+
+    def test_max_iters_one(self, tokenizer):
+        model = _make_tiny_model()
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -435,21 +460,131 @@ class TestSFTOneStepTraining:
         )
         config.output_dir = tempfile.mkdtemp()
 
-        # Save initial parameter values
+        result = sft_train(model, config, tokenizer)
+        assert isinstance(result, SFTResult)
+        assert result.final_loss > 0
+        assert result.best_loss > 0
+        assert result.completed_steps == 1
+        assert result.samples_processed >= 1
+        assert result.active_tokens >= 1
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(config.output_dir, ignore_errors=True)
+
+    def test_cpu_backward(self, tokenizer):
+        model = _make_tiny_model()
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hello"},
+                            {"role": "assistant", "content": "Hi"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=1,
+            block_size=64,
+            learning_rate=1e-3,
+            warmup_iters=0,
+            device="cpu",
+        )
+        config.output_dir = tempfile.mkdtemp()
+
         init_params = {k: v.clone() for k, v in model.named_parameters() if v.requires_grad}
 
-        loss = sft_train(model, config, tokenizer)
+        result = sft_train(model, config, tokenizer)
+        assert isinstance(result, SFTResult)
+        assert result.final_loss > 0
 
-        # Verify forward pass succeeded
-        assert loss > 0
-
-        # Verify gradients were computed (parameters changed)
         params_changed = False
         for k, v in model.named_parameters():
             if v.requires_grad and not torch.equal(v, init_params[k]):
                 params_changed = True
                 break
         assert params_changed, "At least one model parameter should change after training"
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(config.output_dir, ignore_errors=True)
+
+    def test_sample_without_assistant_response(self, tokenizer):
+        """Sample with no assistant turn should be rejected by the collator."""
+        model = _make_tiny_model()
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Only user message"}
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=1,
+            block_size=64,
+            device="cpu",
+        )
+        config.output_dir = tempfile.mkdtemp()
+
+        with pytest.raises(ValueError, match="zero active assistant"):
+            sft_train(model, config, tokenizer)
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(config.output_dir, ignore_errors=True)
+
+    def test_sample_truncated_before_assistant(self, tokenizer):
+        """Very small block_size may truncate before assistant content."""
+        model = _make_tiny_model()
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "A" * 100},
+                            {"role": "assistant", "content": "B"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=1,
+            block_size=10,
+            device="cpu",
+        )
+        config.output_dir = tempfile.mkdtemp()
+
+        with pytest.raises(ValueError, match="zero active assistant"):
+            sft_train(model, config, tokenizer)
 
         import os
         import shutil
