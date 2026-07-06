@@ -77,6 +77,26 @@ class TestRotaryEmbedding:
         assert q_rot.dtype == torch.bfloat16
         assert k_rot.dtype == torch.bfloat16
 
+    # ---------- Float32 computation precision ----------
+
+    def test_inv_freq_always_float32(self, rotary: RotaryEmbedding):
+        assert rotary.inv_freq.dtype == torch.float32
+
+    def test_cos_sin_computed_in_float32_then_casted(self):
+        rotary = RotaryEmbedding(head_dim=64, max_position_embeddings=128)
+        cos, sin = rotary(seq_len=16, dtype=torch.bfloat16)
+        assert cos.dtype == torch.bfloat16
+        assert sin.dtype == torch.bfloat16
+
+    def test_rotary_output_dtype_preserves_q_dtype(self):
+        rotary = RotaryEmbedding(head_dim=64, max_position_embeddings=128)
+        q = torch.randn(2, 4, 16, 64, dtype=torch.bfloat16)
+        k = torch.randn(2, 4, 16, 64, dtype=torch.bfloat16)
+        cos, sin = rotary(seq_len=16, dtype=torch.bfloat16)
+        q_rot, k_rot = apply_rotary_pos_emb(q, k, cos, sin)
+        assert q_rot.dtype == torch.bfloat16
+        assert k_rot.dtype == torch.bfloat16
+
     # ---------- One-dimensional position IDs ----------
 
     def test_explicit_position_ids(self, rotary: RotaryEmbedding):
@@ -142,6 +162,14 @@ class TestRotaryEmbedding:
         with pytest.raises(ValueError, match="offset"):
             rotary(seq_len=1, offset=-1)
 
+    def test_zero_head_dim_raises(self):
+        with pytest.raises(ValueError, match="head_dim"):
+            RotaryEmbedding(head_dim=0)
+
+    def test_negative_head_dim_raises(self):
+        with pytest.raises(ValueError, match="head_dim"):
+            RotaryEmbedding(head_dim=-8)
+
     def test_invalid_head_dim_raises(self):
         with pytest.raises(ValueError, match="even"):
             RotaryEmbedding(head_dim=63)
@@ -157,6 +185,22 @@ class TestRotaryEmbedding:
     def test_zero_rope_theta_raises(self):
         with pytest.raises(ValueError, match="rope_theta"):
             RotaryEmbedding(head_dim=64, rope_theta=0.0)
+
+    def test_position_ids_length_mismatch_raises(self, rotary: RotaryEmbedding):
+        with pytest.raises(ValueError, match="length"):
+            rotary(seq_len=4, position_ids=torch.tensor([0, 1, 2]))
+
+    def test_batched_position_ids_seq_mismatch_raises(self, rotary: RotaryEmbedding):
+        with pytest.raises(ValueError, match="sequence length"):
+            rotary(seq_len=4, position_ids=torch.tensor([[0, 1, 2], [3, 4, 5]]))
+
+    def test_negative_position_ids_raises(self, rotary: RotaryEmbedding):
+        with pytest.raises(ValueError, match="negative"):
+            rotary(seq_len=3, position_ids=torch.tensor([0, -1, 2]))
+
+    def test_batched_negative_position_ids_raises(self, rotary: RotaryEmbedding):
+        with pytest.raises(ValueError, match="negative"):
+            rotary(seq_len=3, position_ids=torch.tensor([[0, 1, -1], [3, 4, 5]]))
 
 
 class TestApplyRotaryPosEmb:
