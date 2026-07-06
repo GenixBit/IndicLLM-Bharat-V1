@@ -29,11 +29,11 @@ import torch.nn.functional as F
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT, GPTConfig
-from train.utils import get_device_preference, init_wandb, load_config
 from bharat.tokenizer import load_tokenizer
 from bharat.tokenizer.metadata import tokenizer_hash
 from bharat.training.checkpointing import get_git_sha, get_package_versions
+from train.pretrain import GPT, GPTConfig
+from train.utils import get_device_preference, init_wandb, load_config
 
 
 class DPODataset(torch.utils.data.Dataset):
@@ -115,12 +115,12 @@ def main():
     cfg = load_config(args.config)
     model_cfg = cfg["model"]
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM DPO Alignment")
     print(f"  SFT  : {args.sft_checkpoint}")
     print(f"  Beta : {args.beta}")
     print(f"  Device: {device.upper()}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Policy model (trainable)
     ckpt = torch.load(args.sft_checkpoint, map_location=device, weights_only=False)
@@ -208,19 +208,22 @@ def main():
         if step >= args.max_iters:
             break
 
-    torch.save({
-        "model": policy.state_dict(),
-        "config": cfg,
-        "metadata": {
-            "tokenizer_type": tokenizer.tokenizer_type,
-            "tokenizer_hash": tokenizer_hash(tokenizer),
-            "vocab_size": tokenizer.vocab_size,
-            "git_sha": get_git_sha(),
-            "training_step": step,
-            "config_name": cfg.get("name", ""),
-            "package_versions": get_package_versions(),
+    torch.save(
+        {
+            "model": policy.state_dict(),
+            "config": cfg,
+            "metadata": {
+                "tokenizer_type": tokenizer.tokenizer_type,
+                "tokenizer_hash": tokenizer_hash(tokenizer),
+                "vocab_size": tokenizer.vocab_size,
+                "git_sha": get_git_sha(),
+                "training_step": step,
+                "config_name": cfg.get("name", ""),
+                "package_versions": get_package_versions(),
+            },
         },
-    }, args.output / "final.pt")
+        args.output / "final.pt",
+    )
     print(f"\n  DPO complete → {args.output}/final.pt")
 
 

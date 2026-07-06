@@ -34,34 +34,54 @@ INDIC_TEMPLATE = Template(
 @pytest.fixture
 def preferences_jsonl():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-        f.write(json.dumps({
-            "prompt": "What is 2+2?",
-            "chosen": "4",
-            "rejected": "5",
-        }) + "\n")
-        f.write(json.dumps({
-            "prompt": "What is Python?",
-            "chosen": "A programming language",
-            "rejected": "A snake",
-        }) + "\n")
-        f.write(json.dumps({
-            "prompt": "Capital of France?",
-            "chosen": "Paris",
-            "rejected": "London",
-        }) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "prompt": "What is 2+2?",
+                    "chosen": "4",
+                    "rejected": "5",
+                }
+            )
+            + "\n"
+        )
+        f.write(
+            json.dumps(
+                {
+                    "prompt": "What is Python?",
+                    "chosen": "A programming language",
+                    "rejected": "A snake",
+                }
+            )
+            + "\n"
+        )
+        f.write(
+            json.dumps(
+                {
+                    "prompt": "Capital of France?",
+                    "chosen": "Paris",
+                    "rejected": "London",
+                }
+            )
+            + "\n"
+        )
         path = f.name
     yield path
     import os
+
     os.unlink(path)
 
 
 class TestPreferenceDataset:
     def test_dataset_loads(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         assert len(dataset) == 3
 
     def test_response_mask_present(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         item = dataset[0]
         assert "chosen_ids" in item
         assert "rejected_ids" in item
@@ -71,13 +91,17 @@ class TestPreferenceDataset:
         assert item["chosen_response_mask"].dtype == torch.bool
 
     def test_response_mask_has_active_tokens(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         item = dataset[0]
         assert item["chosen_response_mask"].any(), "Response mask should have active tokens"
         assert item["rejected_response_mask"].any(), "Response mask should have active tokens"
 
     def test_prompt_tokens_masked(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         item = dataset[0]
         chosen = item["chosen_ids"]
         mask = item["chosen_response_mask"]
@@ -87,7 +111,9 @@ class TestPreferenceDataset:
         )
 
     def test_variable_prompt_lengths(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         item0 = dataset[0]
         item2 = dataset[2]
         # Different prompts should have different response mask start positions
@@ -95,11 +121,16 @@ class TestPreferenceDataset:
 
     def test_empty_response(self, tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({
-                "prompt": "Test",
-                "chosen": "",
-                "rejected": "",
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "Test",
+                        "chosen": "",
+                        "rejected": "",
+                    }
+                )
+                + "\n"
+            )
             path = f.name
 
         dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
@@ -108,12 +139,15 @@ class TestPreferenceDataset:
         assert item["chosen_response_mask"] is not None
 
         import os
+
         os.unlink(path)
 
 
 class TestDPOCollate:
     def test_collate_batch(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         batch = [dataset[i] for i in range(2)]
         result = dpo_collate(batch, pad_token_id=0)
         assert "chosen_ids" in result
@@ -126,21 +160,24 @@ class TestDPOCollate:
         assert result["rejected_response_mask"].shape[0] == 2
 
     def test_padding_shape(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         batch = [dataset[i] for i in range(3)]
         result = dpo_collate(batch, pad_token_id=0)
         assert result["chosen_ids"].shape[1] == result["chosen_response_mask"].shape[1]
         assert result["rejected_ids"].shape[1] == result["rejected_response_mask"].shape[1]
 
     def test_padding_has_false_mask(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         batch = [dataset[i] for i in range(3)]
         result = dpo_collate(batch, pad_token_id=0)
         # Some padding should exist (variable length sequences)
         chosen_lens = result["chosen_seq_len"]
-        max_len = result["chosen_ids"].shape[1]
         for i in range(len(batch)):
-            pad_mask = result["chosen_response_mask"][i, chosen_lens[i] - 1:]
+            pad_mask = result["chosen_response_mask"][i, chosen_lens[i] - 1 :]
             assert not pad_mask.any(), f"Padding in sample {i} should have False mask"
 
 
@@ -231,8 +268,12 @@ class TestPerSampleLogProbs:
         ids = torch.tensor([[0, 0, 0, 0, 0]], dtype=torch.long)
         ctx = torch.no_grad()
 
-        full = per_sample_log_probs(model, ids, torch.tensor([[True, True, True, True]], dtype=torch.bool), ctx)
-        partial = per_sample_log_probs(model, ids, torch.tensor([[False, False, True, True]], dtype=torch.bool), ctx)
+        full = per_sample_log_probs(
+            model, ids, torch.tensor([[True, True, True, True]], dtype=torch.bool), ctx
+        )
+        partial = per_sample_log_probs(
+            model, ids, torch.tensor([[False, False, True, True]], dtype=torch.bool), ctx
+        )
         assert partial.item() > full.item()
 
     def test_variable_prompts_batch(self):
@@ -246,10 +287,13 @@ class TestPerSampleLogProbs:
         model = FixedModel()
         ids = torch.tensor([[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]], dtype=torch.long)
         # Sample 0: 1 masked, 3 active; Sample 1: 3 masked, 1 active
-        mask = torch.tensor([
-            [False, True, True, True],
-            [False, False, False, True],
-        ], dtype=torch.bool)
+        mask = torch.tensor(
+            [
+                [False, True, True, True],
+                [False, False, False, True],
+            ],
+            dtype=torch.bool,
+        )
         ctx = torch.no_grad()
 
         lp = per_sample_log_probs(model, ids, mask, ctx)

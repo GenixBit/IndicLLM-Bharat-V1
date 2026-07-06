@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 from bharat.posttraining.templates import Template, format_conversation
+from bharat.tokenizer import BharatTokenizer
 
 
 class PreferenceDataset(Dataset[dict[str, torch.Tensor]]):
@@ -17,7 +17,7 @@ class PreferenceDataset(Dataset[dict[str, torch.Tensor]]):
         jsonl_path: str | Path,
         template: Template,
         block_size: int,
-        tokenizer: object,
+        tokenizer: BharatTokenizer,
     ) -> None:
         self.block_size = block_size
         self.template = template
@@ -28,43 +28,41 @@ class PreferenceDataset(Dataset[dict[str, torch.Tensor]]):
         self.user_prefix_ids: list[int] = tokenizer.encode(
             template.user_prefix, add_special_tokens=False
         )
-        self.suffix_ids: list[int] = tokenizer.encode(
-            template.suffix, add_special_tokens=False
-        )
+        self.suffix_ids: list[int] = tokenizer.encode(template.suffix, add_special_tokens=False)
 
-        self.samples: list[dict] = []
+        self.samples: list[dict[str, str]] = []
         with open(jsonl_path) as f:
             for line in f:
                 item = json.loads(line.strip())
                 prompt = item.get("prompt", item.get("instruction", ""))
                 chosen = item.get("chosen", item.get("response", ""))
                 rejected = item.get("rejected", "")
-                self.samples.append({
-                    "prompt": prompt,
-                    "chosen": chosen,
-                    "rejected": rejected,
-                })
+                self.samples.append(
+                    {
+                        "prompt": prompt,
+                        "chosen": chosen,
+                        "rejected": rejected,
+                    }
+                )
 
     def __len__(self) -> int:
         return len(self.samples)
 
-    def _build_sequence(
-        self, prompt: str, response: str
-    ) -> tuple[list[int], list[int], int, int]:
+    def _build_sequence(self, prompt: str, response: str) -> tuple[list[int], int, int, int]:
         messages = [
             {"role": "user", "content": prompt},
             {"role": "assistant", "content": response},
         ]
         text = format_conversation(self.template, messages)
         ids = self.tokenizer.encode(text, add_special_tokens=False)
-        ids = ids[:self.block_size]
+        ids = ids[: self.block_size]
 
         ap_len = len(self.assistant_prefix_ids)
 
         # Find assistant prefix position
         prompt_end = 0
         for i in range(len(ids) - ap_len + 1):
-            if ids[i:i + ap_len] == self.assistant_prefix_ids:
+            if ids[i : i + ap_len] == self.assistant_prefix_ids:
                 prompt_end = i + ap_len
                 break
 
@@ -82,10 +80,10 @@ class PreferenceDataset(Dataset[dict[str, torch.Tensor]]):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         sample = self.samples[idx]
 
-        chosen_ids, chosen_rs, chosen_re, chosen_len = self._build_sequence(
+        chosen_ids, chosen_rs, chosen_re, _chosen_len = self._build_sequence(
             sample["prompt"], sample["chosen"]
         )
-        rejected_ids, rejected_rs, rejected_re, rejected_len = self._build_sequence(
+        rejected_ids, rejected_rs, rejected_re, _rejected_len = self._build_sequence(
             sample["prompt"], sample["rejected"]
         )
 

@@ -102,6 +102,7 @@ def _capture_rng_state() -> dict[str, Any]:
     }
     with suppress(Exception):
         import random
+
         state["python"] = random.getstate()
 
     with suppress(Exception):
@@ -118,6 +119,7 @@ def _capture_rng_state() -> dict[str, Any]:
 def _restore_rng_state(state: dict[str, Any]) -> None:
     if state.get("python"):
         import random
+
         random.setstate(state["python"])
 
     if state.get("torch"):
@@ -139,7 +141,9 @@ def validate_checkpoint(
 ) -> CheckpointMetadata:
     meta_dict = ckpt.get("metadata")
     if not meta_dict:
-        raise ValueError("Checkpoint has no metadata section. Use the new training code to create checkpoints.")
+        raise ValueError(
+            "Checkpoint has no metadata section. Use the new training code to create checkpoints."
+        )
 
     meta = CheckpointMetadata(**meta_dict)
 
@@ -181,7 +185,7 @@ def save_checkpoint(
     ckpt = make_checkpoint_data(
         model_state=model.state_dict(),
         optimizer_state=optimizer.state_dict() if optimizer else None,
-        scheduler_state=scheduler.state_dict() if hasattr(scheduler, "state_dict") else None,
+        scheduler_state=scheduler.state_dict() if hasattr(scheduler, "state_dict") else None,  # type: ignore[union-attr]
         config=config,
         tokenizer=tokenizer,
         step=step,

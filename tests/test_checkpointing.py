@@ -46,6 +46,7 @@ class TestCheckpointMetadata:
             training_step=1000,
         )
         import dataclasses
+
         d = dataclasses.asdict(meta)
         restored = CheckpointMetadata(**d)
         assert restored.tokenizer_type == "gpt2"
@@ -73,14 +74,18 @@ class TestCheckpointSaveLoad:
         save_checkpoint(path, simple_model, optimizer=simple_optimizer)
         loaded_model = nn.Linear(10, 10)
         loaded_opt = torch.optim.SGD(loaded_model.parameters(), lr=0.01)
-        result = load_checkpoint(path, loaded_model, optimizer=loaded_opt, device="cpu", strict=False)
+        result = load_checkpoint(
+            path, loaded_model, optimizer=loaded_opt, device="cpu", strict=False
+        )
         assert result["metadata"].training_step == 0
 
     def test_save_with_tokenizer(self, tmp_path, simple_model, gpt2_tokenizer):
         path = tmp_path / "ckpt_with_tok.pt"
         save_checkpoint(path, simple_model, tokenizer=gpt2_tokenizer)
         loaded_model = nn.Linear(10, 10)
-        result = load_checkpoint(path, loaded_model, tokenizer=gpt2_tokenizer, device="cpu", strict=False)
+        result = load_checkpoint(
+            path, loaded_model, tokenizer=gpt2_tokenizer, device="cpu", strict=False
+        )
         meta = result["metadata"]
         assert meta.tokenizer_type == "gpt2"
         assert meta.vocab_size == 50257
@@ -94,31 +99,42 @@ class TestCheckpointSaveLoad:
             @property
             def vocab_size(self):
                 return 100
+
             @property
             def eos_token_id(self):
                 return 0
+
             @property
             def pad_token_id(self):
                 return 0
+
             @property
             def tokenizer_type(self):
                 return "fake"
+
             def encode(self, text, add_special_tokens=True):
                 return []
+
             def encode_batch(self, texts, add_special_tokens=True):
                 return [[] for _ in texts]
+
             def decode(self, ids, skip_special_tokens=True):
                 return ""
+
             def decode_batch(self, batch, skip_special_tokens=True):
                 return ["" for _ in batch]
+
             def get_metadata(self):
                 return {}
+
             def fingerprint(self):
                 return "0" * 64
 
         loaded_model = nn.Linear(10, 10)
         with pytest.raises(ValueError, match=r"Tokenizer mismatch|Vocab size mismatch"):
-            load_checkpoint(path, loaded_model, tokenizer=FakeTokenizer(), device="cpu", strict=False)
+            load_checkpoint(
+                path, loaded_model, tokenizer=FakeTokenizer(), device="cpu", strict=False
+            )
 
     def test_missing_metadata_fails(self, tmp_path, simple_model):
         path = tmp_path / "ckpt_no_meta.pt"
@@ -149,7 +165,9 @@ class TestCheckpointMetadataFields:
             data_version="v2.0",
         )
         loaded_model = nn.Linear(10, 10)
-        result = load_checkpoint(path, loaded_model, tokenizer=gpt2_tokenizer, device="cpu", strict=False)
+        result = load_checkpoint(
+            path, loaded_model, tokenizer=gpt2_tokenizer, device="cpu", strict=False
+        )
         meta = result["metadata"]
         assert meta.training_step == 500
         assert meta.seed == 12345
@@ -174,31 +192,42 @@ class TestCheckpointMismatch:
             @property
             def vocab_size(self):
                 return 999
+
             @property
             def eos_token_id(self):
                 return 0
+
             @property
             def pad_token_id(self):
                 return 0
+
             @property
             def tokenizer_type(self):
                 return "gpt2"
+
             def encode(self, text, add_special_tokens=True):
                 return []
+
             def encode_batch(self, texts, add_special_tokens=True):
                 return [[] for _ in texts]
+
             def decode(self, ids, skip_special_tokens=True):
                 return ""
+
             def decode_batch(self, batch, skip_special_tokens=True):
                 return ["" for _ in batch]
+
             def get_metadata(self):
                 return {}
+
             def fingerprint(self):
                 return "0" * 64
 
         loaded_model = nn.Linear(10, 10)
         with pytest.raises(ValueError, match=r"Tokenizer mismatch|Vocab size mismatch"):
-            load_checkpoint(path, loaded_model, tokenizer=DifferentVocabTokenizer(), device="cpu", strict=False)
+            load_checkpoint(
+                path, loaded_model, tokenizer=DifferentVocabTokenizer(), device="cpu", strict=False
+            )
 
 
 class TestLegacyCheckpoint:

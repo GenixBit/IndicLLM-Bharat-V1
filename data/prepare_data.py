@@ -139,9 +139,9 @@ language:
 - Source: [HuggingFaceFW/fineweb-edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)
 - Subset: `{subset}`
 - Documents processed: {num_docs:,}
-- Train tokens: {meta['train_tokens']:,}
-- Val tokens: {meta['val_tokens']:,}
-- Vocab size: {meta['vocab_size']:,}
+- Train tokens: {meta["train_tokens"]:,}
+- Val tokens: {meta["val_tokens"]:,}
+- Vocab size: {meta["vocab_size"]:,}
 
 ## Filters applied
 

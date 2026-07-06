@@ -4,10 +4,8 @@ import json
 import tempfile
 
 import pytest
-import torch
 
 from bharat.posttraining.collators import SFTCollator
-from bharat.posttraining.datasets import SFTDataset
 from bharat.posttraining.templates import Template, format_conversation
 from bharat.tokenizer import load_tokenizer
 
@@ -30,10 +28,14 @@ INDIC_TEMPLATE = Template(
 def sft_jsonl():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         f.write(json.dumps({"instruction": "What is 2+2?", "response": "4"}) + "\n")
-        f.write(json.dumps({"instruction": "What is Python?", "response": "A programming language"}) + "\n")
+        f.write(
+            json.dumps({"instruction": "What is Python?", "response": "A programming language"})
+            + "\n"
+        )
         path = f.name
     yield path
     import os
+
     os.unlink(path)
 
 
@@ -107,14 +109,13 @@ class TestLossMasking:
         # Find assistant prefix position
         ap_start = None
         for i in range(len(full_ids) - len(ap_ids) + 1):
-            if full_ids[i:i + len(ap_ids)] == ap_ids:
+            if full_ids[i : i + len(ap_ids)] == ap_ids:
                 ap_start = i
                 break
         assert ap_start is not None
 
         # Labels are aligned to target_ids = full_ids[1:]
         # User tokens in target_ids: positions 0 to ap_start-2
-        target_ids = full_ids[1:]
         user_len = ap_start
         labels_slice = labels[:user_len]
         assert (labels_slice == -100).all(), "User tokens should be fully masked"
@@ -155,7 +156,6 @@ class TestLossMasking:
         batch = [{"messages": messages}]
         result = collator(batch)
         labels = result["labels"][0]
-        input_ids = result["input_ids"][0]
 
         full_text = "<|instruction|>Hi<|endoftext|><|response|>Hello world<|endoftext|>"
         full_ids = tokenizer.encode(full_text, add_special_tokens=False)
@@ -176,7 +176,12 @@ class TestLossMasking:
         )
         batch = [
             {"messages": [{"role": "user", "content": "A"}, {"role": "assistant", "content": "B"}]},
-            {"messages": [{"role": "user", "content": "C" * 100}, {"role": "assistant", "content": "D"}]},
+            {
+                "messages": [
+                    {"role": "user", "content": "C" * 100},
+                    {"role": "assistant", "content": "D"},
+                ]
+            },
         ]
         result = collator(batch)
         labels = result["labels"]
@@ -184,5 +189,5 @@ class TestLossMasking:
         # Shorter sequence should have padding at the end
         seq_lens = (result["input_ids"] != 0).sum(dim=1)
         for i in range(len(batch)):
-            pad_labels = labels[i, seq_lens[i]:]
+            pad_labels = labels[i, seq_lens[i] :]
             assert (pad_labels == -100).all(), f"Padding in sample {i} should have -100 labels"

@@ -85,15 +85,15 @@ def get_lr(it):
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main():
     device = pick_device()
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print("  IndicLLM-Bharat — Dev Environment Sanity Check")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  Device      : {device.upper()}")
     print(f"  PyTorch     : {torch.__version__}")
     print(f"  Model       : {N_LAYER}L / {N_EMBD}d / {N_HEAD}H (~1.5M params)")
     print(f"  Dataset     : Shakespeare char ({DATA_DIR})")
     print(f"  Max iters   : {MAX_ITERS}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Verify data exists
     assert (DATA_DIR / "train.bin").exists(), f"train.bin not found in {DATA_DIR}"
@@ -122,7 +122,7 @@ def main():
     )
     model = GPT(cfg).to(device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"  Parameters  : {n_params/1e6:.2f}M\n")
+    print(f"  Parameters  : {n_params / 1e6:.2f}M\n")
 
     # Optimizer — use device_type='cpu' for MPS (adamw works on MPS tensors fine)
     opt_device_type = "cuda" if device == "cuda" else "cpu"
@@ -152,7 +152,7 @@ def main():
 
     # Training loop
     print(f"  {'Iter':>6}  {'Train Loss':>10}  {'Val Loss':>8}  {'LR':>8}  {'ms/it':>7}")
-    print(f"  {'-'*50}")
+    print(f"  {'-' * 50}")
 
     best_val_loss = float("inf")
     t0 = time.time()
@@ -167,7 +167,7 @@ def main():
             losses = estimate_loss()
             dt_eval = (time.time() - t0) * 1000
             print(
-                f"  {it:>6}  {losses['train']:>10.4f}  {losses['val']:>8.4f}  {lr:>8.2e}  {dt_eval/max(it,1):>7.1f}"
+                f"  {it:>6}  {losses['train']:>10.4f}  {losses['val']:>8.4f}  {lr:>8.2e}  {dt_eval / max(it, 1):>7.1f}"
             )
             if losses["val"] < best_val_loss:
                 best_val_loss = losses["val"]
@@ -208,12 +208,12 @@ def main():
             print(f"  iter {it:>4}: loss {loss.item():.4f}  lr {lr:.2e}  {dt:.1f}ms/it")
 
     total_time = time.time() - t0
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  ✅ SANITY CHECK PASSED")
     print(f"  Best val loss  : {best_val_loss:.4f}")
     print(f"  Checkpoint     : {OUT_DIR / 'ckpt.pt'}")
     print(f"  Total time     : {total_time:.1f}s")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print("\n  Dev environment is confirmed working.")
     print("  Next step → data-pipeline: run  python data/prepare_data.py")
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 import torch
 import torch.nn as nn
 
@@ -69,7 +68,7 @@ class TestCheckpointResume:
         optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
 
         # Train for 3 iterations (AdamW stores momentum/velocity state)
-        for it in range(3):
+        for _it in range(3):
             x = torch.randn(5, 10)
             y = torch.randn(5, 10)
             loss = nn.MSELoss()(model(x), y)

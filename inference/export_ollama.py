@@ -240,8 +240,8 @@ def generate_modelfile(model_path: Path, name: str, output_dir: Path, info: dict
     model_cfg = info.get("model_cfg", {})
 
     modelfile_content = f"""# IndicLLM-Bharat — Ollama Modelfile
-# Model: {name} ({info.get('params_m', '?')}M params)
-# Trained: iter {info.get('iter_num', '?')}
+# Model: {name} ({info.get("params_m", "?")}M params)
+# Trained: iter {info.get("iter_num", "?")}
 
 FROM {model_path.resolve()}
 
@@ -250,7 +250,7 @@ PARAMETER temperature 0.7
 PARAMETER top_k 50
 PARAMETER top_p 0.9
 PARAMETER repeat_penalty 1.1
-PARAMETER num_ctx {model_cfg.get('block_size', 1024)}
+PARAMETER num_ctx {model_cfg.get("block_size", 1024)}
 
 # Stop tokens
 PARAMETER stop "<|endoftext|>"
@@ -335,13 +335,13 @@ Examples:
     out_dir = args.output_dir or ROOT / "inference" / "ollama" / args.name
     hf_dir = out_dir / "hf"
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat → GGUF → Ollama Export Pipeline")
     print(f"  Checkpoint: {args.checkpoint}")
     print(f"  Name      : {args.name}")
     print(f"  Quant     : {args.quant}")
     print(f"  Output    : {out_dir}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Step 1: Convert to HF
     info = convert_to_hf(args.checkpoint, hf_dir)
@@ -372,7 +372,7 @@ Examples:
     if not args.no_ollama and has_gguf:
         register_ollama(modelfile, args.name)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  ✅ Export complete!")
     print(f"  HF model  : {hf_dir}")
     if has_gguf:
@@ -385,7 +385,7 @@ Examples:
     else:
         print(f"    python inference/generate.py --checkpoint {args.checkpoint}")
         print(f"    python inference/api.py --checkpoint {args.checkpoint}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 if __name__ == "__main__":

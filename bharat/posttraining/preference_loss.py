@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+from typing import Any
+
 import torch
 import torch.nn.functional as F
 
@@ -8,7 +11,7 @@ def per_sample_log_probs(
     model: torch.nn.Module,
     input_ids: torch.Tensor,
     response_masks: torch.Tensor,
-    ctx: object,
+    ctx: contextlib.AbstractContextManager[Any],
 ) -> torch.Tensor:
     """Compute per-sample log-probabilities for response tokens only.
 
@@ -25,7 +28,7 @@ def per_sample_log_probs(
 
     log_p = F.log_softmax(logits, dim=-1)
 
-    B, T, V = log_p.shape
+    _batch_size, _seq_len, _vocab = log_p.shape
     # logits[:, i] predicts input_ids[:, i+1]
     # Gather log-probs for the predicted targets
     targets = input_ids[:, 1:].unsqueeze(-1)
@@ -37,7 +40,7 @@ def per_sample_log_probs(
 
     if response_masks.shape != per_token_lp.shape:
         # Handle if mask was provided for full sequence length
-        response_masks = response_masks[:, :per_token_lp.shape[1]]
+        response_masks = response_masks[:, : per_token_lp.shape[1]]
 
     return (per_token_lp * response_masks.to(per_token_lp.dtype)).sum(-1)
 

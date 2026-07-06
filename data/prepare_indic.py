@@ -359,13 +359,13 @@ def main():
     out_dir = ROOT / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat — Indic Data Pipeline")
     print(f"  Languages : {', '.join(INDIC_LANGS.get(l, l) for l in langs)}")
     print(f"  Max docs  : {args.max_docs:,} per language")
     print(f"  Source    : {args.source}")
     print(f"  Out dir   : {out_dir}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # ── Collect all texts ────────────────────────────────────
     all_texts: list[str] = []
@@ -446,7 +446,7 @@ def main():
 
 ## Summary
 - **Source**: {args.source}
-- **Languages**: {', '.join(f"{INDIC_LANGS[l]} ({l})" for l in langs if l in INDIC_LANGS)}
+- **Languages**: {", ".join(f"{INDIC_LANGS[l]} ({l})" for l in langs if l in INDIC_LANGS)}
 - **Train tokens**: {train_tokens:,}
 - **Val tokens**: {val_tokens:,}
 - **Vocab size**: {vocab_size:,}
@@ -478,12 +478,12 @@ data:
     (out_dir / "DATASET.md").write_text(card)
     print(f"\n  Dataset card → {out_dir}/DATASET.md")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  ✅ Indic data pipeline complete!")
     print(f"  Train : {train_tokens:,} tokens")
     print(f"  Val   : {val_tokens:,} tokens")
     print(f"  Output: {out_dir}/")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 if __name__ == "__main__":

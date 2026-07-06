@@ -47,7 +47,7 @@ def top_k_rare_tokens(
 
     rare_tokens = [
         (_decode_carefully(tokenizer, [tid]), count)
-        for tid, count in token_freq.most_common()[:-k - 1:-1]
+        for tid, count in token_freq.most_common()[: -k - 1 : -1]
     ]
     return rare_tokens
 
@@ -62,8 +62,7 @@ def top_k_common_tokens(
         token_freq.update(ids)
 
     common_tokens = [
-        (_decode_carefully(tokenizer, [tid]), count)
-        for tid, count in token_freq.most_common(k)
+        (_decode_carefully(tokenizer, [tid]), count) for tid, count in token_freq.most_common(k)
     ]
     return common_tokens
 
@@ -73,10 +72,7 @@ def language_wise_fertility(
     texts_by_lang: dict[str, list[str]],
 ) -> dict[str, float]:
     """Compute fertility per language to identify problematic languages."""
-    return {
-        lang: fertility(tokenizer, texts)
-        for lang, texts in texts_by_lang.items()
-    }
+    return {lang: fertility(tokenizer, texts) for lang, texts in texts_by_lang.items()}
 
 
 def code_efficiency(

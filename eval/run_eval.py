@@ -60,7 +60,7 @@ def load_checkpoint(ckpt_path: Path, device: str):
     model.load_state_dict(ckpt["model"])
     model.eval()
     iter_num = ckpt.get("iter_num", 0)
-    print(f"  Iter: {iter_num} | Params: {sum(p.numel() for p in model.parameters())/1e6:.1f}M")
+    print(f"  Iter: {iter_num} | Params: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M")
     return model, cfg, iter_num
 
 
@@ -156,11 +156,11 @@ def main():
     args = parser.parse_args()
 
     device = pick_device()
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat-V1 — Evaluation")
     print(f"  Device     : {device.upper()}")
     print(f"  Checkpoint : {args.checkpoint}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Load model
     model, cfg, iter_num = load_checkpoint(args.checkpoint, device)
@@ -212,7 +212,7 @@ def main():
             for task, r in bench.items():
                 acc = r.get("acc,none") or r.get("acc_norm,none") or r.get("acc")
                 if acc is not None:
-                    print(f"    {task:<20}: {acc*100:.1f}%")
+                    print(f"    {task:<20}: {acc * 100:.1f}%")
                     results[f"bench/{task}"] = acc
 
     # ── Save + W&B log ───────────────────────────────────────
@@ -227,14 +227,14 @@ def main():
         wandb.finish()
         print("  Logged to W&B ✅")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  Eval complete.")
     print(
         f"  Perplexity : {results.get('val_perplexity', 'N/A'):.2f}"
         if "val_perplexity" in results
         else "  Perplexity : N/A"
     )
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 if __name__ == "__main__":

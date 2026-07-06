@@ -28,8 +28,8 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT, GPTConfig
 from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
+from train.pretrain import GPT, GPTConfig
 
 INDIC_UNICODE_RANGES = {
     "hi": (0x0900, 0x097F, "Devanagari"),
@@ -186,11 +186,11 @@ def main():
     else:
         device = "cpu"
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat — Model Benchmark")
     print(f"  Checkpoint: {args.checkpoint}")
     print(f"  Device    : {device.upper()}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Load model
     model, cfg, params = load_model(args.checkpoint, device)
@@ -276,7 +276,7 @@ def main():
     samples = generate_samples(model, tokenizer, prompts, args.gen_tokens, device)
     results["samples"] = samples
 
-    print(f"\n  {'─'*56}")
+    print(f"\n  {'─' * 56}")
     for s in samples:
         print(f"  Prompt: {s['prompt']}")
         gen_preview = s["generation"][:120].replace("\n", " ")
@@ -285,10 +285,10 @@ def main():
         if scripts:
             print(f"  Scripts: {', '.join(f'{k}({v})' for k, v in scripts.items())}")
         print(f"  [{s['tokens']} tok, {s['tok_per_sec']} tok/s]")
-        print(f"  {'─'*56}")
+        print(f"  {'─' * 56}")
 
     # ── Summary ──
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  BENCHMARK SUMMARY")
     print(f"  Model     : {params:.1f}M params ({args.checkpoint.name})")
     if "val" in results:
@@ -297,7 +297,7 @@ def main():
     if "train" in results:
         print(f"  Train PPL : {results['train']['perplexity']:.2f}")
     print(f"  Samples   : {len(samples)} prompts generated")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Save results
     out_file = args.output or Path(f"eval/results_{args.checkpoint.parent.name}_{iter_num}.json")

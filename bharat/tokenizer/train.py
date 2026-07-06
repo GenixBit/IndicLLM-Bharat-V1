@@ -90,6 +90,7 @@ def train_sentencepiece_tokenizer(
     )
 
     import os
+
     os.unlink(temp_path)
 
     from tokenizers import SentencePieceBPETokenizer
@@ -101,6 +102,7 @@ def train_sentencepiece_tokenizer(
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         import shutil
+
         shutil.copy(f"{model_prefix}.model", output_path / "tokenizer.model")
         shutil.copy(f"{model_prefix}.vocab", output_path / "tokenizer.vocab")
 

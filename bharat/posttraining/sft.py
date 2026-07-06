@@ -84,7 +84,7 @@ def sft_train(
 
     if config.device == "cuda":
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        ctx = torch.amp.autocast(device_type="cuda", dtype=autocast_dtype)
+        ctx = torch.cuda.amp.autocast(dtype=autocast_dtype)
     else:
         ctx = contextlib.nullcontext()
 

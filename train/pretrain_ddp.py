@@ -27,11 +27,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT, GPTConfig, get_lr
-from train.utils import ensure_dir, load_config
 from bharat.tokenizer import load_tokenizer
 from bharat.tokenizer.metadata import tokenizer_hash
 from bharat.training.checkpointing import get_git_sha, get_package_versions
+from train.pretrain import GPT, GPTConfig, get_lr
+from train.utils import ensure_dir, load_config
 
 # Force line-buffered stdout
 sys.stdout.reconfigure(line_buffering=True)
@@ -145,9 +145,13 @@ def main():
                         f"Use the same tokenizer that was used during training."
                     )
             elif old_meta:
-                print("  Warning: checkpoint has metadata but no tokenizer_hash — skipping validation.")
+                print(
+                    "  Warning: checkpoint has metadata but no tokenizer_hash — skipping validation."
+                )
             else:
-                print("  Warning: checkpoint has no metadata section — skipping tokenizer validation.")
+                print(
+                    "  Warning: checkpoint has no metadata section — skipping tokenizer validation."
+                )
 
     # Model
     model = GPT(GPTConfig(**model_cfg)).to(device)
@@ -163,8 +167,8 @@ def main():
             fpn = f"{mn}.{pn}" if mn else pn
             if (
                 pn.endswith("bias")
-                or pn.endswith("weight")
-                and isinstance(m, (nn.LayerNorm, nn.Embedding))
+                or (pn.endswith("weight")
+                and isinstance(m, (nn.LayerNorm, nn.Embedding)))
             ):
                 no_decay.add(fpn)
             else:
@@ -263,24 +267,27 @@ def main():
             dt = time.time() - t0
             tok_per_sec = batch_size * block_size * world_size / dt
             print(
-                f"iter {it}: loss {loss.item()*grad_accum:.4f}  {tok_per_sec:.0f} tok/s  {dt*1000:.0f}ms"
+                f"iter {it}: loss {loss.item() * grad_accum:.4f}  {tok_per_sec:.0f} tok/s  {dt * 1000:.0f}ms"
             )
             t0 = time.time()
 
     if is_master:
-        torch.save({
-            "model": raw_model.state_dict(),
-            "config": cfg,
-            "metadata": {
-                "tokenizer_type": tokenizer.tokenizer_type,
-                "tokenizer_hash": tokenizer_hash(tokenizer),
-                "vocab_size": tokenizer.vocab_size,
-                "git_sha": get_git_sha(),
-                "training_step": train_cfg["max_iters"],
-                "config_name": cfg.get("name", ""),
-                "package_versions": get_package_versions(),
+        torch.save(
+            {
+                "model": raw_model.state_dict(),
+                "config": cfg,
+                "metadata": {
+                    "tokenizer_type": tokenizer.tokenizer_type,
+                    "tokenizer_hash": tokenizer_hash(tokenizer),
+                    "vocab_size": tokenizer.vocab_size,
+                    "git_sha": get_git_sha(),
+                    "training_step": train_cfg["max_iters"],
+                    "config_name": cfg.get("name", ""),
+                    "package_versions": get_package_versions(),
+                },
             },
-        }, out_dir / "final.pt")
+            out_dir / "final.pt",
+        )
         print(f"Done. Final model → {out_dir}/final.pt")
         if wandb:
             wandb.finish()

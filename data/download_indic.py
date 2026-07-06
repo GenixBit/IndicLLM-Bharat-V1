@@ -226,7 +226,7 @@ def tokenize_and_write(texts: list[str], out_path: Path, use_gpt2: bool = True) 
     arr = np.array(all_ids, dtype=np.uint16)
     with open(out_path, "wb") as f:
         f.write(arr.tobytes())
-    print(f"  Wrote {out_path.name}: {len(arr):,} tokens ({len(arr)/1e6:.1f}M)")
+    print(f"  Wrote {out_path.name}: {len(arr):,} tokens ({len(arr) / 1e6:.1f}M)")
     return len(arr)
 
 
@@ -252,12 +252,12 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(exist_ok=True)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat — Indic Data Downloader")
     print(f"  Languages : {', '.join(INDIC_LANGS.get(l, l) for l in langs)}")
     print(f"  Articles  : up to {args.max_articles:,} per language")
     print(f"  Output    : {out_dir}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     all_texts: list[str] = []
     lang_stats: dict[str, int] = {}
@@ -320,13 +320,13 @@ def main():
         card += f"| {INDIC_LANGS.get(lang, lang)} | {count:,} |\n"
     (out_dir / "DATASET.md").write_text(card)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  ✅ Done!")
-    print(f"  Train: {train_tokens:,} tokens  ({train_tokens/1e6:.1f}M)")
+    print(f"  Train: {train_tokens:,} tokens  ({train_tokens / 1e6:.1f}M)")
     print(f"  Val  : {val_tokens:,} tokens")
     print(f"  Files: {out_dir}/")
     print("\n  Next: python train/pretrain.py --config configs/gpt2-124m-indic.yaml")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 if __name__ == "__main__":

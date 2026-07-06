@@ -8,12 +8,6 @@ import torch
 
 from bharat.posttraining.dpo import DPOConfig, dpo_train
 from bharat.posttraining.preference_dataset import PreferenceDataset, dpo_collate
-from bharat.posttraining.preference_loss import (
-    approximate_kl_divergence,
-    dpo_loss,
-    per_sample_log_probs,
-    reward_accuracy,
-)
 from bharat.posttraining.templates import Template
 from bharat.tokenizer import load_tokenizer
 
@@ -35,24 +29,34 @@ INDIC_TEMPLATE = Template(
 @pytest.fixture
 def preferences_jsonl():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-        f.write(json.dumps({
-            "prompt": "What is 2+2?",
-            "chosen": "4",
-            "rejected": "5",
-        }) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "prompt": "What is 2+2?",
+                    "chosen": "4",
+                    "rejected": "5",
+                }
+            )
+            + "\n"
+        )
         path = f.name
     yield path
     import os
+
     os.unlink(path)
 
 
 class TestDPODataset:
     def test_dataset_initialization(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         assert len(dataset) == 1
 
     def test_response_mask_correct_shape(self, preferences_jsonl, tokenizer):
-        dataset = PreferenceDataset(preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+        )
         item = dataset[0]
         chosen = item["chosen_ids"]
         mask = item["chosen_response_mask"]
@@ -109,22 +113,32 @@ class TestDPOTraining:
                 break
         assert not ref_changed, "Reference model parameters should NOT change"
 
-        import os
         import shutil
+
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
     def test_different_prompt_lengths_in_batch(self, tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({
-                "prompt": "Short",
-                "chosen": "Good answer",
-                "rejected": "Bad answer",
-            }) + "\n")
-            f.write(json.dumps({
-                "prompt": "A very long prompt that should produce different token lengths",
-                "chosen": "Great response here",
-                "rejected": "Poor response here",
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "Short",
+                        "chosen": "Good answer",
+                        "rejected": "Bad answer",
+                    }
+                )
+                + "\n"
+            )
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "A very long prompt that should produce different token lengths",
+                        "chosen": "Great response here",
+                        "rejected": "Poor response here",
+                    }
+                )
+                + "\n"
+            )
             path = f.name
 
         dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
@@ -138,15 +152,21 @@ class TestDPOTraining:
         assert not torch.equal(result["chosen_response_mask"][0], result["chosen_response_mask"][1])
 
         import os
+
         os.unlink(path)
 
     def test_different_response_lengths(self, tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({
-                "prompt": "Same prompt",
-                "chosen": "Short response",
-                "rejected": "This is a much longer response to the same prompt",
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "Same prompt",
+                        "chosen": "Short response",
+                        "rejected": "This is a much longer response to the same prompt",
+                    }
+                )
+                + "\n"
+            )
             path = f.name
 
         dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
@@ -156,15 +176,21 @@ class TestDPOTraining:
         assert item["chosen_ids"].shape[0] != item["rejected_ids"].shape[0]
 
         import os
+
         os.unlink(path)
 
     def test_empty_assistant_response(self, tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({
-                "prompt": "Test",
-                "chosen": "",
-                "rejected": "Something",
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "Test",
+                        "chosen": "",
+                        "rejected": "Something",
+                    }
+                )
+                + "\n"
+            )
             path = f.name
 
         dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
@@ -175,4 +201,5 @@ class TestDPOTraining:
         assert item["rejected_response_mask"] is not None
 
         import os
+
         os.unlink(path)

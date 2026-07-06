@@ -38,7 +38,6 @@ sys.path.insert(0, str(ROOT))
 
 from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
 
-
 MODEL_CARD_TEMPLATE = """---
 language:
 {lang_yaml}
@@ -177,6 +176,7 @@ def get_tokenizer_for_hub(tok_path: Path | None, vocab_size: int):
         # Fallback: try to load via HF
         try:
             from transformers import LlamaTokenizer
+
             if tok_path.suffix == ".model":
                 return LlamaTokenizer(vocab_file=str(tok_path))
         except Exception:
@@ -187,6 +187,7 @@ def get_tokenizer_for_hub(tok_path: Path | None, vocab_size: int):
     if hasattr(bharat_tok, "_tok") and isinstance(bharat_tok._tok, PreTrainedTokenizerFast):
         return bharat_tok._tok
     from transformers import GPT2TokenizerFast
+
     return GPT2TokenizerFast.from_pretrained("gpt2")
 
 

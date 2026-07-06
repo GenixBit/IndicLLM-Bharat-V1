@@ -47,9 +47,7 @@ def dpo_train(
         tokenizer = load_tokenizer("gpt2")
 
     template = get_template(config.template_name)
-    dataset = PreferenceDataset(
-        config.data_path, template, config.block_size, tokenizer
-    )
+    dataset = PreferenceDataset(config.data_path, template, config.block_size, tokenizer)
     loader = DataLoader(
         dataset,
         batch_size=config.batch_size,
@@ -73,7 +71,7 @@ def dpo_train(
 
     if config.device == "cuda":
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        train_ctx = torch.amp.autocast(device_type="cuda", dtype=autocast_dtype)
+        train_ctx = torch.cuda.amp.autocast(dtype=autocast_dtype)
     else:
         train_ctx = contextlib.nullcontext()
 
@@ -95,33 +93,43 @@ def dpo_train(
 
             # Policy forward with gradients
             policy_chosen_lp = per_sample_log_probs(policy_model, chosen, chosen_mask, train_ctx)
-            policy_rejected_lp = per_sample_log_probs(policy_model, rejected, rejected_mask, train_ctx)
+            policy_rejected_lp = per_sample_log_probs(
+                policy_model, rejected, rejected_mask, train_ctx
+            )
 
             # Reference forward without gradients
             ref_chosen_lp = per_sample_log_probs(ref_model, chosen, chosen_mask, ref_ctx)
             ref_rejected_lp = per_sample_log_probs(ref_model, rejected, rejected_mask, ref_ctx)
 
             loss = dpo_loss(
-                policy_chosen_lp, policy_rejected_lp,
-                ref_chosen_lp, ref_rejected_lp,
+                policy_chosen_lp,
+                policy_rejected_lp,
+                ref_chosen_lp,
+                ref_rejected_lp,
                 config.beta,
             )
 
-            loss.backward()
+            loss.backward()  # type: ignore[no-untyped-call]
             torch.nn.utils.clip_grad_norm_(policy_model.parameters(), config.grad_clip)
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
             if step % config.log_interval == 0:
                 r_acc = reward_accuracy(
-                    policy_chosen_lp, policy_rejected_lp,
-                    ref_chosen_lp, ref_rejected_lp,
+                    policy_chosen_lp,
+                    policy_rejected_lp,
+                    ref_chosen_lp,
+                    ref_rejected_lp,
                 )
                 kl = approximate_kl_divergence(
-                    policy_chosen_lp, ref_chosen_lp,
-                    policy_rejected_lp, ref_rejected_lp,
+                    policy_chosen_lp,
+                    ref_chosen_lp,
+                    policy_rejected_lp,
+                    ref_rejected_lp,
                 )
-                print(f"  step {step:>4}: loss {loss.item():.4f}  reward_acc {r_acc:.2%}  kl {kl:.4f}")
+                print(
+                    f"  step {step:>4}: loss {loss.item():.4f}  reward_acc {r_acc:.2%}  kl {kl:.4f}"
+                )
 
             if step % config.save_interval == 0 and step > 0:
                 torch.save(

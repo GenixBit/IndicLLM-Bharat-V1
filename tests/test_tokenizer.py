@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -139,7 +138,6 @@ class TestTokenizerMetadata:
     def test_tokenizer_json_not_auto_sentencepiece(self) -> None:
         """Verify generic tokenizer.json files are NOT auto-classified as SentencePiece."""
         from transformers import GPT2TokenizerFast
-        from tokenizers import Tokenizer as HFTokenizersTokenizer
 
         gpt2_hf = GPT2TokenizerFast.from_pretrained("gpt2")
         backend = gpt2_hf.backend_tokenizer

@@ -7,7 +7,7 @@ from typing import Any
 import torch
 from torch.utils.data import Dataset
 
-from bharat.posttraining.templates import format_conversation
+from bharat.tokenizer import BharatTokenizer
 
 
 class SFTDataset(Dataset[dict[str, torch.Tensor]]):
@@ -29,7 +29,10 @@ class SFTDataset(Dataset[dict[str, torch.Tensor]]):
                 elif "instruction" in item and "response" in item:
                     messages = [
                         {"role": "user", "content": item["instruction"]},
-                        {"role": "assistant", "content": item.get("response", item.get("output", ""))},
+                        {
+                            "role": "assistant",
+                            "content": item.get("response", item.get("output", "")),
+                        },
                     ]
                 else:
                     continue
@@ -38,7 +41,7 @@ class SFTDataset(Dataset[dict[str, torch.Tensor]]):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         return {"messages": self.samples[idx]}
 
 
@@ -48,7 +51,7 @@ class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
         jsonl_path: str | Path,
         template: Any,
         block_size: int,
-        tokenizer: object,
+        tokenizer: BharatTokenizer,
     ) -> None:
         self.block_size = block_size
         self.template = template
@@ -64,9 +67,7 @@ class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
             if template.system_prefix
             else []
         )
-        self.suffix_ids: list[int] = tokenizer.encode(
-            template.suffix, add_special_tokens=False
-        )
+        self.suffix_ids: list[int] = tokenizer.encode(template.suffix, add_special_tokens=False)
         self.samples: list[list[dict[str, str]]] = []
 
         with open(jsonl_path) as f:
@@ -78,7 +79,10 @@ class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
                 elif "instruction" in item:
                     messages = [
                         {"role": "user", "content": item["instruction"]},
-                        {"role": "assistant", "content": item.get("response", item.get("output", ""))},
+                        {
+                            "role": "assistant",
+                            "content": item.get("response", item.get("output", "")),
+                        },
                     ]
                 else:
                     continue
@@ -87,7 +91,9 @@ class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def _get_segment_ranges(self, messages: list[dict[str, str]]) -> tuple[list[int], list[tuple[int, int, str]]]:
+    def _get_segment_ranges(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[list[int], list[tuple[int, int, str]]]:
         full_ids: list[int] = []
         segments: list[tuple[int, int, str]] = []
 
@@ -130,20 +136,17 @@ class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
 
         return full_ids, segments
 
-    def _build_labels(self, full_ids: list[int], segments: list[tuple[int, int, str]]) -> tuple[torch.Tensor, torch.Tensor]:
-        full_ids = full_ids[:self.block_size + 1]
+    def _build_labels(
+        self, full_ids: list[int], segments: list[tuple[int, int, str]]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        full_ids = full_ids[: self.block_size + 1]
 
         input_ids = torch.tensor(full_ids[:-1], dtype=torch.long)
         target_ids = torch.tensor(full_ids[1:], dtype=torch.long)
         labels = torch.full_like(input_ids, -100)
 
         for start, end, seg_type in segments:
-            if seg_type == "assistant_content":
-                t_start = max(0, start - 1)
-                t_end = min(len(labels), end - 1)
-                if t_start < t_end:
-                    labels[t_start:t_end] = target_ids[t_start:t_end]
-            elif seg_type == "assistant_suffix":
+            if seg_type == "assistant_content" or seg_type == "assistant_suffix":
                 t_start = max(0, start - 1)
                 t_end = min(len(labels), end - 1)
                 if t_start < t_end:

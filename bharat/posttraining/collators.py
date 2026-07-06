@@ -48,14 +48,22 @@ class SFTCollator:
 
     def _get_role_prefix_ids(self) -> dict[str, list[int]]:
         prefixes: dict[str, list[int]] = {}
-        prefixes["user"] = self.tokenizer.encode(self.template.user_prefix, add_special_tokens=False)
-        prefixes["assistant"] = self.tokenizer.encode(self.template.assistant_prefix, add_special_tokens=False)
+        prefixes["user"] = self.tokenizer.encode(
+            self.template.user_prefix, add_special_tokens=False
+        )
+        prefixes["assistant"] = self.tokenizer.encode(
+            self.template.assistant_prefix, add_special_tokens=False
+        )
         if self.template.system_prefix:
-            prefixes["system"] = self.tokenizer.encode(self.template.system_prefix, add_special_tokens=False)
+            prefixes["system"] = self.tokenizer.encode(
+                self.template.system_prefix, add_special_tokens=False
+            )
         prefixes["suffix"] = self.tokenizer.encode(self.template.suffix, add_special_tokens=False)
         return prefixes
 
-    def _segment_messages(self, messages: list[dict[str, str]]) -> tuple[list[int], list[tuple[int, int, str]]]:
+    def _segment_messages(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[list[int], list[tuple[int, int, str]]]:
         prefixes = self._get_role_prefix_ids()
         full_ids: list[int] = []
         segments: list[tuple[int, int, str]] = []
@@ -104,13 +112,15 @@ class SFTCollator:
 
         return full_ids, segments
 
-    def _process_messages(self, messages: list[dict[str, str]]) -> tuple[torch.Tensor, torch.Tensor]:
+    def _process_messages(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         full_ids, segments = self._segment_messages(messages)
 
         if len(full_ids) < 2:
             return torch.tensor([], dtype=torch.long), torch.tensor([], dtype=torch.long)
 
-        full_ids = full_ids[:self.block_size + 1]
+        full_ids = full_ids[: self.block_size + 1]
 
         input_ids = torch.tensor(full_ids[:-1], dtype=torch.long)
         target_ids = torch.tensor(full_ids[1:], dtype=torch.long)
@@ -127,7 +137,7 @@ class SFTCollator:
 
     def _process_text(self, text: str) -> tuple[torch.Tensor, torch.Tensor]:
         ids = self.tokenizer.encode(text, add_special_tokens=False)
-        ids = ids[:self.block_size + 1]
+        ids = ids[: self.block_size + 1]
 
         if len(ids) < 2:
             return torch.tensor([], dtype=torch.long), torch.tensor([], dtype=torch.long)
@@ -153,7 +163,7 @@ class SFTCollator:
         # Find all assistant prefix positions in full_ids
         ap_positions: list[int] = []
         for i in range(len(ids) - ap_len + 1):
-            if ids[i:i + ap_len] == ap_ids:
+            if ids[i : i + ap_len] == ap_ids:
                 ap_positions.append(i)
 
         for ap_start in ap_positions:
@@ -165,13 +175,13 @@ class SFTCollator:
                 if ids[j] in all_marker_ids:
                     # Check if this starts a known prefix
                     remaining = len(ids) - j
-                    if remaining >= len(up_ids) and ids[j:j + len(up_ids)] == up_ids:
+                    if remaining >= len(up_ids) and ids[j : j + len(up_ids)] == up_ids:
                         response_end = j
                         break
-                    if sp_ids and remaining >= len(sp_ids) and ids[j:j + len(sp_ids)] == sp_ids:
+                    if sp_ids and remaining >= len(sp_ids) and ids[j : j + len(sp_ids)] == sp_ids:
                         response_end = j
                         break
-                    if remaining >= len(ap_ids) and ids[j:j + len(ap_ids)] == ap_ids:
+                    if remaining >= len(ap_ids) and ids[j : j + len(ap_ids)] == ap_ids:
                         response_end = j
                         break
 

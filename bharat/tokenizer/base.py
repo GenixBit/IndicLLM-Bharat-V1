@@ -7,43 +7,38 @@ from typing import Any
 class BharatTokenizer(ABC):
     @property
     @abstractmethod
-    def vocab_size(self) -> int:
-        ...
+    def vocab_size(self) -> int: ...
 
     @property
     @abstractmethod
-    def eos_token_id(self) -> int:
-        ...
+    def eos_token_id(self) -> int: ...
 
     @property
     @abstractmethod
-    def pad_token_id(self) -> int:
-        ...
+    def pad_token_id(self) -> int: ...
 
     @property
     @abstractmethod
-    def tokenizer_type(self) -> str:
-        ...
+    def tokenizer_type(self) -> str: ...
 
     @abstractmethod
-    def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
-        ...
+    def encode(self, text: str, add_special_tokens: bool = True) -> list[int]: ...
 
     @abstractmethod
-    def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
-        ...
+    def encode_batch(
+        self, texts: list[str], add_special_tokens: bool = True
+    ) -> list[list[int]]: ...
 
     @abstractmethod
-    def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
-        ...
+    def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str: ...
 
     @abstractmethod
-    def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
-        ...
+    def decode_batch(
+        self, batch: list[list[int]], skip_special_tokens: bool = True
+    ) -> list[str]: ...
 
     @abstractmethod
-    def get_metadata(self) -> dict[str, Any]:
-        ...
+    def get_metadata(self) -> dict[str, Any]: ...
 
     def add_special_tokens(self, special_tokens: dict[str, list[str]]) -> int:
         """Add special tokens. Returns number of added tokens.
@@ -51,9 +46,7 @@ class BharatTokenizer(ABC):
         Default implementation raises NotImplementedError.
         Override in subclasses that support dynamic special token addition.
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support add_special_tokens"
-        )
+        raise NotImplementedError(f"{type(self).__name__} does not support add_special_tokens")
 
     @abstractmethod
     def fingerprint(self) -> str:

@@ -12,6 +12,7 @@ from bharat.training.checkpointing import (
 
 # ── SFT Loss Masking (C1) ────────────────────────────────────
 
+
 def test_sft_loss_masking_assistant_only() -> None:
     tokenizer = load_tokenizer("gpt2")
     special = {"additional_special_tokens": ["<|instruction|>", "<|response|>"]}
@@ -76,6 +77,7 @@ def test_sft_loss_masking_multiturn() -> None:
 
 # ── DPO Per-Sample Masking (C2/C3) ────────────────────────────
 
+
 def test_dpo_per_sample_prompt_length() -> None:
     tokenizer = load_tokenizer("gpt2")
     prompts = [
@@ -110,9 +112,11 @@ def test_dpo_per_sample_prompt_length() -> None:
     arange = torch.arange(t_len).unsqueeze(0).expand(b_size, -1)
     mask = (arange >= pl_tensor.unsqueeze(-1)).float()
     for i in range(b_size):
-        assert mask[i, :prompt_lens[i]].sum() == 0, "Prompt tokens should be masked"
-        assert mask[i, prompt_lens[i]:].sum() > 0, "Non-prompt positions should be unmasked"
-        assert mask[i].sum() == t_len - prompt_lens[i], "All non-prompt positions contribute (including padding)"
+        assert mask[i, : prompt_lens[i]].sum() == 0, "Prompt tokens should be masked"
+        assert mask[i, prompt_lens[i] :].sum() > 0, "Non-prompt positions should be unmasked"
+        assert mask[i].sum() == t_len - prompt_lens[i], (
+            "All non-prompt positions contribute (including padding)"
+        )
 
 
 def test_dpo_variable_prompt_length_batch() -> None:
@@ -161,6 +165,7 @@ def test_dpo_variable_prompt_length_batch() -> None:
 
 # ── Checkpoint Tokenizer Metadata ────────────────────────────
 
+
 def test_checkpoint_tokenizer_metadata_roundtrip() -> None:
     tokenizer = load_tokenizer("gpt2")
     model_state = {"test": torch.zeros(2, 2)}
@@ -206,6 +211,7 @@ def test_legacy_checkpoint_no_metadata() -> None:
 
 
 # ── Unified Tokenizer Loading (consistency) ──────────────────
+
 
 def test_load_tokenizer_from_config_key() -> None:
     tok = load_tokenizer("gpt2")

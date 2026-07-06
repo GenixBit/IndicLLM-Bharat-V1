@@ -27,10 +27,10 @@ from torch.nn import functional as F
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.utils import ensure_dir, get_device_preference, init_wandb, load_config
 from bharat.tokenizer import load_tokenizer
 from bharat.tokenizer.metadata import tokenizer_hash
 from bharat.training.checkpointing import get_git_sha, get_package_versions
+from train.utils import ensure_dir, get_device_preference, init_wandb, load_config
 
 
 class GPTConfig:
@@ -252,8 +252,8 @@ def main() -> None:
             fpn = f"{mn}.{pn}" if mn else pn
             if (
                 pn.endswith("bias")
-                or pn.endswith("weight")
-                and isinstance(m, (nn.LayerNorm, nn.Embedding))
+                or (pn.endswith("weight")
+                and isinstance(m, (nn.LayerNorm, nn.Embedding)))
             ):
                 no_decay.add(fpn)
             else:
@@ -292,9 +292,13 @@ def main() -> None:
                         f"Use the same tokenizer that was used during training."
                     )
             elif old_meta:
-                print("  Warning: checkpoint has metadata but no tokenizer_hash — skipping validation.")
+                print(
+                    "  Warning: checkpoint has metadata but no tokenizer_hash — skipping validation."
+                )
             else:
-                print("  Warning: checkpoint has no metadata section — skipping tokenizer validation.")
+                print(
+                    "  Warning: checkpoint has no metadata section — skipping tokenizer validation."
+                )
 
             # Load model state, handling _orig_mod prefix from torch.compile
             model_state = old_ckpt["model"]
@@ -318,6 +322,7 @@ def main() -> None:
             if "rng_state" in old_ckpt:
                 rng_state = old_ckpt["rng_state"]
                 import random
+
                 random.setstate(rng_state.get("python", random.getstate()))
                 if rng_state.get("torch"):
                     torch.set_rng_state(torch.tensor(rng_state["torch"], dtype=torch.uint8))
@@ -330,7 +335,7 @@ def main() -> None:
         else:
             print(f"  No checkpoint found at {ckpt_path}, starting from scratch")
     else:
-        print(f"  Initializing from scratch")
+        print("  Initializing from scratch")
 
     if train_cfg.get("compile") and device == "cuda":
         print("  torch.compile enabled (CUDA)")
@@ -357,6 +362,7 @@ def main() -> None:
                 )
             if it > 0:
                 import random
+
                 ckpt = {
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
@@ -377,7 +383,9 @@ def main() -> None:
                         "cuda": {
                             str(i): torch.cuda.get_rng_state(i).tolist()
                             for i in range(torch.cuda.device_count())
-                        } if torch.cuda.is_available() else {},
+                        }
+                        if torch.cuda.is_available()
+                        else {},
                     },
                 }
                 torch.save(ckpt, out_dir / "ckpt.pt")
@@ -401,27 +409,33 @@ def main() -> None:
             t0 = time.time()
 
     import random
-    torch.save({
-        "model": model.state_dict(),
-        "config": cfg,
-        "metadata": {
-            "tokenizer_type": tokenizer.tokenizer_type,
-            "tokenizer_hash": tokenizer_hash(tokenizer),
-            "vocab_size": tokenizer.vocab_size,
-            "git_sha": get_git_sha(),
-            "training_step": train_cfg["max_iters"],
-            "config_name": cfg.get("name", ""),
-            "package_versions": get_package_versions(),
+
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "config": cfg,
+            "metadata": {
+                "tokenizer_type": tokenizer.tokenizer_type,
+                "tokenizer_hash": tokenizer_hash(tokenizer),
+                "vocab_size": tokenizer.vocab_size,
+                "git_sha": get_git_sha(),
+                "training_step": train_cfg["max_iters"],
+                "config_name": cfg.get("name", ""),
+                "package_versions": get_package_versions(),
+            },
+            "rng_state": {
+                "python": random.getstate(),
+                "torch": torch.get_rng_state().tolist(),
+                "cuda": {
+                    str(i): torch.cuda.get_rng_state(i).tolist()
+                    for i in range(torch.cuda.device_count())
+                }
+                if torch.cuda.is_available()
+                else {},
+            },
         },
-        "rng_state": {
-            "python": random.getstate(),
-            "torch": torch.get_rng_state().tolist(),
-            "cuda": {
-                str(i): torch.cuda.get_rng_state(i).tolist()
-                for i in range(torch.cuda.device_count())
-            } if torch.cuda.is_available() else {},
-        },
-    }, out_dir / "final.pt")
+        out_dir / "final.pt",
+    )
     print(f"Training complete. Checkpoints in {out_dir}")
 
 

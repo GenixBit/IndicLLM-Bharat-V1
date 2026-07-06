@@ -8,7 +8,7 @@ import torch
 
 from bharat.posttraining.collators import SFTCollator
 from bharat.posttraining.datasets import SFTDataset
-from bharat.posttraining.templates import Template, format_conversation
+from bharat.posttraining.templates import Template
 from bharat.tokenizer import load_tokenizer
 
 
@@ -30,10 +30,14 @@ INDIC_TEMPLATE = Template(
 def sft_jsonl():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         f.write(json.dumps({"instruction": "What is 2+2?", "response": "4"}) + "\n")
-        f.write(json.dumps({"instruction": "What is Python?", "response": "A programming language"}) + "\n")
+        f.write(
+            json.dumps({"instruction": "What is Python?", "response": "A programming language"})
+            + "\n"
+        )
         path = f.name
     yield path
     import os
+
     os.unlink(path)
 
 
@@ -52,12 +56,17 @@ class TestSFTDataset:
 
     def test_dataset_messages_format(self, tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": "Hi"},
-                ]
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hello"},
+                            {"role": "assistant", "content": "Hi"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
             path = f.name
 
         dataset = SFTDataset(path, INDIC_TEMPLATE, block_size=512)
@@ -67,6 +76,7 @@ class TestSFTDataset:
         assert item["messages"][1]["content"] == "Hi"
 
         import os
+
         os.unlink(path)
 
 
@@ -113,7 +123,7 @@ class TestSFTLossMasking:
         # Find assistant prefix start in full_ids
         ap_start = None
         for i in range(len(full_ids) - ap_len + 1):
-            if full_ids[i:i + ap_len] == ap_ids:
+            if full_ids[i : i + ap_len] == ap_ids:
                 ap_start = i
                 break
 
@@ -121,7 +131,7 @@ class TestSFTLossMasking:
 
         # In target_ids (full_ids[1:]), user tokens are at positions < ap_start - 1
         user_end_in_targets = ap_start - 1
-        user_labels = labels[:max(0, user_end_in_targets)]
+        user_labels = labels[: max(0, user_end_in_targets)]
         assert (user_labels == -100).all(), "User tokens should be fully masked"
 
     def test_system_tokens_masked(self, tokenizer):
@@ -148,13 +158,11 @@ class TestSFTLossMasking:
 
         # System content should be masked
         sys_ids = tokenizer.encode("<|system|>Be concise<|end|>", add_special_tokens=False)
-        user_ids = tokenizer.encode("<|user|>Hello<|end|>", add_special_tokens=False)
         user_start = len(sys_ids)
-        user_end = user_start + len(user_ids)
 
         # In target_ids, system is at positions 0 to user_start - 2 (shifted by 1)
         sys_end_in_targets = user_start - 1
-        sys_labels = labels[:max(0, sys_end_in_targets)]
+        sys_labels = labels[: max(0, sys_end_in_targets)]
         assert (sys_labels == -100).all(), "System tokens should be fully masked"
 
     def test_padding_masked(self, tokenizer):
@@ -192,8 +200,18 @@ class TestSFTCollator:
             block_size=512,
         )
         batch = [
-            {"messages": [{"role": "user", "content": "Short"}, {"role": "assistant", "content": "A"}]},
-            {"messages": [{"role": "user", "content": "very " * 50 + "long"}, {"role": "assistant", "content": "B"}]},
+            {
+                "messages": [
+                    {"role": "user", "content": "Short"},
+                    {"role": "assistant", "content": "A"},
+                ]
+            },
+            {
+                "messages": [
+                    {"role": "user", "content": "very " * 50 + "long"},
+                    {"role": "assistant", "content": "B"},
+                ]
+            },
         ]
         result = collator(batch)
         assert result["input_ids"].shape[0] == 2
@@ -226,7 +244,7 @@ class TestSFTCollator:
 
         ap_start = None
         for i in range(len(full_ids) - ap_len + 1):
-            if full_ids[i:i + ap_len] == ap_ids:
+            if full_ids[i : i + ap_len] == ap_ids:
                 ap_start = i
                 break
 
@@ -258,22 +276,22 @@ class TestSFTCollator:
 
         ap_ids = tokenizer.encode("<|response|>", add_special_tokens=False)
         up_ids = tokenizer.encode("<|instruction|>", add_special_tokens=False)
-        suffix_ids = tokenizer.encode("<|endoftext|>", add_special_tokens=False)
 
-        full_text = ("<|instruction|>First Q<|endoftext|><|response|>First A<|endoftext|>"
-                     "<|instruction|>Second Q<|endoftext|><|response|>Second A<|endoftext|>")
+        full_text = (
+            "<|instruction|>First Q<|endoftext|><|response|>First A<|endoftext|>"
+            "<|instruction|>Second Q<|endoftext|><|response|>Second A<|endoftext|>"
+        )
         full_ids = tokenizer.encode(full_text, add_special_tokens=False)
-        target_ids = full_ids[1:]
 
         # Find all role prefix positions in full_ids
         ap_positions = []
         for i in range(len(full_ids) - len(ap_ids) + 1):
-            if full_ids[i:i + len(ap_ids)] == ap_ids:
+            if full_ids[i : i + len(ap_ids)] == ap_ids:
                 ap_positions.append(i)
 
         up_positions = []
         for i in range(len(full_ids) - len(up_ids) + 1):
-            if full_ids[i:i + len(up_ids)] == up_ids:
+            if full_ids[i : i + len(up_ids)] == up_ids:
                 up_positions.append(i)
 
         # For each user turn (between user_prefix and next role marker),
@@ -323,16 +341,11 @@ class TestSFTCollator:
         for v in labels:
             if prev_masked and v != -100:
                 transitions += 1
-            prev_masked = (v == -100)
+            prev_masked = v == -100
 
         assert transitions >= 2, f"Expected at least 2 active regions, got {transitions}"
 
     def test_truncated_conversation(self, tokenizer):
-        collator = SFTCollator(
-            tokenizer=tokenizer,
-            template=INDIC_TEMPLATE,
-            block_size=512,
-        )
         # Truncation to very small block_size
         small_collator = SFTCollator(
             tokenizer=tokenizer,
@@ -374,12 +387,17 @@ class TestSFTOneStepTraining:
 
         # Create tiny SFT data
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": "Hi"},
-                ]
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hello"},
+                            {"role": "assistant", "content": "Hi"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
             data_path = f.name
 
         config = SFTConfig(
@@ -411,5 +429,6 @@ class TestSFTOneStepTraining:
 
         import os
         import shutil
+
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)

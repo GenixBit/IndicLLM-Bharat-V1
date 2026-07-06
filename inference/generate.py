@@ -31,8 +31,8 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT, GPTConfig
 from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
+from train.pretrain import GPT, GPTConfig
 
 
 def load_checkpoint(ckpt_path: Path, device: str):
@@ -157,12 +157,12 @@ def generate(
 
 def interactive_repl(model, tokenizer, args, device):
     """Interactive generation REPL."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat — Interactive Generation")
     print(f"  Temperature: {args.temperature}  Top-k: {args.top_k}  Top-p: {args.top_p}")
     print(f"  Max tokens : {args.max_tokens}")
     print("  Commands   : /quit  /temp <v>  /topk <v>  /topp <v>  /max <v>")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     temp = args.temperature
     top_k = args.top_k

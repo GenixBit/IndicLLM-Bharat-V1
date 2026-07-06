@@ -31,11 +31,11 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT, GPTConfig
-from train.utils import get_device_preference, init_wandb, load_config
 from bharat.tokenizer import load_tokenizer
 from bharat.tokenizer.metadata import tokenizer_hash
 from bharat.training.checkpointing import get_git_sha, get_package_versions
+from train.pretrain import GPT, GPTConfig
+from train.utils import get_device_preference, init_wandb, load_config
 
 PROMPT_TEMPLATE = "<|instruction|>{instruction}<|response|>{response}<|endoftext|>"
 RESPONSE_SEPARATOR = "<|response|>"
@@ -63,10 +63,12 @@ class SFTDataset(torch.utils.data.Dataset):
                 prompt_end = len(tokenizer.encode(prefix, add_special_tokens=False))
                 if prompt_end >= len(full_ids):
                     continue
-                self.samples.append({
-                    "ids": full_ids,
-                    "prompt_end": prompt_end,
-                })
+                self.samples.append(
+                    {
+                        "ids": full_ids,
+                        "prompt_end": prompt_end,
+                    }
+                )
         print(f"  Loaded {len(self.samples)} SFT samples from {jsonl_path}")
 
     def __len__(self):
@@ -122,13 +124,13 @@ def main():
     cfg = load_config(args.config)
     model_cfg = cfg["model"]
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  IndicLLM SFT Fine-tuning")
     print(f"  Base : {args.base_checkpoint}")
     print(f"  Data : {args.data}")
     print(f"  Out  : {args.output}")
     print(f"  Device: {device.upper()}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Load base model
     ckpt = torch.load(args.base_checkpoint, map_location=device, weights_only=False)
@@ -137,13 +139,17 @@ def main():
         model_cfg = saved_cfg["model"]
     model = GPT(GPTConfig(**model_cfg)).to(device)
     model.load_state_dict(ckpt["model"])
-    print(f"  Loaded base model: {sum(p.numel() for p in model.parameters())/1e6:.1f}M params")
+    print(f"  Loaded base model: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M params")
 
     # Tokenizer: use config tokenizer source or default to GPT-2
     tok_src = cfg.get("tokenizer", {}).get("source")
     tokenizer = get_tokenizer(tok_src)
-    num_added = tokenizer.add_special_tokens({"additional_special_tokens": ["<|instruction|>", "<|response|>"]})
-    print(f"  Tokenizer: {tokenizer.tokenizer_type} (vocab={tokenizer.vocab_size}, added={num_added} tokens)")
+    num_added = tokenizer.add_special_tokens(
+        {"additional_special_tokens": ["<|instruction|>", "<|response|>"]}
+    )
+    print(
+        f"  Tokenizer: {tokenizer.tokenizer_type} (vocab={tokenizer.vocab_size}, added={num_added} tokens)"
+    )
 
     # Resize model embeddings if special tokens were added
     if num_added > 0:
@@ -155,7 +161,9 @@ def main():
         model_cfg["vocab_size"] = new_vocab
         print(f"  Embedding resized: {old_vocab} → {new_vocab}")
 
-    dataset = SFTDataset(args.data, tokenizer, model_cfg["block_size"], pad_token_id=tokenizer.pad_token_id)
+    dataset = SFTDataset(
+        args.data, tokenizer, model_cfg["block_size"], pad_token_id=tokenizer.pad_token_id
+    )
     loader = torch.utils.data.DataLoader(
         dataset, batch_size=args.batch_size, shuffle=True, drop_last=True
     )
@@ -165,7 +173,7 @@ def main():
         if "wte" in name or "wpe" in name:
             param.requires_grad = False
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Trainable params: {trainable/1e6:.1f}M (embeddings frozen)")
+    print(f"  Trainable params: {trainable / 1e6:.1f}M (embeddings frozen)")
 
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
@@ -229,19 +237,22 @@ def main():
         if step >= args.max_iters:
             break
 
-    torch.save({
-        "model": model.state_dict(),
-        "config": cfg,
-        "metadata": {
-            "tokenizer_type": tokenizer.tokenizer_type,
-            "tokenizer_hash": tokenizer_hash(tokenizer),
-            "vocab_size": tokenizer.vocab_size,
-            "git_sha": get_git_sha(),
-            "training_step": step,
-            "config_name": cfg.get("name", ""),
-            "package_versions": get_package_versions(),
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "config": cfg,
+            "metadata": {
+                "tokenizer_type": tokenizer.tokenizer_type,
+                "tokenizer_hash": tokenizer_hash(tokenizer),
+                "vocab_size": tokenizer.vocab_size,
+                "git_sha": get_git_sha(),
+                "training_step": step,
+                "config_name": cfg.get("name", ""),
+                "package_versions": get_package_versions(),
+            },
         },
-    }, args.output / "final.pt")
+        args.output / "final.pt",
+    )
     print(f"\n  SFT complete. Best loss: {best_loss:.4f}")
     print(f"  Final model → {args.output}/final.pt")
 
