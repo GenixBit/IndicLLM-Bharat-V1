@@ -18,12 +18,29 @@
 ```
 
 **Limitations:**
-- GPT-2 hardcoded tokenizer everywhere
-- No loss masking in SFT
-- Batch-level prompt length in DPO
-- No checkpoint metadata
-- Wildcard CORS in API
-- Zero tests
+- GPT-2 hardcoded tokenizer everywhere (now resolved via `bharat/tokenizer/`)
+- No loss masking in SFT (now resolved in `bharat/posttraining/`)
+- Batch-level prompt length in DPO (now resolved)
+- No checkpoint metadata (now resolved)
+- Wildcard CORS in API (now configurable)
+- Zero tests (now at 177+ CPU tests in CI)
+
+## Modern Components (Milestone 2.1)
+
+The following standalone model components are implemented in `bharat/models/`:
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `BharatModelConfig` | `config.py` | Frozen dataclass with derived properties (`head_dim`, `num_key_value_groups`) and validation |
+| `RMSNorm` | `normalization.py` | Root-mean-square layer normalization with learnable scale; float32 variance |
+| `RotaryEmbedding` | `rotary.py` | Interleaved even/odd rotation; cached inv_freq; explicit position IDs; cache extension |
+| `apply_rotary_pos_emb` | `rotary.py` | Pure helper to apply RoPE to Q and K tensors |
+| `SwiGLU` | `mlp.py` | SiLU-gated MLP with independent gate/up/down projections |
+| `GroupedQueryAttention` | `attention.py` | GQA with separate Q/K/V projections; SDPA; RoPE; K/V repeat-interleave |
+
+The **full Bharat decoder model** is not yet implemented. KV caching is not yet implemented.
+Model-size configurations are not yet validated. When a CUDA GPU with FlashAttention is available,
+PyTorch SDPA selects it automatically. No benchmark or quality claims have been established.
 
 ## Target Architecture
 

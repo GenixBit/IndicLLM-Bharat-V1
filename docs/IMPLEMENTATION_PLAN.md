@@ -101,13 +101,13 @@ IndicLLM-Bharat-V1/
 
 **Goal:** RoPE, RMSNorm, SwiGLU, GQA, FlashAttention, modern configs.
 
-#### PR 7: Model components
+#### PR 7: Model components ✅ COMPLETED
 - **Files:** `bharat/models/config.py`, `bharat/models/rotary.py`, `bharat/models/normalization.py`, `bharat/models/mlp.py`, `bharat/models/attention.py`
 - **Content:** `BharatModelConfig` dataclass, RoPE, RMSNorm, SwiGLU, GQA with SDPA/FlashAttention
-- **Tests:** Forward pass, backward pass, component-level tests
+- **Tests:** Forward pass, backward pass, component-level tests, causal leakage test
 - **Depends on:** PR 1
 - **Rollback:** Delete `bharat/models/` components
-- **Acceptance:** Components pass forward/backward; RoPE produces correct rotations
+- **Acceptance:** Components pass forward/backward; RoPE preserves vector norms; GQA works in MHA/GQA/MQA modes; causal leakage test passes
 
 #### PR 8: Full Bharat model
 - **Files:** `bharat/models/bharat_model.py`, `bharat/models/generation.py`, `bharat/models/legacy_gpt2.py`
@@ -261,7 +261,7 @@ IndicLLM-Bharat-V1/
 | 4 | fix: DPO per-sample response masking | `train/dpo.py`, `bharat/posttraining/dpo.py`, `preference_loss.py`, `preference_dataset.py` | PR 2 | 2-3 days | ✅ |
 | 5 | feat: Checkpoint metadata and resume | `train/pretrain.py`, `train/pretrain_ddp.py`, `bharat/training/checkpointing.py` | PR 2 | 1-2 days | ✅ |
 | 6 | docs: Rebrand as Bharat AI | `README.md`, `docs/VISION.md`, `docs/ROADMAP.md`, etc. | PR 1 | 1 day | ✅ |
-| 7 | feat: Model components (RoPE, RMSNorm, SwiGLU, GQA) | `bharat/models/config.py`, `rotary.py`, `normalization.py`, `mlp.py`, `attention.py` | PR 1 | 3-4 days |
+| 7 | feat: Model components (RoPE, RMSNorm, SwiGLU, GQA) | `bharat/models/config.py`, `rotary.py`, `normalization.py`, `mlp.py`, `attention.py` | PR 1 | 3-4 days | ✅ |
 | 8 | feat: Bharat model + legacy GPT-2 move | `bharat/models/bharat_model.py`, `generation.py`, `legacy_gpt2.py` | PR 7 | 2-3 days |
 | 9 | feat: Model configs + parameter calculator | `configs/bharat-*.yaml`, `scripts/calculate_params.py` | PR 8 | 1 day |
 | 10 | feat: Data source registry and licensing | `bharat/data/registry.py`, `sources.py`, `licensing.py`, `data_registry/` | PR 1 | 2 days |
