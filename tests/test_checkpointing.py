@@ -113,6 +113,8 @@ class TestCheckpointSaveLoad:
                 return ["" for _ in batch]
             def get_metadata(self):
                 return {}
+            def fingerprint(self):
+                return "0" * 64
 
         loaded_model = nn.Linear(10, 10)
         with pytest.raises(ValueError, match=r"Tokenizer mismatch|Vocab size mismatch"):
@@ -191,6 +193,8 @@ class TestCheckpointMismatch:
                 return ["" for _ in batch]
             def get_metadata(self):
                 return {}
+            def fingerprint(self):
+                return "0" * 64
 
         loaded_model = nn.Linear(10, 10)
         with pytest.raises(ValueError, match=r"Tokenizer mismatch|Vocab size mismatch"):

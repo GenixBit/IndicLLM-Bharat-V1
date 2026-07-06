@@ -227,12 +227,60 @@ def main() -> None:
     tokenizer = load_tokenizer(tok_src)
     print(f"  Tokenizer: {tokenizer.tokenizer_type} (vocab={tokenizer.vocab_size})")
 
-    # Validate on resume
+    init_wandb(cfg)
+    wandb = None
+    if os.environ.get("WANDB_API_KEY") and cfg.get("wandb", {}).get("enabled"):
+        import wandb as _wandb
+
+        wandb = _wandb
+
+    model = GPT.from_config(model_cfg).to(device)
+
     init_from = cfg.get("checkpoint", {}).get("init_from", "scratch")
+    start_iter = 0
+    rng_state = None
+
+    # Build optimizer
+    import inspect
+
+    raw_model = model  # may be replaced with compiled version
+
+    decay = set()
+    no_decay = set()
+    for mn, m in model.named_modules():
+        for pn, p in m.named_parameters(recurse=False):
+            fpn = f"{mn}.{pn}" if mn else pn
+            if (
+                pn.endswith("bias")
+                or pn.endswith("weight")
+                and isinstance(m, (nn.LayerNorm, nn.Embedding))
+            ):
+                no_decay.add(fpn)
+            else:
+                decay.add(fpn)
+    param_dict = {pn: p for pn, p in model.named_parameters()}
+    decay = decay & param_dict.keys()
+    no_decay = no_decay & param_dict.keys()
+    optim_groups = [
+        {
+            "params": [param_dict[p] for p in sorted(decay)],
+            "weight_decay": train_cfg["weight_decay"],
+        },
+        {"params": [param_dict[p] for p in sorted(no_decay)], "weight_decay": 0.0},
+    ]
+    fused = "fused" in inspect.signature(torch.optim.AdamW).parameters
+    optimizer = torch.optim.AdamW(
+        optim_groups, lr=train_cfg["learning_rate"], betas=(0.9, 0.95), fused=fused
+    )
+
+    # Handle resume
     if init_from == "resume":
         ckpt_path = out_dir / "ckpt.pt"
         if ckpt_path.exists():
-            old_ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+            print(f"  Resuming from {ckpt_path}")
+            old_ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+
+            # Validate tokenizer
             old_meta = old_ckpt.get("metadata")
             if old_meta and old_meta.get("tokenizer_hash"):
                 old_hash = old_meta["tokenizer_hash"]
@@ -248,59 +296,52 @@ def main() -> None:
             else:
                 print("  Warning: checkpoint has no metadata section — skipping tokenizer validation.")
 
-    init_wandb(cfg)
-    wandb = None
-    if os.environ.get("WANDB_API_KEY") and cfg.get("wandb", {}).get("enabled"):
-        import wandb as _wandb
+            # Load model state, handling _orig_mod prefix from torch.compile
+            model_state = old_ckpt["model"]
+            if any(k.startswith("_orig_mod.") for k in model_state):
+                clean_state = {}
+                for k, v in model_state.items():
+                    clean_state[k.replace("_orig_mod.", "")] = v
+                model_state = clean_state
+            model.load_state_dict(model_state, strict=False)
 
-        wandb = _wandb
+            # Load optimizer state
+            if "optimizer" in old_ckpt:
+                optimizer.load_state_dict(old_ckpt["optimizer"])
 
-    model = GPT.from_config(model_cfg).to(device)
+            # Restore iteration
+            if "iter_num" in old_ckpt:
+                start_iter = old_ckpt["iter_num"]
+                print(f"  Resumed at iteration {start_iter}")
+
+            # Restore RNG state
+            if "rng_state" in old_ckpt:
+                rng_state = old_ckpt["rng_state"]
+                import random
+                random.setstate(rng_state.get("python", random.getstate()))
+                if rng_state.get("torch"):
+                    torch.set_rng_state(torch.tensor(rng_state["torch"], dtype=torch.uint8))
+                if torch.cuda.is_available():
+                    for dev_id, dev_state in rng_state.get("cuda", {}).items():
+                        torch.cuda.set_rng_state(
+                            torch.tensor(dev_state, dtype=torch.uint8),
+                            device=int(dev_id),
+                        )
+        else:
+            print(f"  No checkpoint found at {ckpt_path}, starting from scratch")
+    else:
+        print(f"  Initializing from scratch")
+
     if train_cfg.get("compile") and device == "cuda":
         print("  torch.compile enabled (CUDA)")
         model = torch.compile(model)
-
-    optimizer = model.configure_optimizers if hasattr(model, "configure_optimizers") else None
-    if optimizer is None:
-        import inspect
-
-        # Use raw uncompiled model for named_modules (torch.compile wraps with _orig_mod)
-        raw_model = getattr(model, "_orig_mod", model)
-
-        decay = set()
-        no_decay = set()
-        for mn, m in raw_model.named_modules():
-            for pn, p in m.named_parameters(recurse=False):
-                fpn = f"{mn}.{pn}" if mn else pn
-                if (
-                    pn.endswith("bias")
-                    or pn.endswith("weight")
-                    and isinstance(m, (nn.LayerNorm, nn.Embedding))
-                ):
-                    no_decay.add(fpn)
-                else:
-                    decay.add(fpn)
-        param_dict = {pn: p for pn, p in raw_model.named_parameters()}
-        decay = decay & param_dict.keys()
-        no_decay = no_decay & param_dict.keys()
-        optim_groups = [
-            {
-                "params": [param_dict[p] for p in sorted(decay)],
-                "weight_decay": train_cfg["weight_decay"],
-            },
-            {"params": [param_dict[p] for p in sorted(no_decay)], "weight_decay": 0.0},
-        ]
-        fused = "fused" in inspect.signature(torch.optim.AdamW).parameters
-        optimizer = torch.optim.AdamW(
-            optim_groups, lr=train_cfg["learning_rate"], betas=(0.9, 0.95), fused=fused
-        )
 
     block_size = model_cfg["block_size"]
     batch_size = train_cfg["batch_size"]
     grad_accum = train_cfg["gradient_accumulation_steps"]
 
     t0 = time.time()
-    for it in range(train_cfg["max_iters"] + 1):
+    for it in range(start_iter, train_cfg["max_iters"] + 1):
         lr = get_lr(it, train_cfg)
         for pg in optimizer.param_groups:
             pg["lr"] = lr
@@ -315,6 +356,7 @@ def main() -> None:
                     {"train/loss": losses["train"], "val/loss": losses["val"], "lr": lr}, step=it
                 )
             if it > 0:
+                import random
                 ckpt = {
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
@@ -328,6 +370,14 @@ def main() -> None:
                         "training_step": it,
                         "config_name": cfg.get("name", ""),
                         "package_versions": get_package_versions(),
+                    },
+                    "rng_state": {
+                        "python": random.getstate(),
+                        "torch": torch.get_rng_state().tolist(),
+                        "cuda": {
+                            str(i): torch.cuda.get_rng_state(i).tolist()
+                            for i in range(torch.cuda.device_count())
+                        } if torch.cuda.is_available() else {},
                     },
                 }
                 torch.save(ckpt, out_dir / "ckpt.pt")
@@ -350,6 +400,7 @@ def main() -> None:
             print(f"iter {it}: loss {loss.item() * grad_accum:.4f}, time {dt * 1000:.0f}ms")
             t0 = time.time()
 
+    import random
     torch.save({
         "model": model.state_dict(),
         "config": cfg,
@@ -361,6 +412,14 @@ def main() -> None:
             "training_step": train_cfg["max_iters"],
             "config_name": cfg.get("name", ""),
             "package_versions": get_package_versions(),
+        },
+        "rng_state": {
+            "python": random.getstate(),
+            "torch": torch.get_rng_state().tolist(),
+            "cuda": {
+                str(i): torch.cuda.get_rng_state(i).tolist()
+                for i in range(torch.cuda.device_count())
+            } if torch.cuda.is_available() else {},
         },
     }, out_dir / "final.pt")
     print(f"Training complete. Checkpoints in {out_dir}")

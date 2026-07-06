@@ -54,3 +54,4 @@ infra/.aws_instance_state
 .venv/
 __pycache__/
 *.pyc
+.venv

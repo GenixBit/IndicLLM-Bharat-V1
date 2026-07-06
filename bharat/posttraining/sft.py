@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,8 +82,11 @@ def sft_train(
         weight_decay=config.weight_decay,
     )
 
-    ctx = torch.amp.autocast(device_type=config.device, dtype=torch.bfloat16) \
-        if config.device == "cuda" else torch.no_grad()
+    if config.device == "cuda":
+        autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        ctx = torch.amp.autocast(device_type="cuda", dtype=autocast_dtype)
+    else:
+        ctx = contextlib.nullcontext()
 
     step = 0
     best_loss = float("inf")

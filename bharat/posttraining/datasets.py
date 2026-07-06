@@ -2,52 +2,51 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch.utils.data import Dataset
 
-from bharat.posttraining.templates import Template, format_conversation
+from bharat.posttraining.templates import format_conversation
 
 
 class SFTDataset(Dataset[dict[str, torch.Tensor]]):
     def __init__(
         self,
         jsonl_path: str | Path,
-        template: Template,
+        template: Any,
         block_size: int,
     ) -> None:
         self.block_size = block_size
         self.template = template
-        self.samples: list[str] = []
+        self.samples: list[list[dict[str, str]]] = []
 
         with open(jsonl_path) as f:
             for line in f:
                 item = json.loads(line.strip())
                 if "messages" in item:
-                    text = format_conversation(template, item["messages"])
+                    messages = item["messages"]
                 elif "instruction" in item and "response" in item:
                     messages = [
                         {"role": "user", "content": item["instruction"]},
                         {"role": "assistant", "content": item.get("response", item.get("output", ""))},
                     ]
-                    text = format_conversation(template, messages)
                 else:
                     continue
-                self.samples.append(text)
+                self.samples.append(messages)
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        text = self.samples[idx]
-        return {"text": text}
+        return {"messages": self.samples[idx]}
 
 
 class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
     def __init__(
         self,
         jsonl_path: str | Path,
-        template: Template,
+        template: Any,
         block_size: int,
         tokenizer: object,
     ) -> None:
@@ -57,7 +56,18 @@ class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
         self.assistant_prefix_ids: list[int] = tokenizer.encode(
             template.assistant_prefix, add_special_tokens=False
         )
-        self.samples: list[list[int]] = []
+        self.user_prefix_ids: list[int] = tokenizer.encode(
+            template.user_prefix, add_special_tokens=False
+        )
+        self.system_prefix_ids: list[int] = (
+            tokenizer.encode(template.system_prefix, add_special_tokens=False)
+            if template.system_prefix
+            else []
+        )
+        self.suffix_ids: list[int] = tokenizer.encode(
+            template.suffix, add_special_tokens=False
+        )
+        self.samples: list[list[dict[str, str]]] = []
 
         with open(jsonl_path) as f:
             for line in f:
@@ -72,31 +82,84 @@ class SFTTokenizedDataset(Dataset[dict[str, torch.Tensor]]):
                     ]
                 else:
                     continue
-                text = format_conversation(template, messages)
-                ids = tokenizer.encode(text, add_special_tokens=False)
-                self.samples.append(ids)
+                self.samples.append(messages)
 
     def __len__(self) -> int:
         return len(self.samples)
 
-    def _find_assistant_range(self, ids: list[int]) -> tuple[int, int]:
-        ap_len = len(self.assistant_prefix_ids)
-        for i in range(len(ids) - ap_len + 1):
-            if ids[i:i + ap_len] == self.assistant_prefix_ids:
-                start = i + ap_len
-                return start, len(ids)
-        return 0, 0
+    def _get_segment_ranges(self, messages: list[dict[str, str]]) -> tuple[list[int], list[tuple[int, int, str]]]:
+        full_ids: list[int] = []
+        segments: list[tuple[int, int, str]] = []
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        ids = self.samples[idx][:self.block_size + 1]
-        if len(ids) < self.block_size + 1:
-            ids = ids + [0] * (self.block_size + 1 - len(ids))
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
 
-        input_ids = torch.tensor(ids[:-1], dtype=torch.long)
+            if role == "system":
+                if self.template.system_prefix:
+                    prefix_ids = self.system_prefix_ids
+                    content_ids = self.tokenizer.encode(content, add_special_tokens=False)
+                    suffix_ids = self.suffix_ids
+                    start = len(full_ids)
+                    full_ids.extend(prefix_ids + content_ids + suffix_ids)
+                    end = len(full_ids)
+                    segments.append((start, end, "system"))
+            elif role == "user":
+                prefix_ids = self.user_prefix_ids
+                content_ids = self.tokenizer.encode(content, add_special_tokens=False)
+                suffix_ids = self.suffix_ids
+                start = len(full_ids)
+                full_ids.extend(prefix_ids + content_ids + suffix_ids)
+                end = len(full_ids)
+                segments.append((start, end, "user"))
+            elif role == "assistant":
+                prefix_ids = self.assistant_prefix_ids
+                content_ids = self.tokenizer.encode(content, add_special_tokens=False)
+                suffix_ids = self.suffix_ids
+                start = len(full_ids)
+                full_ids.extend(prefix_ids + content_ids + suffix_ids)
+                end = len(full_ids)
+                ap_start = start
+                ap_end = start + len(prefix_ids)
+                content_start = ap_end
+                content_end = content_start + len(content_ids)
+                segments.append((ap_start, ap_end, "assistant_prefix"))
+                segments.append((content_start, content_end, "assistant_content"))
+                if suffix_ids:
+                    segments.append((content_end, end, "assistant_suffix"))
+
+        return full_ids, segments
+
+    def _build_labels(self, full_ids: list[int], segments: list[tuple[int, int, str]]) -> tuple[torch.Tensor, torch.Tensor]:
+        full_ids = full_ids[:self.block_size + 1]
+
+        input_ids = torch.tensor(full_ids[:-1], dtype=torch.long)
+        target_ids = torch.tensor(full_ids[1:], dtype=torch.long)
         labels = torch.full_like(input_ids, -100)
 
-        astart, aend = self._find_assistant_range(ids[:-1])
-        if astart < aend:
-            labels[astart:aend] = input_ids[astart:aend]
+        for start, end, seg_type in segments:
+            if seg_type == "assistant_content":
+                t_start = max(0, start - 1)
+                t_end = min(len(labels), end - 1)
+                if t_start < t_end:
+                    labels[t_start:t_end] = target_ids[t_start:t_end]
+            elif seg_type == "assistant_suffix":
+                t_start = max(0, start - 1)
+                t_end = min(len(labels), end - 1)
+                if t_start < t_end:
+                    labels[t_start:t_end] = target_ids[t_start:t_end]
+
+        return input_ids, labels
+
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        messages = self.samples[idx]
+        full_ids, segments = self._get_segment_ranges(messages)
+        input_ids, labels = self._build_labels(full_ids, segments)
+
+        if len(input_ids) < self.block_size:
+            pad_len = self.block_size - len(input_ids)
+            pad = torch.full((pad_len,), 0, dtype=torch.long)
+            input_ids = torch.cat([input_ids, pad])
+            labels = torch.cat([labels, torch.full((pad_len,), -100, dtype=torch.long)])
 
         return {"input_ids": input_ids, "labels": labels}

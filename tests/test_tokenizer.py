@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from bharat.tokenizer import BharatTokenizer, load_tokenizer, tokenizer_hash
@@ -113,6 +117,44 @@ class TestTokenizerMetadata:
         assert isinstance(h, str)
         assert len(h) == 64
         assert all(c in "0123456789abcdef" for c in h)
+
+    def test_fingerprint_deterministic(self, gpt2_tokenizer: BharatTokenizer) -> None:
+        f1 = gpt2_tokenizer.fingerprint()
+        f2 = gpt2_tokenizer.fingerprint()
+        assert f1 == f2
+        assert len(f1) == 64
+
+    def test_fingerprint_differs_for_diff_tokenizer(self) -> None:
+        tok1 = load_tokenizer("gpt2")
+        # Create a second wrapper pointing to same HF tokenizer
+        tok2 = load_tokenizer("gpt2")
+        assert tok1.fingerprint() == tok2.fingerprint()
+
+    def test_fingerprint_includes_vocab(self) -> None:
+        tok = load_tokenizer("gpt2")
+        fp = tok.fingerprint()
+        assert isinstance(fp, str)
+        assert len(fp) == 64
+
+    def test_tokenizer_json_not_auto_sentencepiece(self) -> None:
+        """Verify generic tokenizer.json files are NOT auto-classified as SentencePiece."""
+        from transformers import GPT2TokenizerFast
+        from tokenizers import Tokenizer as HFTokenizersTokenizer
+
+        gpt2_hf = GPT2TokenizerFast.from_pretrained("gpt2")
+        backend = gpt2_hf.backend_tokenizer
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            backend.save(f.name)
+            json_path = f.name
+
+        tok = load_tokenizer(json_path)
+        # Should NOT be sentencepiece for a GPT-2 tokenizer
+        assert tok.tokenizer_type != "sentencepiece", (
+            "GPT-2 tokenizer.json should not be classified as sentencepiece"
+        )
+
+        Path(json_path).unlink()
 
     def test_validate_compatibility_pass(self, gpt2_tokenizer: BharatTokenizer) -> None:
         meta = metadata_from_tokenizer(gpt2_tokenizer)

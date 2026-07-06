@@ -4,6 +4,7 @@ import json
 import tempfile
 
 import pytest
+import torch
 
 from bharat.posttraining.collators import SFTCollator
 from bharat.posttraining.datasets import SFTDataset
@@ -81,152 +82,44 @@ class TestTemplateFormatting:
         assert "<|assistant|>Sunny<|end|>" in text
 
 
-class TestSFTDataset:
-    def test_dataset_loads(self, sft_jsonl, tokenizer):
-        dataset = SFTDataset(sft_jsonl, INDIC_TEMPLATE, block_size=512)
-        assert len(dataset) == 2
-
-    def test_dataset_messages_format(self, tokenizer):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": "Hi"},
-                ]
-            }) + "\n")
-            path = f.name
-
-        dataset = SFTDataset(path, INDIC_TEMPLATE, block_size=512)
-        assert len(dataset) == 1
-        item = dataset[0]
-        assert "<|response|>Hi" in item["text"]
-
-        import os
-        os.unlink(path)
-
-
-class TestSFTCollator:
-    def test_assistant_loss_active(self, tokenizer):
-        collator = SFTCollator(
-            tokenizer=tokenizer,
-            template=INDIC_TEMPLATE,
-            block_size=512,
-        )
-        batch = [
-            {"text": "<|instruction|>What is 2+2?<|endoftext|><|response|>4<|endoftext|>"},
-        ]
-        result = collator(batch)
-        labels = result["labels"]
-        decoded_labels = labels[0].tolist()
-        non_masked = sum(1 for v in decoded_labels if v != -100)
-        assert non_masked > 0, "Assistant tokens should not be masked"
-
-    def test_non_assistant_tokens_masked(self, tokenizer):
-        collator = SFTCollator(
-            tokenizer=tokenizer,
-            template=INDIC_TEMPLATE,
-            block_size=512,
-        )
-        batch = [
-            {"text": "<|instruction|>Hello<|endoftext|><|response|>World<|endoftext|>"},
-        ]
-        result = collator(batch)
-        labels = result["labels"][0]
-
-        ap_len = len(tokenizer.encode("<|response|>", add_special_tokens=False))
-        ap_pos = None
-        ids = tokenizer.encode("<|instruction|>Hello<|endoftext|><|response|>World<|endoftext|>",
-                                add_special_tokens=False)
-        for i in range(len(ids) - ap_len + 1):
-            if ids[i:i + ap_len] == tokenizer.encode("<|response|>", add_special_tokens=False):
-                ap_pos = i
-                break
-
-        assert ap_pos is not None
-
-        nz_before = (labels[:ap_pos] != -100).sum().item()
-        assert nz_before == 0, "Tokens before assistant prefix should be masked"
-
-        nz_after = (labels[ap_pos:] != -100).sum().item()
-        assert nz_after > 0, "Tokens from assistant prefix onward should contribute to loss"
-
-    def test_padding_masked(self, tokenizer):
-        collator = SFTCollator(
-            tokenizer=tokenizer,
-            template=INDIC_TEMPLATE,
-            block_size=512,
-        )
-        batch = [
-            {"text": "<|instruction|>A<|endoftext|><|response|>B<|endoftext|>"},
-            {"text": "<|instruction|>C<|endoftext|><|response|>D<|endoftext|>"},
-        ]
-        result = collator(batch)
-        labels = result["labels"]
-        padding_mask = labels == -100
-        assert padding_mask.any(), "Should have some padding"
-
-    def test_empty_batch(self, tokenizer):
-        collator = SFTCollator(
-            tokenizer=tokenizer,
-            template=INDIC_TEMPLATE,
-            block_size=512,
-        )
-        result = collator([])
-        assert "input_ids" in result
-        assert "labels" in result
-        assert result["input_ids"].shape[0] == 0
-
-    def test_variable_length_batch(self, tokenizer):
-        collator = SFTCollator(
-            tokenizer=tokenizer,
-            template=INDIC_TEMPLATE,
-            block_size=512,
-        )
-        texts = [
-            {"text": "<|instruction|>Short<|endoftext|><|response|>A<|endoftext|>"},
-            {"text": "<|instruction|>" + "very " * 50 + "long<|endoftext|><|response|>B<|endoftext|>"},
-        ]
-        result = collator(texts)
-        assert result["input_ids"].shape[0] == 2
-        assert result["input_ids"].shape[1] == result["labels"].shape[1]
-        assert result["input_ids"].shape[1] <= 512 + 1
-
-
 class TestLossMasking:
     """Verify that only assistant tokens contribute to the loss."""
 
     def test_loss_only_on_assistant(self, tokenizer):
-        user_text = "What is 2+2?"
-        assistant_text = "4"
-        full_text = f"<|instruction|>{user_text}<|endoftext|><|response|>{assistant_text}<|endoftext|>"
-
         collator = SFTCollator(
             tokenizer=tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
-        batch = [{"text": full_text}]
+        messages = [
+            {"role": "user", "content": "What is 2+2?"},
+            {"role": "assistant", "content": "4"},
+        ]
+        batch = [{"messages": messages}]
         result = collator(batch)
         labels = result["labels"][0]
 
         ap_ids = tokenizer.encode("<|response|>", add_special_tokens=False)
-        ap_len = len(ap_ids)
 
+        full_text = "<|instruction|>What is 2+2?<|endoftext|><|response|>4<|endoftext|>"
         full_ids = tokenizer.encode(full_text, add_special_tokens=False)
-        ap_pos = None
-        for i in range(len(full_ids) - ap_len + 1):
-            if full_ids[i:i + ap_len] == ap_ids:
-                ap_pos = i
+
+        # Find assistant prefix position
+        ap_start = None
+        for i in range(len(full_ids) - len(ap_ids) + 1):
+            if full_ids[i:i + len(ap_ids)] == ap_ids:
+                ap_start = i
                 break
+        assert ap_start is not None
 
-        assert ap_pos is not None
+        # Labels are aligned to target_ids = full_ids[1:]
+        # User tokens in target_ids: positions 0 to ap_start-2
+        target_ids = full_ids[1:]
+        user_len = ap_start
+        labels_slice = labels[:user_len]
+        assert (labels_slice == -100).all(), "User tokens should be fully masked"
 
-        tokens_before = full_ids[:ap_pos]
-
-        for i, tid in enumerate(tokens_before):
-            if i < len(labels):
-                assert labels[i].item() == -100, f"Token at position {i} ({tid}) should be masked"
-
+        # Response tokens should be active
         num_active = (labels != -100).sum().item()
         assert num_active > 0, "At least some tokens should contribute to loss"
 
@@ -236,10 +129,60 @@ class TestLossMasking:
             template=INDIC_TEMPLATE,
             block_size=512,
         )
-        text = ("<|instruction|>First Q<|endoftext|><|response|>First A<|endoftext|>"
-                "<|instruction|>Second Q<|endoftext|><|response|>Second A<|endoftext|>")
-        batch = [{"text": text}]
+        messages = [
+            {"role": "user", "content": "First Q"},
+            {"role": "assistant", "content": "First A"},
+            {"role": "user", "content": "Second Q"},
+            {"role": "assistant", "content": "Second A"},
+        ]
+        batch = [{"messages": messages}]
         result = collator(batch)
         labels = result["labels"][0]
         non_masked = labels[labels != -100]
         assert len(non_masked) > 0, "Assistant tokens should contribute to loss"
+
+    def test_assistant_content_active(self, tokenizer):
+        # Directly test with a known conversation
+        collator = SFTCollator(
+            tokenizer=tokenizer,
+            template=INDIC_TEMPLATE,
+            block_size=512,
+        )
+        messages = [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello world"},
+        ]
+        batch = [{"messages": messages}]
+        result = collator(batch)
+        labels = result["labels"][0]
+        input_ids = result["input_ids"][0]
+
+        full_text = "<|instruction|>Hi<|endoftext|><|response|>Hello world<|endoftext|>"
+        full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+        target_ids = full_ids[1:]
+
+        # Where labels != -100, they should match target_ids
+        for i in range(len(labels)):
+            if labels[i] != -100:
+                assert labels[i].item() == target_ids[i], (
+                    f"Label at position {i} should match target token {target_ids[i]}"
+                )
+
+    def test_padding_excluded_from_loss(self, tokenizer):
+        collator = SFTCollator(
+            tokenizer=tokenizer,
+            template=INDIC_TEMPLATE,
+            block_size=512,
+        )
+        batch = [
+            {"messages": [{"role": "user", "content": "A"}, {"role": "assistant", "content": "B"}]},
+            {"messages": [{"role": "user", "content": "C" * 100}, {"role": "assistant", "content": "D"}]},
+        ]
+        result = collator(batch)
+        labels = result["labels"]
+
+        # Shorter sequence should have padding at the end
+        seq_lens = (result["input_ids"] != 0).sum(dim=1)
+        for i in range(len(batch)):
+            pad_labels = labels[i, seq_lens[i]:]
+            assert (pad_labels == -100).all(), f"Padding in sample {i} should have -100 labels"

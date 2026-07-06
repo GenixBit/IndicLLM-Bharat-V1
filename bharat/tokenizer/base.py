@@ -54,3 +54,11 @@ class BharatTokenizer(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} does not support add_special_tokens"
         )
+
+    @abstractmethod
+    def fingerprint(self) -> str:
+        """Return a deterministic fingerprint of the complete tokenizer configuration.
+
+        Must include vocabulary, merge rules, normalizer, pre-tokenizer,
+        special token mappings, and configuration.
+        """

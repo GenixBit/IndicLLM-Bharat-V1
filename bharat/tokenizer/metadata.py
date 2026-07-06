@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,29 +20,19 @@ class TokenizerMetadata:
 
 
 def tokenizer_hash(tokenizer: Any) -> str:
-    """Compute a deterministic hash of a tokenizer's vocabulary."""
+    """Compute a deterministic fingerprint of a tokenizer.
+
+    Delegates to the wrapper's fingerprint() method which should
+    include the full vocabulary, merge rules, normalizer,
+    pre-tokenizer, and special token configuration.
+    """
     from bharat.tokenizer.base import BharatTokenizer
 
     if not isinstance(tokenizer, BharatTokenizer):
         msg = f"Expected BharatTokenizer, got {type(tokenizer)}"
         raise TypeError(msg)
 
-    vocab_size = tokenizer.vocab_size
-    sample_tokens: list[str] = []
-    for i in range(min(vocab_size, 1000)):
-        token = tokenizer.decode([i])
-        if token:
-            sample_tokens.append(token)
-
-    digest = hashlib.sha256(json.dumps({
-        "type": tokenizer.tokenizer_type,
-        "vocab_size": vocab_size,
-        "eos_id": tokenizer.eos_token_id,
-        "pad_id": tokenizer.pad_token_id,
-        "sample_tokens": sample_tokens[:100],
-    }, sort_keys=True).encode()).hexdigest()
-
-    return digest
+    return tokenizer.fingerprint()
 
 
 def metadata_from_tokenizer(tokenizer: Any, **extra: Any) -> TokenizerMetadata:

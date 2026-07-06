@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,8 +9,8 @@ from torch.utils.data import DataLoader
 
 from bharat.posttraining.preference_dataset import PreferenceDataset, dpo_collate
 from bharat.posttraining.preference_loss import (
+    approximate_kl_divergence,
     dpo_loss,
-    kl_divergence,
     per_sample_log_probs,
     reward_accuracy,
 )
@@ -70,8 +71,13 @@ def dpo_train(
         weight_decay=config.weight_decay,
     )
 
-    ctx = torch.amp.autocast(device_type=config.device, dtype=torch.bfloat16) \
-        if config.device == "cuda" else torch.no_grad()
+    if config.device == "cuda":
+        autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        train_ctx = torch.amp.autocast(device_type="cuda", dtype=autocast_dtype)
+    else:
+        train_ctx = contextlib.nullcontext()
+
+    ref_ctx = torch.no_grad()
 
     step = 0
     config.output_dir = Path(config.output_dir)
@@ -84,15 +90,16 @@ def dpo_train(
 
             chosen = batch["chosen_ids"].to(config.device)
             rejected = batch["rejected_ids"].to(config.device)
-            chosen_pe = batch["chosen_prompt_end"].to(config.device)
-            rejected_pe = batch["rejected_prompt_end"].to(config.device)
+            chosen_mask = batch["chosen_response_mask"].to(config.device)
+            rejected_mask = batch["rejected_response_mask"].to(config.device)
 
-            policy_chosen_lp = per_sample_log_probs(policy_model, chosen, chosen_pe, ctx)
-            policy_rejected_lp = per_sample_log_probs(policy_model, rejected, rejected_pe, ctx)
+            # Policy forward with gradients
+            policy_chosen_lp = per_sample_log_probs(policy_model, chosen, chosen_mask, train_ctx)
+            policy_rejected_lp = per_sample_log_probs(policy_model, rejected, rejected_mask, train_ctx)
 
-            with torch.no_grad():
-                ref_chosen_lp = per_sample_log_probs(ref_model, chosen, chosen_pe, ctx)
-                ref_rejected_lp = per_sample_log_probs(ref_model, rejected, rejected_pe, ctx)
+            # Reference forward without gradients
+            ref_chosen_lp = per_sample_log_probs(ref_model, chosen, chosen_mask, ref_ctx)
+            ref_rejected_lp = per_sample_log_probs(ref_model, rejected, rejected_mask, ref_ctx)
 
             loss = dpo_loss(
                 policy_chosen_lp, policy_rejected_lp,
@@ -106,8 +113,11 @@ def dpo_train(
             optimizer.zero_grad(set_to_none=True)
 
             if step % config.log_interval == 0:
-                r_acc = reward_accuracy(policy_chosen_lp, policy_rejected_lp)
-                kl = kl_divergence(
+                r_acc = reward_accuracy(
+                    policy_chosen_lp, policy_rejected_lp,
+                    ref_chosen_lp, ref_rejected_lp,
+                )
+                kl = approximate_kl_divergence(
                     policy_chosen_lp, ref_chosen_lp,
                     policy_rejected_lp, ref_rejected_lp,
                 )
