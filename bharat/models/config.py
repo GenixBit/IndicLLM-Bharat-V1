@@ -42,31 +42,8 @@ class BharatModelConfig:
             errors.append(
                 f"max_position_embeddings must be positive, got {self.max_position_embeddings}"
             )
-
-        if self.hidden_size % self.num_attention_heads != 0:
-            errors.append(
-                f"hidden_size ({self.hidden_size}) must be divisible by "
-                f"num_attention_heads ({self.num_attention_heads})"
-            )
-        if self.num_attention_heads % self.num_key_value_heads != 0:
-            errors.append(
-                f"num_attention_heads ({self.num_attention_heads}) must be divisible by "
-                f"num_key_value_heads ({self.num_key_value_heads})"
-            )
-        if self.num_key_value_heads > self.num_attention_heads:
-            errors.append(
-                f"num_key_value_heads ({self.num_key_value_heads}) must not exceed "
-                f"num_attention_heads ({self.num_attention_heads})"
-            )
-
-        head_dim = self.head_dim
-        if head_dim % 2 != 0:
-            errors.append(
-                f"head_dim ({head_dim}) must be even for rotary embeddings. "
-                f"hidden_size ({self.hidden_size}) / num_attention_heads "
-                f"({self.num_attention_heads}) = {head_dim}"
-            )
-
+        if self.initializer_range <= 0:
+            errors.append(f"initializer_range must be positive, got {self.initializer_range}")
         if not 0.0 <= self.attention_dropout <= 1.0:
             errors.append(f"attention_dropout must be in [0, 1], got {self.attention_dropout}")
         if not 0.0 <= self.hidden_dropout <= 1.0:
@@ -75,6 +52,50 @@ class BharatModelConfig:
             errors.append(f"rope_theta must be positive, got {self.rope_theta}")
         if self.rms_norm_eps <= 0:
             errors.append(f"rms_norm_eps must be positive, got {self.rms_norm_eps}")
+
+        # Integer fields must not be booleans
+        for field in (
+            "vocab_size",
+            "hidden_size",
+            "intermediate_size",
+            "num_hidden_layers",
+            "num_attention_heads",
+            "num_key_value_heads",
+            "max_position_embeddings",
+        ):
+            val = getattr(self, field)
+            if isinstance(val, bool):
+                errors.append(f"{field} must be an integer, got bool")
+
+        # Guard division/modulo by zero — only check relationships when operands are valid
+        if self.num_attention_heads <= 0 or self.num_key_value_heads <= 0:
+            pass  # already reported above
+        else:
+            if self.hidden_size % self.num_attention_heads != 0:
+                errors.append(
+                    f"hidden_size ({self.hidden_size}) must be divisible by "
+                    f"num_attention_heads ({self.num_attention_heads})"
+                )
+            if self.num_attention_heads % self.num_key_value_heads != 0:
+                errors.append(
+                    f"num_attention_heads ({self.num_attention_heads}) must be divisible by "
+                    f"num_key_value_heads ({self.num_key_value_heads})"
+                )
+            if self.num_key_value_heads > self.num_attention_heads:
+                errors.append(
+                    f"num_key_value_heads ({self.num_key_value_heads}) must not exceed "
+                    f"num_attention_heads ({self.num_attention_heads})"
+                )
+            if self.hidden_size <= 0 or self.num_attention_heads <= 0:
+                pass  # already reported
+            else:
+                head_dim = self.hidden_size // self.num_attention_heads
+                if head_dim % 2 != 0:
+                    errors.append(
+                        f"head_dim ({head_dim}) must be even for rotary embeddings. "
+                        f"hidden_size ({self.hidden_size}) / num_attention_heads "
+                        f"({self.num_attention_heads}) = {head_dim}"
+                    )
 
         if errors:
             raise ValueError("BharatModelConfig validation failed:\n" + "\n".join(errors))

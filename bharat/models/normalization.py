@@ -7,6 +7,10 @@ import torch.nn as nn
 class RMSNorm(nn.Module):
     def __init__(self, hidden_size: int, eps: float = 1e-6) -> None:
         super().__init__()
+        if hidden_size <= 0:
+            raise ValueError(f"hidden_size must be positive, got {hidden_size}")
+        if eps <= 0:
+            raise ValueError(f"eps must be positive, got {eps}")
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.eps = eps
 

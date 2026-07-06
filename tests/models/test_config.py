@@ -117,7 +117,6 @@ class TestBharatModelConfig:
             )
 
     def test_head_dim_even(self):
-        # head_dim = 72 / 8 = 9 (odd), hidden_size divisible by num_attention_heads
         with pytest.raises(ValueError, match="even"):
             BharatModelConfig(
                 vocab_size=32000,
@@ -130,7 +129,7 @@ class TestBharatModelConfig:
             )
 
     def test_dropout_range(self):
-        with pytest.raises(ValueError, match="dropout"):
+        with pytest.raises(ValueError, match="attention_dropout"):
             BharatModelConfig(
                 vocab_size=32000,
                 hidden_size=4096,
@@ -168,6 +167,119 @@ class TestBharatModelConfig:
                 rms_norm_eps=0.0,
             )
 
+    # ---------- Safe validation (no ZeroDivisionError) ----------
+
+    @pytest.mark.parametrize("heads", [0, -1])
+    def test_zero_or_negative_attention_heads_raises(self, heads):
+        with pytest.raises(ValueError, match="num_attention_heads"):
+            BharatModelConfig(
+                vocab_size=32000,
+                hidden_size=4096,
+                intermediate_size=11008,
+                num_hidden_layers=32,
+                num_attention_heads=heads,
+                num_key_value_heads=8,
+                max_position_embeddings=2048,
+            )
+
+    @pytest.mark.parametrize("kv_heads", [0, -1])
+    def test_zero_or_negative_kv_heads_raises(self, kv_heads):
+        with pytest.raises(ValueError, match="num_key_value_heads"):
+            BharatModelConfig(
+                vocab_size=32000,
+                hidden_size=4096,
+                intermediate_size=11008,
+                num_hidden_layers=32,
+                num_attention_heads=32,
+                num_key_value_heads=kv_heads,
+                max_position_embeddings=2048,
+            )
+
+    @pytest.mark.parametrize("val", [0, -1])
+    def test_zero_or_negative_hidden_size_raises(self, val):
+        with pytest.raises(ValueError, match="hidden_size"):
+            BharatModelConfig(
+                vocab_size=32000,
+                hidden_size=val,
+                intermediate_size=11008,
+                num_hidden_layers=32,
+                num_attention_heads=32,
+                num_key_value_heads=8,
+                max_position_embeddings=2048,
+            )
+
+    # ---------- initializer_range ----------
+
+    def test_initializer_range_non_positive_raises(self):
+        with pytest.raises(ValueError, match="initializer_range"):
+            BharatModelConfig(
+                vocab_size=32000,
+                hidden_size=4096,
+                intermediate_size=11008,
+                num_hidden_layers=32,
+                num_attention_heads=32,
+                num_key_value_heads=8,
+                max_position_embeddings=2048,
+                initializer_range=0.0,
+            )
+
+    # ---------- Boolean rejection ----------
+
+    @pytest.mark.parametrize("field", ["num_attention_heads", "num_key_value_heads", "vocab_size"])
+    def test_integer_field_rejects_boolean(self, field):
+        kwargs = {
+            "vocab_size": 32000,
+            "hidden_size": 4096,
+            "intermediate_size": 11008,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "max_position_embeddings": 2048,
+        }
+        kwargs[field] = True
+        with pytest.raises(ValueError, match="bool"):
+            BharatModelConfig(**kwargs)
+
+    # ---------- Multiple validation failures ----------
+
+    def test_multiple_errors(self):
+        with pytest.raises(ValueError) as exc:
+            BharatModelConfig(
+                vocab_size=0,
+                hidden_size=-1,
+                intermediate_size=0,
+                num_hidden_layers=0,
+                num_attention_heads=0,
+                num_key_value_heads=0,
+                max_position_embeddings=0,
+            )
+        msg = str(exc.value)
+        assert "vocab_size" in msg
+        assert "hidden_size" in msg
+        assert "intermediate_size" in msg
+        assert "num_hidden_layers" in msg
+        assert "num_attention_heads" in msg
+        assert "num_key_value_heads" in msg
+        assert "max_position_embeddings" in msg
+
+    # ---------- from_dict validation ----------
+
+    def test_from_dict_applies_validation(self):
+        with pytest.raises(ValueError, match="vocab_size"):
+            BharatModelConfig.from_dict(
+                {
+                    "vocab_size": 0,
+                    "hidden_size": 4096,
+                    "intermediate_size": 11008,
+                    "num_hidden_layers": 32,
+                    "num_attention_heads": 32,
+                    "num_key_value_heads": 8,
+                    "max_position_embeddings": 2048,
+                }
+            )
+
+    # ---------- to_dict / from_dict ----------
+
     def test_to_dict(self):
         cfg = BharatModelConfig(
             vocab_size=32000,
@@ -196,6 +308,8 @@ class TestBharatModelConfig:
         )
         assert cfg.vocab_size == 32000
         assert cfg.head_dim == 128
+
+    # ---------- Frozen ----------
 
     def test_frozen(self):
         cfg = BharatModelConfig(
