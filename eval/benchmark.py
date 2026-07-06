@@ -29,8 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from train.pretrain import GPT, GPTConfig
-from train.utils import load_config
-
+from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
 
 INDIC_UNICODE_RANGES = {
     "hi": (0x0900, 0x097F, "Devanagari"),
@@ -60,12 +59,17 @@ def load_model(ckpt_path: Path, device: str):
 
 
 @torch.no_grad()
-def eval_perplexity(model, data_arr, block_size: int, batch_size: int,
-                    eval_iters: int, device: str) -> dict:
+def eval_perplexity(
+    model, data_arr, block_size: int, batch_size: int, eval_iters: int, device: str
+) -> dict:
     """Compute perplexity and token accuracy on data."""
     from contextlib import nullcontext
-    ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16) \
-        if device.startswith("cuda") else nullcontext()
+
+    ctx = (
+        torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if device.startswith("cuda")
+        else nullcontext()
+    )
 
     losses = []
     correct = 0
@@ -73,14 +77,12 @@ def eval_perplexity(model, data_arr, block_size: int, batch_size: int,
 
     for k in range(eval_iters):
         ix = torch.randint(len(data_arr) - block_size, (batch_size,))
-        x = torch.stack([
-            torch.from_numpy(data_arr[i:i+block_size].astype(np.int64))
-            for i in ix
-        ]).to(device)
-        y = torch.stack([
-            torch.from_numpy(data_arr[i+1:i+1+block_size].astype(np.int64))
-            for i in ix
-        ]).to(device)
+        x = torch.stack(
+            [torch.from_numpy(data_arr[i : i + block_size].astype(np.int64)) for i in ix]
+        ).to(device)
+        y = torch.stack(
+            [torch.from_numpy(data_arr[i + 1 : i + 1 + block_size].astype(np.int64)) for i in ix]
+        ).to(device)
 
         with ctx:
             logits, loss = model(x, y)
@@ -105,12 +107,17 @@ def eval_perplexity(model, data_arr, block_size: int, batch_size: int,
 
 
 @torch.no_grad()
-def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int,
-                     device: str, temperature: float = 0.8) -> list[dict]:
+def generate_samples(
+    model, tokenizer, prompts: list[str], max_tokens: int, device: str, temperature: float = 0.8
+) -> list[dict]:
     """Generate text samples for qualitative evaluation."""
     from contextlib import nullcontext
-    ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16) \
-        if device.startswith("cuda") else nullcontext()
+
+    ctx = (
+        torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if device.startswith("cuda")
+        else nullcontext()
+    )
 
     block_size = model.config.block_size
     results = []
@@ -146,14 +153,16 @@ def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int,
             if count > 0:
                 script_counts[script] = script_counts.get(script, 0) + count
 
-        results.append({
-            "prompt": prompt,
-            "generation": text,
-            "tokens": len(gen_ids),
-            "time_s": round(dt, 2),
-            "tok_per_sec": round(len(gen_ids) / max(dt, 1e-6), 1),
-            "scripts_detected": script_counts,
-        })
+        results.append(
+            {
+                "prompt": prompt,
+                "generation": text,
+                "tokens": len(gen_ids),
+                "time_s": round(dt, 2),
+                "tok_per_sec": round(len(gen_ids) / max(dt, 1e-6), 1),
+                "scripts_detected": script_counts,
+            }
+        )
 
     return results
 
@@ -161,12 +170,12 @@ def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int,
 def main():
     parser = argparse.ArgumentParser(description="IndicLLM Benchmark")
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--config",     type=Path, default=None)
+    parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--eval-iters", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--gen-tokens", type=int, default=100)
-    parser.add_argument("--output",     type=Path, default=None, help="Save results JSON")
-    parser.add_argument("--device",     default=None)
+    parser.add_argument("--output", type=Path, default=None, help="Save results JSON")
+    parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
     # Device
@@ -178,7 +187,7 @@ def main():
         device = "cpu"
 
     print(f"\n{'='*60}")
-    print(f"  IndicLLM-Bharat — Model Benchmark")
+    print("  IndicLLM-Bharat — Model Benchmark")
     print(f"  Checkpoint: {args.checkpoint}")
     print(f"  Device    : {device.upper()}")
     print(f"{'='*60}")
@@ -189,11 +198,14 @@ def main():
     data_cfg = cfg.get("data", {})
     train_cfg = cfg.get("training", {})
     block_size = model_cfg.get("block_size", 1024)
-    iter_num = torch.load(args.checkpoint, map_location="cpu",
-                          weights_only=False).get("iter_num", "?")
+    iter_num = torch.load(args.checkpoint, map_location="cpu", weights_only=False).get(
+        "iter_num", "?"
+    )
 
     print(f"\n  Model: {params:.1f}M params  |  iter {iter_num}")
-    print(f"  Block: {block_size}  |  Layers: {model_cfg.get('n_layer')}  |  Heads: {model_cfg.get('n_head')}")
+    print(
+        f"  Block: {block_size}  |  Layers: {model_cfg.get('n_layer')}  |  Heads: {model_cfg.get('n_head')}"
+    )
 
     # ── Perplexity Evaluation ──
     results = {"model": str(args.checkpoint), "params_m": params, "iter": iter_num}
@@ -205,9 +217,12 @@ def main():
         print(f"\n  Evaluating perplexity on: {val_path.name}")
         val_arr = np.memmap(str(val_path), dtype=np.uint16, mode="r")
         val_metrics = eval_perplexity(
-            model, val_arr, block_size, args.batch_size,
+            model,
+            val_arr,
+            block_size,
+            args.batch_size,
             min(args.eval_iters, len(val_arr) // (block_size * args.batch_size)),
-            device
+            device,
         )
         results["val"] = val_metrics
         print(f"  Val loss      : {val_metrics['loss']:.4f}")
@@ -220,9 +235,12 @@ def main():
         print(f"\n  Evaluating on: {train_path.name}")
         train_arr = np.memmap(str(train_path), dtype=np.uint16, mode="r")
         train_metrics = eval_perplexity(
-            model, train_arr, block_size, args.batch_size,
+            model,
+            train_arr,
+            block_size,
+            args.batch_size,
             min(args.eval_iters, len(train_arr) // (block_size * args.batch_size)),
-            device
+            device,
         )
         results["train"] = train_metrics
         print(f"  Train loss    : {train_metrics['loss']:.4f}")
@@ -231,9 +249,10 @@ def main():
         print(f"  Overfitting   : {'⚠ YES' if gap > 0.5 else '✓ No'} (gap={gap:.3f})")
 
     # ── Sample Generations ──
-    print(f"\n  Generating samples...")
-    from transformers import GPT2TokenizerFast
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    print("\n  Generating samples...")
+    # Load tokenizer from config or default to GPT-2
+    tok_src = cfg.get("tokenizer", {}).get("source")
+    tokenizer = load_bharat_tokenizer(tok_src)
 
     prompts = [
         "The capital of India is",
@@ -246,11 +265,13 @@ def main():
     # Add Indic prompts if model trained on Indic data
     indic_path = Path("data/indic/train.bin")
     if indic_path.exists():
-        prompts.extend([
-            "भारत एक",
-            "தமிழ்நாடு",
-            "বাংলাদেশ",
-        ])
+        prompts.extend(
+            [
+                "भारत एक",
+                "தமிழ்நாடு",
+                "বাংলাদেশ",
+            ]
+        )
 
     samples = generate_samples(model, tokenizer, prompts, args.gen_tokens, device)
     results["samples"] = samples
@@ -258,9 +279,9 @@ def main():
     print(f"\n  {'─'*56}")
     for s in samples:
         print(f"  Prompt: {s['prompt']}")
-        gen_preview = s['generation'][:120].replace('\n', ' ')
+        gen_preview = s["generation"][:120].replace("\n", " ")
         print(f"  Output: {gen_preview}...")
-        scripts = s.get('scripts_detected', {})
+        scripts = s.get("scripts_detected", {})
         if scripts:
             print(f"  Scripts: {', '.join(f'{k}({v})' for k, v in scripts.items())}")
         print(f"  [{s['tokens']} tok, {s['tok_per_sec']} tok/s]")
@@ -268,7 +289,7 @@ def main():
 
     # ── Summary ──
     print(f"\n{'='*60}")
-    print(f"  BENCHMARK SUMMARY")
+    print("  BENCHMARK SUMMARY")
     print(f"  Model     : {params:.1f}M params ({args.checkpoint.name})")
     if "val" in results:
         print(f"  Val PPL   : {results['val']['perplexity']:.2f}")

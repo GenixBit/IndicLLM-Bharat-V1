@@ -72,11 +72,13 @@ def check_checkpoints(ckpt_dir: str = "checkpoints"):
     for f in path.rglob("*.pt"):
         size_mb = f.stat().st_size / (1024 * 1024)
         mtime = datetime.fromtimestamp(f.stat().st_mtime)
-        checkpoints.append({
-            "path": str(f),
-            "size_mb": round(size_mb, 1),
-            "modified": mtime.strftime("%Y-%m-%d %H:%M"),
-        })
+        checkpoints.append(
+            {
+                "path": str(f),
+                "size_mb": round(size_mb, 1),
+                "modified": mtime.strftime("%Y-%m-%d %H:%M"),
+            }
+        )
     return sorted(checkpoints, key=lambda x: x["modified"], reverse=True)
 
 
@@ -126,13 +128,15 @@ def check_benchmark_results(eval_dir: str = "eval"):
     for f in sorted(path.glob("results_*.json"), reverse=True):
         try:
             data = json.loads(f.read_text())
-            results.append({
-                "file": f.name,
-                "val_ppl": data.get("val_perplexity", "?"),
-                "val_acc": data.get("val_accuracy", "?"),
-                "train_ppl": data.get("train_perplexity", "?"),
-                "iter": data.get("iter_num", "?"),
-            })
+            results.append(
+                {
+                    "file": f.name,
+                    "val_ppl": data.get("val_perplexity", "?"),
+                    "val_acc": data.get("val_accuracy", "?"),
+                    "train_ppl": data.get("train_perplexity", "?"),
+                    "iter": data.get("iter_num", "?"),
+                }
+            )
         except Exception:
             pass
 

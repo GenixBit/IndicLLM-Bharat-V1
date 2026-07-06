@@ -49,7 +49,7 @@ def download_fineweb_edu(subset: str, max_docs: int | None) -> list[str]:
 
 
 def train_custom_tokenizer(texts: list[str], vocab_size: int, out_dir: Path) -> Path:
-    from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, trainers, processors
+    from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, processors, trainers
 
     out_dir.mkdir(parents=True, exist_ok=True)
     tokenizer = Tokenizer(models.BPE())

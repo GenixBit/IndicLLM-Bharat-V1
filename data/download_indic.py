@@ -46,7 +46,7 @@ sys.path.insert(0, str(ROOT))
 
 # Wikimedia dump URLs (always public, no auth)
 WIKI_DUMP_URL = "https://dumps.wikimedia.org/{lang}wiki/latest/{lang}wiki-latest-abstract.xml.gz"
-WIKI_BZ2_URL  = "https://dumps.wikimedia.org/{lang}wiki/latest/{lang}wiki-latest-pages-articles-multistream-index.txt.bz2"
+WIKI_BZ2_URL = "https://dumps.wikimedia.org/{lang}wiki/latest/{lang}wiki-latest-pages-articles-multistream-index.txt.bz2"
 
 # Direct article API (no dump needed)
 WIKI_API_URL = "https://{lang}.wikipedia.org/w/api.php"
@@ -68,12 +68,19 @@ INDIC_LANGS = {
 }
 
 INDIC_UNICODE_RANGES = {
-    "hi": (0x0900, 0x097F), "mr": (0x0900, 0x097F), "sa": (0x0900, 0x097F),
-    "bn": (0x0980, 0x09FF), "as": (0x0980, 0x09FF),
-    "pa": (0x0A00, 0x0A7F), "gu": (0x0A80, 0x0AFF),
-    "or": (0x0B00, 0x0B7F), "ta": (0x0B80, 0x0BFF),
-    "te": (0x0C00, 0x0C7F), "kn": (0x0C80, 0x0CFF),
-    "ml": (0x0D00, 0x0D7F), "ur": (0x0600, 0x06FF),
+    "hi": (0x0900, 0x097F),
+    "mr": (0x0900, 0x097F),
+    "sa": (0x0900, 0x097F),
+    "bn": (0x0980, 0x09FF),
+    "as": (0x0980, 0x09FF),
+    "pa": (0x0A00, 0x0A7F),
+    "gu": (0x0A80, 0x0AFF),
+    "or": (0x0B00, 0x0B7F),
+    "ta": (0x0B80, 0x0BFF),
+    "te": (0x0C00, 0x0C7F),
+    "kn": (0x0C80, 0x0CFF),
+    "ml": (0x0D00, 0x0D7F),
+    "ur": (0x0600, 0x06FF),
 }
 
 
@@ -84,7 +91,7 @@ def is_quality(text: str, lang: str, min_chars: int = 50) -> bool:
     if lang in INDIC_UNICODE_RANGES:
         lo, hi = INDIC_UNICODE_RANGES[lang]
         ratio = sum(1 for c in text if lo <= ord(c) <= hi) / max(len(text), 1)
-        if ratio < 0.10:   # 10% script chars — accepts mixed Indic+English articles
+        if ratio < 0.10:  # 10% script chars — accepts mixed Indic+English articles
             return False
     return True
 
@@ -103,11 +110,13 @@ def fetch_wiki_articles(lang: str, max_articles: int, cache_dir: Path) -> list[s
         cache_file.unlink()
 
     api_url = WIKI_API_URL.format(lang=lang)
-    session  = _requests.Session()
-    session.headers.update({
-        "User-Agent": "IndicLLM-Bharat/1.0 (research)",
-        "Accept-Encoding": "identity",   # disable gzip to avoid decode issues
-    })
+    session = _requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": "IndicLLM-Bharat/1.0 (research)",
+            "Accept-Encoding": "identity",  # disable gzip to avoid decode issues
+        }
+    )
 
     texts: list[str] = []
     print(f"  [{lang}] Fetching {INDIC_LANGS[lang]} Wikipedia articles via random generator...")
@@ -165,6 +174,7 @@ def fetch_via_hf(lang: str, max_docs: int) -> list[str]:
         return []
     try:
         from datasets import load_dataset
+
         print(f"  [{lang}] Trying ai4bharat/sangraha with HF token...")
         ds = load_dataset(
             "ai4bharat/sangraha",
@@ -192,6 +202,7 @@ def tokenize_and_write(texts: list[str], out_path: Path, use_gpt2: bool = True) 
     """Encode texts and write uint16 binary shard."""
     if use_gpt2:
         from transformers import GPT2TokenizerFast
+
         tok = GPT2TokenizerFast.from_pretrained("gpt2")
         all_ids: list[int] = []
         for text in texts:
@@ -200,6 +211,7 @@ def tokenize_and_write(texts: list[str], out_path: Path, use_gpt2: bool = True) 
             all_ids.append(tok.eos_token_id)
     else:
         import sentencepiece as spm
+
         # Load trained tokenizer
         sp_path = out_path.parent / "tokenizer.model"
         if not sp_path.exists():
@@ -220,12 +232,15 @@ def tokenize_and_write(texts: list[str], out_path: Path, use_gpt2: bool = True) 
 
 def main():
     parser = argparse.ArgumentParser(description="IndicLLM Indic data downloader")
-    parser.add_argument("--langs",         default="hi,bn,ta,te,mr")
-    parser.add_argument("--max-articles",  type=int, default=5000)
-    parser.add_argument("--out-dir",       type=Path, default=Path("data/indic"))
-    parser.add_argument("--val-ratio",     type=float, default=0.005)
-    parser.add_argument("--use-sangraha",  action="store_true",
-                        help="Use Sangraha via HF_TOKEN (overrides Wikipedia)")
+    parser.add_argument("--langs", default="hi,bn,ta,te,mr")
+    parser.add_argument("--max-articles", type=int, default=5000)
+    parser.add_argument("--out-dir", type=Path, default=Path("data/indic"))
+    parser.add_argument("--val-ratio", type=float, default=0.005)
+    parser.add_argument(
+        "--use-sangraha",
+        action="store_true",
+        help="Use Sangraha via HF_TOKEN (overrides Wikipedia)",
+    )
     args = parser.parse_args()
 
     langs = [l.strip() for l in args.langs.split(",") if l.strip()]
@@ -238,7 +253,7 @@ def main():
     cache_dir.mkdir(exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"  IndicLLM-Bharat — Indic Data Downloader")
+    print("  IndicLLM-Bharat — Indic Data Downloader")
     print(f"  Languages : {', '.join(INDIC_LANGS.get(l, l) for l in langs)}")
     print(f"  Articles  : up to {args.max_articles:,} per language")
     print(f"  Output    : {out_dir}")
@@ -272,15 +287,16 @@ def main():
     print(f"\nTotal: {total:,} articles across {len(langs)} languages")
 
     import random
+
     random.seed(42)
     random.shuffle(all_texts)
 
     val_n = max(1, int(total * args.val_ratio))
-    val_texts   = all_texts[:val_n]
+    val_texts = all_texts[:val_n]
     train_texts = all_texts[val_n:]
 
     train_tokens = tokenize_and_write(train_texts, out_dir / "train.bin")
-    val_tokens   = tokenize_and_write(val_texts,   out_dir / "val.bin")
+    val_tokens = tokenize_and_write(val_texts, out_dir / "val.bin")
 
     meta = {
         "vocab_size": 50257,
@@ -294,22 +310,22 @@ def main():
         pickle.dump(meta, f)
 
     # Dataset card
-    card = f"# IndicLLM-Bharat Indic Dataset\n\n"
+    card = "# IndicLLM-Bharat Indic Dataset\n\n"
     card += f"- **Languages**: {', '.join(INDIC_LANGS.get(l, l) for l in langs)}\n"
     card += f"- **Train tokens**: {train_tokens:,}\n"
     card += f"- **Val tokens**: {val_tokens:,}\n"
-    card += f"- **Source**: Wikimedia Wikipedia API\n\n"
+    card += "- **Source**: Wikimedia Wikipedia API\n\n"
     card += "| Language | Docs |\n|----------|------|\n"
     for lang, count in lang_stats.items():
         card += f"| {INDIC_LANGS.get(lang, lang)} | {count:,} |\n"
     (out_dir / "DATASET.md").write_text(card)
 
     print(f"\n{'='*60}")
-    print(f"  ✅ Done!")
+    print("  ✅ Done!")
     print(f"  Train: {train_tokens:,} tokens  ({train_tokens/1e6:.1f}M)")
     print(f"  Val  : {val_tokens:,} tokens")
     print(f"  Files: {out_dir}/")
-    print(f"\n  Next: python train/pretrain.py --config configs/gpt2-124m-indic.yaml")
+    print("\n  Next: python train/pretrain.py --config configs/gpt2-124m-indic.yaml")
     print(f"{'='*60}\n")
 
 

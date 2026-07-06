@@ -1,0 +1,19 @@
+target-version = "py311"
+line-length = 100
+extend-exclude = ["*.yaml", "*.yml", "vendor/*", ".github/*"]
+
+[lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ARG", "RUF"]
+ignore = [
+    "E501",  # handled by formatter
+    "B904",  # raise-within-try
+    "N812",  # lowercase functional imported as F (pytorch convention)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["ARG"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

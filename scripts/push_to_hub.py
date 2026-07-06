@@ -26,9 +26,7 @@ Requirements:
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -38,8 +36,7 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT, GPTConfig
-from train.utils import load_config
+from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
 
 
 MODEL_CARD_TEMPLATE = """---
@@ -123,11 +120,9 @@ def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
     if not model_cfg:
         raise ValueError("Checkpoint missing model config.")
 
-    params = sum(
-        p.numel() for k, v in ckpt["model"].items()
-        if "weight" in k
-        for p in [v]
-    ) // 1_000_000
+    params = (
+        sum(p.numel() for k, v in ckpt["model"].items() if "weight" in k for p in [v]) // 1_000_000
+    )
 
     hf_cfg = GPT2Config(
         vocab_size=model_cfg.get("vocab_size", 50257),
@@ -154,8 +149,9 @@ def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
 
     mapped = {}
     for k, v in state.items():
-        hf_key = k if k.startswith("transformer.") or k.startswith("lm_head.") \
-                    else f"transformer.{k}"
+        hf_key = (
+            k if k.startswith("transformer.") or k.startswith("lm_head.") else f"transformer.{k}"
+        )
         if v.ndim == 2 and any(tk in k for tk in TRANSPOSE_KEYS):
             v = v.t()
         mapped[hf_key] = v
@@ -169,33 +165,43 @@ def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
 
 
 def get_tokenizer_for_hub(tok_path: Path | None, vocab_size: int):
-    """Return an HF-compatible tokenizer."""
-    if tok_path and tok_path.exists() and tok_path.suffix == ".model":
-        # SentencePiece → HF PreTrainedTokenizerFast
-        from transformers import PreTrainedTokenizerFast
-        from tokenizers import SentencePieceBPETokenizer
-        print(f"  Converting SentencePiece tokenizer: {tok_path}")
-        # Use LlamaTokenizer as it handles SentencePiece natively
+    """Return an HF-compatible tokenizer using the unified loader."""
+    from transformers import PreTrainedTokenizerFast
+
+    if tok_path and tok_path.exists():
+        print(f"  Loading tokenizer from: {tok_path}")
+        bharat_tok = load_bharat_tokenizer(str(tok_path))
+        # Convert back to HF for hub export
+        if hasattr(bharat_tok, "_tok") and isinstance(bharat_tok._tok, PreTrainedTokenizerFast):
+            return bharat_tok._tok
+        # Fallback: try to load via HF
         try:
             from transformers import LlamaTokenizer
-            tok = LlamaTokenizer(vocab_file=str(tok_path))
-            return tok
+            if tok_path.suffix == ".model":
+                return LlamaTokenizer(vocab_file=str(tok_path))
         except Exception:
             pass
+
     # Fallback: GPT-2 tokenizer
+    bharat_tok = load_bharat_tokenizer(None)
+    if hasattr(bharat_tok, "_tok") and isinstance(bharat_tok._tok, PreTrainedTokenizerFast):
+        return bharat_tok._tok
     from transformers import GPT2TokenizerFast
-    print("  Using GPT-2 tokenizer (fallback)")
     return GPT2TokenizerFast.from_pretrained("gpt2")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Push IndicLLM to HuggingFace Hub")
-    parser.add_argument("--checkpoint",  type=Path, required=True)
-    parser.add_argument("--repo",        required=True, help="HuggingFace repo id, e.g. GenixBit/IndicLLM-Bharat-124M")
-    parser.add_argument("--tokenizer",   type=Path, default=None, help="Path to tokenizer.model (SentencePiece)")
-    parser.add_argument("--config",      type=Path, default=None)
-    parser.add_argument("--private",     action="store_true")
-    parser.add_argument("--commit-msg",  default="Upload IndicLLM-Bharat checkpoint")
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument(
+        "--repo", required=True, help="HuggingFace repo id, e.g. GenixBit/IndicLLM-Bharat-124M"
+    )
+    parser.add_argument(
+        "--tokenizer", type=Path, default=None, help="Path to tokenizer.model (SentencePiece)"
+    )
+    parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--private", action="store_true")
+    parser.add_argument("--commit-msg", default="Upload IndicLLM-Bharat checkpoint")
     args = parser.parse_args()
 
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
@@ -215,22 +221,40 @@ def main():
 
         # Write model card
         size = f"{params}M"
-        langs = ["Hindi (hi)", "Bengali (bn)", "Tamil (ta)",
-                 "Telugu (te)", "Marathi (mr)", "Gujarati (gu)",
-                 "Kannada (kn)", "Malayalam (ml)"]
+        langs = [
+            "Hindi (hi)",
+            "Bengali (bn)",
+            "Tamil (ta)",
+            "Telugu (te)",
+            "Marathi (mr)",
+            "Gujarati (gu)",
+            "Kannada (kn)",
+            "Malayalam (ml)",
+        ]
         lang_yaml = "\n".join(f"- {l.split(' ')[0].lower()}" for l in langs)
         lang_table = "| Language | Script |\n|----------|--------|\n"
-        scripts = {"Hindi": "Devanagari", "Bengali": "Bengali", "Tamil": "Tamil",
-                   "Telugu": "Telugu", "Marathi": "Devanagari", "Gujarati": "Gujarati",
-                   "Kannada": "Kannada", "Malayalam": "Malayalam"}
+        scripts = {
+            "Hindi": "Devanagari",
+            "Bengali": "Bengali",
+            "Tamil": "Tamil",
+            "Telugu": "Telugu",
+            "Marathi": "Devanagari",
+            "Gujarati": "Gujarati",
+            "Kannada": "Kannada",
+            "Malayalam": "Malayalam",
+        }
         for lang in langs:
             name = lang.split(" ")[0]
             lang_table += f"| {lang} | {scripts.get(name, '—')} |\n"
 
         card = MODEL_CARD_TEMPLATE.format(
-            size=size, lang_yaml=lang_yaml, lang_table=lang_table,
-            params=params, n_layer=model_cfg["n_layer"],
-            n_embd=model_cfg["n_embd"], n_head=model_cfg["n_head"],
+            size=size,
+            lang_yaml=lang_yaml,
+            lang_table=lang_table,
+            params=params,
+            n_layer=model_cfg["n_layer"],
+            n_embd=model_cfg["n_embd"],
+            n_head=model_cfg["n_head"],
             block_size=model_cfg.get("block_size", 1024),
             vocab_size=model_cfg.get("vocab_size", 50257),
             train_tokens="~7",
@@ -240,6 +264,7 @@ def main():
         # Push to Hub
         print(f"\n  Pushing to hub: {args.repo}")
         from huggingface_hub import HfApi
+
         api = HfApi(token=token)
 
         try:
@@ -255,8 +280,8 @@ def main():
         )
 
     print(f"\n  ✅ Pushed to https://huggingface.co/{args.repo}")
-    print(f"\n  Load it with:")
-    print(f"    from transformers import AutoModelForCausalLM, AutoTokenizer")
+    print("\n  Load it with:")
+    print("    from transformers import AutoModelForCausalLM, AutoTokenizer")
     print(f"    model = AutoModelForCausalLM.from_pretrained('{args.repo}')")
     print(f"    tokenizer = AutoTokenizer.from_pretrained('{args.repo}')")
 

@@ -32,10 +32,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from train.pretrain import GPT, GPTConfig
+from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
 
 
 def load_checkpoint(ckpt_path: Path, device: str):
-    """Load model from checkpoint."""
+    """Load model + tokenizer from checkpoint."""
     print(f"\n  Loading: {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     cfg = ckpt.get("config", {})
@@ -64,32 +65,41 @@ def load_checkpoint(ckpt_path: Path, device: str):
     print(f"  Context: {block_size} tokens")
     print(f"  Device : {device.upper()}")
 
-    if ckpt.get("config", {}).get("training", {}):
-        train_cfg = ckpt["config"]["training"]
-        val_loss = None
-        # Check if we have eval results
-        print(f"  Config : {ckpt['config'].get('name', 'unknown')}")
+    # Load tokenizer from checkpoint metadata or config
+    tok_src = None
+    meta = ckpt.get("metadata", {})
+    if meta.get("tokenizer_type"):
+        print(f"  Tokenizer: {meta.get('tokenizer_type')} (from checkpoint metadata)")
+    tok_src = cfg.get("tokenizer", {}).get("source")
+    tokenizer = load_bharat_tokenizer(tok_src)
 
-    return model, model_cfg
+    if cfg.get("name"):
+        print(f"  Config : {cfg.get('name')}")
 
-
-def load_tokenizer():
-    """Load GPT-2 tokenizer."""
-    from transformers import GPT2TokenizerFast
-    tok = GPT2TokenizerFast.from_pretrained("gpt2")
-    return tok
+    return model, model_cfg, tokenizer
 
 
 @torch.no_grad()
-def generate(model, tokenizer, prompt: str, max_tokens: int = 200,
-             temperature: float = 0.8, top_k: int = 50, top_p: float = 0.95,
-             device: str = "cpu", show_speed: bool = True) -> str:
+def generate(
+    model,
+    tokenizer,
+    prompt: str,
+    max_tokens: int = 200,
+    temperature: float = 0.8,
+    top_k: int = 50,
+    top_p: float = 0.95,
+    device: str = "cpu",
+    show_speed: bool = True,
+) -> str:
     """Generate text from a prompt using top-k + top-p sampling."""
     block_size = model.config.block_size
 
     # Autocast for CUDA
-    ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16) \
-        if device.startswith("cuda") else nullcontext()
+    ctx = (
+        torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if device.startswith("cuda")
+        else nullcontext()
+    )
 
     # Encode prompt
     prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
@@ -148,10 +158,10 @@ def generate(model, tokenizer, prompt: str, max_tokens: int = 200,
 def interactive_repl(model, tokenizer, args, device):
     """Interactive generation REPL."""
     print(f"\n{'='*60}")
-    print(f"  IndicLLM-Bharat — Interactive Generation")
+    print("  IndicLLM-Bharat — Interactive Generation")
     print(f"  Temperature: {args.temperature}  Top-k: {args.top_k}  Top-p: {args.top_p}")
     print(f"  Max tokens : {args.max_tokens}")
-    print(f"  Commands   : /quit  /temp <v>  /topk <v>  /topp <v>  /max <v>")
+    print("  Commands   : /quit  /temp <v>  /topk <v>  /topp <v>  /max <v>")
     print(f"{'='*60}\n")
 
     temp = args.temperature
@@ -188,21 +198,22 @@ def interactive_repl(model, tokenizer, args, device):
             print(f"  Max tokens → {max_tokens}")
             continue
 
-        result = generate(model, tokenizer, prompt, max_tokens,
-                          temp, top_k, top_p, device)
+        result = generate(model, tokenizer, prompt, max_tokens, temp, top_k, top_p, device)
         print(f"\n  {prompt}{result}\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description="IndicLLM Interactive Generator")
-    parser.add_argument("--checkpoint", type=Path, required=True, help="Path to ckpt.pt or final.pt")
-    parser.add_argument("--prompt",     type=str, default=None, help="Single prompt (skips REPL)")
+    parser.add_argument(
+        "--checkpoint", type=Path, required=True, help="Path to ckpt.pt or final.pt"
+    )
+    parser.add_argument("--prompt", type=str, default=None, help="Single prompt (skips REPL)")
     parser.add_argument("--max-tokens", type=int, default=200)
     parser.add_argument("--temperature", type=float, default=0.8)
-    parser.add_argument("--top-k",      type=int, default=50)
-    parser.add_argument("--top-p",      type=float, default=0.95)
-    parser.add_argument("--device",     default=None, help="cpu/cuda/mps (auto-detect)")
-    parser.add_argument("--seed",       type=int, default=42)
+    parser.add_argument("--top-k", type=int, default=50)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--device", default=None, help="cpu/cuda/mps (auto-detect)")
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     # Auto-detect device
@@ -217,13 +228,20 @@ def main():
 
     torch.manual_seed(args.seed)
 
-    model, model_cfg = load_checkpoint(args.checkpoint, device)
-    tokenizer = load_tokenizer()
+    model, model_cfg, tokenizer = load_checkpoint(args.checkpoint, device)
 
     if args.prompt:
         # Single-shot mode
-        result = generate(model, tokenizer, args.prompt, args.max_tokens,
-                          args.temperature, args.top_k, args.top_p, device)
+        result = generate(
+            model,
+            tokenizer,
+            args.prompt,
+            args.max_tokens,
+            args.temperature,
+            args.top_k,
+            args.top_p,
+            device,
+        )
         print(f"\n  {args.prompt}{result}\n")
     else:
         # Interactive REPL

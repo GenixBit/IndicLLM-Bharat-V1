@@ -27,7 +27,10 @@ from torch.nn import functional as F
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.utils import get_device_preference, init_wandb, load_config
+from train.utils import ensure_dir, get_device_preference, init_wandb, load_config
+from bharat.tokenizer import load_tokenizer
+from bharat.tokenizer.metadata import tokenizer_hash
+from bharat.training.checkpointing import get_git_sha, get_package_versions
 
 
 class GPTConfig:
@@ -120,11 +123,9 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None):
         B, T = idx.size()
-        assert T <= self.config.block_size
+        assert self.config.block_size >= T
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
-        x = self.transformer.drop(
-            self.transformer.wte(idx) + self.transformer.wpe(pos)
-        )
+        x = self.transformer.drop(self.transformer.wte(idx) + self.transformer.wpe(pos))
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
@@ -135,7 +136,7 @@ class GPT(nn.Module):
         return logits, loss
 
     @classmethod
-    def from_config(cls, model_cfg: dict) -> "GPT":
+    def from_config(cls, model_cfg: dict) -> GPT:
         return cls(GPTConfig(**model_cfg))
 
 
@@ -191,14 +192,22 @@ def main() -> None:
     print(f"Device      : {device.upper()}")
     print(f"Config      : {args.config}")
     print(f"Max iters   : {train_cfg['max_iters']}")
-    print(f"Batch size  : {train_cfg['batch_size']} x grad_accum {train_cfg['gradient_accumulation_steps']}")
+    print(
+        f"Batch size  : {train_cfg['batch_size']} x grad_accum {train_cfg['gradient_accumulation_steps']}"
+    )
     print(f"Block size  : {model_cfg['block_size']}")
     sys.stdout.flush()
     dtype_name = train_cfg.get("dtype", "float32")
     if device == "mps" and dtype_name == "bfloat16":
         dtype_name = "float16"
-    ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[dtype_name]
-    ctx = nullcontext() if device == "cpu" else torch.amp.autocast(device_type=device.split(":")[0], dtype=ptdtype)
+    ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[
+        dtype_name
+    ]
+    ctx = (
+        nullcontext()
+        if device == "cpu"
+        else torch.amp.autocast(device_type=device.split(":")[0], dtype=ptdtype)
+    )
 
     data_cfg = cfg["data"]
     meta_path = Path(data_cfg["meta_pkl"])
@@ -211,8 +220,33 @@ def main() -> None:
     val_data = load_bin(Path(data_cfg["val_bin"]))
     data = {"train": train_data, "val": val_data}
 
-    out_dir = Path(cfg["checkpoint"]["out_dir"])
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = ensure_dir(cfg["checkpoint"]["out_dir"])
+
+    # Tokenizer
+    tok_src = cfg.get("tokenizer", {}).get("source")
+    tokenizer = load_tokenizer(tok_src)
+    print(f"  Tokenizer: {tokenizer.tokenizer_type} (vocab={tokenizer.vocab_size})")
+
+    # Validate on resume
+    init_from = cfg.get("checkpoint", {}).get("init_from", "scratch")
+    if init_from == "resume":
+        ckpt_path = out_dir / "ckpt.pt"
+        if ckpt_path.exists():
+            old_ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+            old_meta = old_ckpt.get("metadata")
+            if old_meta and old_meta.get("tokenizer_hash"):
+                old_hash = old_meta["tokenizer_hash"]
+                cur_hash = tokenizer_hash(tokenizer)
+                if old_hash != cur_hash:
+                    raise ValueError(
+                        f"Tokenizer mismatch on resume: checkpoint has hash="
+                        f"{old_hash[:12]}..., current={cur_hash[:12]}...\n"
+                        f"Use the same tokenizer that was used during training."
+                    )
+            elif old_meta:
+                print("  Warning: checkpoint has metadata but no tokenizer_hash — skipping validation.")
+            else:
+                print("  Warning: checkpoint has no metadata section — skipping tokenizer validation.")
 
     init_wandb(cfg)
     wandb = None
@@ -238,17 +272,22 @@ def main() -> None:
         for mn, m in raw_model.named_modules():
             for pn, p in m.named_parameters(recurse=False):
                 fpn = f"{mn}.{pn}" if mn else pn
-                if pn.endswith("bias"):
-                    no_decay.add(fpn)
-                elif pn.endswith("weight") and isinstance(m, (nn.LayerNorm, nn.Embedding)):
+                if (
+                    pn.endswith("bias")
+                    or pn.endswith("weight")
+                    and isinstance(m, (nn.LayerNorm, nn.Embedding))
+                ):
                     no_decay.add(fpn)
                 else:
                     decay.add(fpn)
         param_dict = {pn: p for pn, p in raw_model.named_parameters()}
-        decay    = decay    & param_dict.keys()
+        decay = decay & param_dict.keys()
         no_decay = no_decay & param_dict.keys()
         optim_groups = [
-            {"params": [param_dict[p] for p in sorted(decay)],    "weight_decay": train_cfg["weight_decay"]},
+            {
+                "params": [param_dict[p] for p in sorted(decay)],
+                "weight_decay": train_cfg["weight_decay"],
+            },
             {"params": [param_dict[p] for p in sorted(no_decay)], "weight_decay": 0.0},
         ]
         fused = "fused" in inspect.signature(torch.optim.AdamW).parameters
@@ -272,13 +311,24 @@ def main() -> None:
             )
             print(f"step {it}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
             if wandb:
-                wandb.log({"train/loss": losses["train"], "val/loss": losses["val"], "lr": lr}, step=it)
+                wandb.log(
+                    {"train/loss": losses["train"], "val/loss": losses["val"], "lr": lr}, step=it
+                )
             if it > 0:
                 ckpt = {
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "iter_num": it,
                     "config": cfg,
+                    "metadata": {
+                        "tokenizer_type": tokenizer.tokenizer_type,
+                        "tokenizer_hash": tokenizer_hash(tokenizer),
+                        "vocab_size": tokenizer.vocab_size,
+                        "git_sha": get_git_sha(),
+                        "training_step": it,
+                        "config_name": cfg.get("name", ""),
+                        "package_versions": get_package_versions(),
+                    },
                 }
                 torch.save(ckpt, out_dir / "ckpt.pt")
 
@@ -300,7 +350,19 @@ def main() -> None:
             print(f"iter {it}: loss {loss.item() * grad_accum:.4f}, time {dt * 1000:.0f}ms")
             t0 = time.time()
 
-    torch.save({"model": model.state_dict(), "config": cfg}, out_dir / "final.pt")
+    torch.save({
+        "model": model.state_dict(),
+        "config": cfg,
+        "metadata": {
+            "tokenizer_type": tokenizer.tokenizer_type,
+            "tokenizer_hash": tokenizer_hash(tokenizer),
+            "vocab_size": tokenizer.vocab_size,
+            "git_sha": get_git_sha(),
+            "training_step": train_cfg["max_iters"],
+            "config_name": cfg.get("name", ""),
+            "package_versions": get_package_versions(),
+        },
+    }, out_dir / "final.pt")
     print(f"Training complete. Checkpoints in {out_dir}")
 
 

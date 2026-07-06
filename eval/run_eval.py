@@ -24,9 +24,7 @@ import argparse
 import json
 import math
 import os
-import pickle
 import sys
-import time
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -37,7 +35,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from train.pretrain import GPT, GPTConfig
-from train.utils import load_config
 
 BENCHMARK_TASKS = ["hellaswag", "piqa", "winogrande", "lambada_openai"]
 
@@ -69,16 +66,24 @@ def load_checkpoint(ckpt_path: Path, device: str):
 
 # ── Perplexity on val shard ──────────────────────────────────
 @torch.no_grad()
-def compute_perplexity(model, val_bin: Path, block_size: int, batch_size: int,
-                       eval_iters: int, device: str) -> float:
-    ctx = nullcontext() if device in ("cpu", "mps") \
-          else torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+def compute_perplexity(
+    model, val_bin: Path, block_size: int, batch_size: int, eval_iters: int, device: str
+) -> float:
+    ctx = (
+        nullcontext()
+        if device in ("cpu", "mps")
+        else torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+    )
     data = np.memmap(str(val_bin), dtype=np.uint16, mode="r")
     losses = []
     for _ in range(eval_iters):
         ix = torch.randint(len(data) - block_size, (batch_size,))
-        x = torch.stack([torch.from_numpy(data[i:i+block_size].astype(np.int64)) for i in ix]).to(device)
-        y = torch.stack([torch.from_numpy(data[i+1:i+1+block_size].astype(np.int64)) for i in ix]).to(device)
+        x = torch.stack(
+            [torch.from_numpy(data[i : i + block_size].astype(np.int64)) for i in ix]
+        ).to(device)
+        y = torch.stack(
+            [torch.from_numpy(data[i + 1 : i + 1 + block_size].astype(np.int64)) for i in ix]
+        ).to(device)
         with ctx:
             _, loss = model(x, y)
         losses.append(loss.item())
@@ -89,6 +94,7 @@ def compute_perplexity(model, val_bin: Path, block_size: int, batch_size: int,
 # ── Export HF stub for lm-eval ───────────────────────────────
 def export_hf_stub(ckpt_path: Path, model_cfg: dict, export_dir: Path) -> Path:
     from transformers import GPT2Config, GPT2LMHeadModel
+
     export_dir.mkdir(parents=True, exist_ok=True)
     hf_cfg = GPT2Config(
         n_layer=model_cfg["n_layer"],
@@ -137,20 +143,21 @@ def run_benchmarks(export_dir: Path, tasks: list[str]) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="IndicLLM eval + W&B tracking")
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--config",     type=Path, default=None)
-    parser.add_argument("--val-bin",    type=Path, default=Path("data/shards/val.bin"))
-    parser.add_argument("--tasks",      default=None,
-                        help="Comma-separated lm-eval tasks. Skip for perplexity only.")
+    parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--val-bin", type=Path, default=Path("data/shards/val.bin"))
+    parser.add_argument(
+        "--tasks", default=None, help="Comma-separated lm-eval tasks. Skip for perplexity only."
+    )
     parser.add_argument("--eval-iters", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--export-dir", type=Path, default=Path("checkpoints/hf_export"))
-    parser.add_argument("--no-wandb",   action="store_true")
-    parser.add_argument("--run-name",   default=None)
+    parser.add_argument("--no-wandb", action="store_true")
+    parser.add_argument("--run-name", default=None)
     args = parser.parse_args()
 
     device = pick_device()
     print(f"\n{'='*60}")
-    print(f"  IndicLLM-Bharat-V1 — Evaluation")
+    print("  IndicLLM-Bharat-V1 — Evaluation")
     print(f"  Device     : {device.upper()}")
     print(f"  Checkpoint : {args.checkpoint}")
     print(f"{'='*60}\n")
@@ -165,6 +172,7 @@ def main():
     if not args.no_wandb and os.environ.get("WANDB_API_KEY"):
         try:
             import wandb as _wandb
+
             run_name = args.run_name or f"eval-iter{iter_num}"
             _wandb.init(
                 project=cfg.get("wandb", {}).get("project", "indicllm-bharat"),
@@ -182,8 +190,9 @@ def main():
     # ── Perplexity ──────────────────────────────────────────
     print(f"[1] Computing perplexity on val shard ({args.eval_iters} batches)...")
     if args.val_bin.exists():
-        ppl = compute_perplexity(model, args.val_bin, block_size,
-                                  args.batch_size, args.eval_iters, device)
+        ppl = compute_perplexity(
+            model, args.val_bin, block_size, args.batch_size, args.eval_iters, device
+        )
         results["val_perplexity"] = ppl
         results["val_bpb"] = math.log2(ppl)
         print(f"    Perplexity : {ppl:.2f}")
@@ -216,11 +225,15 @@ def main():
     if wandb:
         wandb.log(results, step=iter_num)
         wandb.finish()
-        print(f"  Logged to W&B ✅")
+        print("  Logged to W&B ✅")
 
     print(f"\n{'='*60}")
-    print(f"  Eval complete.")
-    print(f"  Perplexity : {results.get('val_perplexity', 'N/A'):.2f}" if "val_perplexity" in results else "  Perplexity : N/A")
+    print("  Eval complete.")
+    print(
+        f"  Perplexity : {results.get('val_perplexity', 'N/A'):.2f}"
+        if "val_perplexity" in results
+        else "  Perplexity : N/A"
+    )
     print(f"{'='*60}\n")
 
 

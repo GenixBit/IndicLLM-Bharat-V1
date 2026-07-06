@@ -24,7 +24,6 @@ import time
 import uuid
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Optional
 
 import torch
 
@@ -32,12 +31,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from train.pretrain import GPT, GPTConfig
+from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
 
 try:
+    import uvicorn
     from fastapi import FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
-    import uvicorn
 except ImportError:
     raise SystemExit("Install inference deps: pip install fastapi uvicorn pydantic")
 
@@ -59,7 +59,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -111,12 +111,16 @@ class CompletionRequest(BaseModel):
 
 # ── Generation ───────────────────────────────────────────────
 @torch.no_grad()
-def generate(prompt_ids: list[int], max_new_tokens: int,
-             temperature: float, top_p: float) -> list[int]:
+def generate(
+    prompt_ids: list[int], max_new_tokens: int, temperature: float, top_p: float
+) -> list[int]:
     global MODEL, DEVICE
     model = MODEL
-    ctx = nullcontext() if DEVICE in ("cpu", "mps") \
-          else torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+    ctx = (
+        nullcontext()
+        if DEVICE in ("cpu", "mps")
+        else torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+    )
 
     block_size = model.config.block_size
     x = torch.tensor(prompt_ids, dtype=torch.long, device=DEVICE).unsqueeze(0)
@@ -141,8 +145,8 @@ def generate(prompt_ids: list[int], max_new_tokens: int,
         generated.append(tok_id)
         x = torch.cat([x, next_token.view(1, 1)], dim=1)
 
-        # Stop at EOT
-        if tok_id in (50256, 50257):
+        # Stop at EOS
+        if tok_id == TOKENIZER.eos_token_id:
             break
 
     return generated
@@ -177,7 +181,7 @@ def root():
 def list_models():
     return {
         "object": "list",
-        "data": [{"id": MODEL_NAME, "object": "model", "created": int(APP_START)}]
+        "data": [{"id": MODEL_NAME, "object": "model", "created": int(APP_START)}],
     }
 
 
@@ -201,11 +205,13 @@ def chat_completions(req: ChatRequest):
         id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
         created=int(time.time()),
         model=MODEL_NAME,
-        choices=[ChatChoice(
-            index=0,
-            message=Message(role="assistant", content=completion_text),
-            finish_reason="stop",
-        )],
+        choices=[
+            ChatChoice(
+                index=0,
+                message=Message(role="assistant", content=completion_text),
+                finish_reason="stop",
+            )
+        ],
         usage=Usage(
             prompt_tokens=len(prompt_ids),
             completion_tokens=len(gen_ids),
@@ -258,9 +264,13 @@ def load_model(checkpoint: Path):
     params = sum(p.numel() for p in MODEL.parameters()) / 1e6
     print(f"  Model loaded: {params:.1f}M parameters")
 
-    from transformers import GPT2TokenizerFast
-    TOKENIZER = GPT2TokenizerFast.from_pretrained("gpt2")
-    print(f"  Tokenizer: GPT-2 (vocab={TOKENIZER.vocab_size})")
+    # Load tokenizer from checkpoint metadata or config
+    tok_src = cfg.get("tokenizer", {}).get("source")
+    meta = ckpt.get("metadata", {})
+    if meta.get("tokenizer_type"):
+        print(f"  Tokenizer: {meta.get('tokenizer_type')} (from checkpoint metadata)")
+    TOKENIZER = load_bharat_tokenizer(tok_src)
+    print(f"  Tokenizer: {TOKENIZER.tokenizer_type} (vocab={TOKENIZER.vocab_size})")
 
     MODEL_NAME = checkpoint.parent.name
     print(f"  Ready! Serving as '{MODEL_NAME}'\n")
@@ -269,9 +279,9 @@ def load_model(checkpoint: Path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="IndicLLM Inference API")
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--host",       default="0.0.0.0")
-    parser.add_argument("--port",       type=int, default=8000)
-    parser.add_argument("--workers",    type=int, default=1)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
 
     load_model(args.checkpoint)

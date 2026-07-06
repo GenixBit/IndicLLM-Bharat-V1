@@ -10,12 +10,10 @@ Runs ~300 iterations of a tiny GPT (~1.5M params) on CPU/MPS.
 Expected outcome: loss drops from ~3.3 → ~1.8 and a checkpoint is saved.
 """
 
-import os
-import sys
-import time
 import math
 import pickle
-import argparse
+import sys
+import time
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -25,31 +23,32 @@ sys.path.insert(0, str(NANO_GPT_DIR))
 
 import numpy as np
 import torch
-from model import GPTConfig, GPT  # from nanoGPT
+from model import GPT, GPTConfig  # from nanoGPT
 
 # ── Config ───────────────────────────────────────────────────────────────────
 # Tiny model that runs fast on M2 CPU/MPS
-N_LAYER        = 4
-N_HEAD         = 4
-N_EMBD         = 128
-BLOCK_SIZE     = 256
-BATCH_SIZE     = 8
-GRAD_ACCUM     = 1
-MAX_ITERS      = 300
-EVAL_INTERVAL  = 100
-EVAL_ITERS     = 20
-LOG_INTERVAL   = 50
-LR             = 1e-3
-MIN_LR         = 1e-4
-WARMUP_ITERS   = 30
+N_LAYER = 4
+N_HEAD = 4
+N_EMBD = 128
+BLOCK_SIZE = 256
+BATCH_SIZE = 8
+GRAD_ACCUM = 1
+MAX_ITERS = 300
+EVAL_INTERVAL = 100
+EVAL_ITERS = 20
+LOG_INTERVAL = 50
+LR = 1e-3
+MIN_LR = 1e-4
+WARMUP_ITERS = 30
 LR_DECAY_ITERS = 300
-WEIGHT_DECAY   = 0.1
-GRAD_CLIP      = 1.0
-DROPOUT        = 0.0
-BIAS           = False
+WEIGHT_DECAY = 0.1
+GRAD_CLIP = 1.0
+DROPOUT = 0.0
+BIAS = False
 
-DATA_DIR  = NANO_GPT_DIR / "data" / "shakespeare_char"
-OUT_DIR   = Path(__file__).parent.parent / "checkpoints" / "sanity-shakespeare"
+DATA_DIR = NANO_GPT_DIR / "data" / "shakespeare_char"
+OUT_DIR = Path(__file__).parent.parent / "checkpoints" / "sanity-shakespeare"
+
 
 # ── Device selection ─────────────────────────────────────────────────────────
 def pick_device():
@@ -59,14 +58,18 @@ def pick_device():
         return "cuda"
     return "cpu"
 
+
 # ── Data loader ──────────────────────────────────────────────────────────────
 def get_batch(split, device):
     path = DATA_DIR / ("train.bin" if split == "train" else "val.bin")
     data = np.memmap(str(path), dtype=np.uint16, mode="r")
     ix = torch.randint(len(data) - BLOCK_SIZE, (BATCH_SIZE,))
-    x = torch.stack([torch.from_numpy(data[i:i+BLOCK_SIZE].astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy(data[i+1:i+1+BLOCK_SIZE].astype(np.int64)) for i in ix])
+    x = torch.stack([torch.from_numpy(data[i : i + BLOCK_SIZE].astype(np.int64)) for i in ix])
+    y = torch.stack(
+        [torch.from_numpy(data[i + 1 : i + 1 + BLOCK_SIZE].astype(np.int64)) for i in ix]
+    )
     return x.to(device), y.to(device)
+
 
 # ── LR schedule ──────────────────────────────────────────────────────────────
 def get_lr(it):
@@ -78,11 +81,12 @@ def get_lr(it):
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
     return MIN_LR + coeff * (LR - MIN_LR)
 
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main():
     device = pick_device()
     print(f"{'='*60}")
-    print(f"  IndicLLM-Bharat — Dev Environment Sanity Check")
+    print("  IndicLLM-Bharat — Dev Environment Sanity Check")
     print(f"{'='*60}")
     print(f"  Device      : {device.upper()}")
     print(f"  PyTorch     : {torch.__version__}")
@@ -93,7 +97,7 @@ def main():
 
     # Verify data exists
     assert (DATA_DIR / "train.bin").exists(), f"train.bin not found in {DATA_DIR}"
-    assert (DATA_DIR / "val.bin").exists(),   f"val.bin not found in {DATA_DIR}"
+    assert (DATA_DIR / "val.bin").exists(), f"val.bin not found in {DATA_DIR}"
 
     # Load vocab size from meta
     meta_path = DATA_DIR / "meta.pkl"
@@ -108,9 +112,13 @@ def main():
 
     # Model
     cfg = GPTConfig(
-        n_layer=N_LAYER, n_head=N_HEAD, n_embd=N_EMBD,
-        block_size=BLOCK_SIZE, vocab_size=vocab_size,
-        dropout=DROPOUT, bias=BIAS,
+        n_layer=N_LAYER,
+        n_head=N_HEAD,
+        n_embd=N_EMBD,
+        block_size=BLOCK_SIZE,
+        vocab_size=vocab_size,
+        dropout=DROPOUT,
+        bias=BIAS,
     )
     model = GPT(cfg).to(device)
     n_params = sum(p.numel() for p in model.parameters())
@@ -118,13 +126,14 @@ def main():
 
     # Optimizer — use device_type='cpu' for MPS (adamw works on MPS tensors fine)
     opt_device_type = "cuda" if device == "cuda" else "cpu"
-    optimizer = model.configure_optimizers(
-        WEIGHT_DECAY, LR, (0.9, 0.95), opt_device_type
-    )
+    optimizer = model.configure_optimizers(WEIGHT_DECAY, LR, (0.9, 0.95), opt_device_type)
 
     # autocast context: only for cuda; nullcontext for cpu/mps (float32 is fine)
-    ctx = torch.amp.autocast(device_type="cuda", dtype=torch.float16) \
-          if device == "cuda" else nullcontext()
+    ctx = (
+        torch.amp.autocast(device_type="cuda", dtype=torch.float16)
+        if device == "cuda"
+        else nullcontext()
+    )
 
     @torch.no_grad()
     def estimate_loss():
@@ -157,16 +166,22 @@ def main():
         if it % EVAL_INTERVAL == 0:
             losses = estimate_loss()
             dt_eval = (time.time() - t0) * 1000
-            print(f"  {it:>6}  {losses['train']:>10.4f}  {losses['val']:>8.4f}  {lr:>8.2e}  {dt_eval/max(it,1):>7.1f}")
+            print(
+                f"  {it:>6}  {losses['train']:>10.4f}  {losses['val']:>8.4f}  {lr:>8.2e}  {dt_eval/max(it,1):>7.1f}"
+            )
             if losses["val"] < best_val_loss:
                 best_val_loss = losses["val"]
                 ckpt = {
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "model_args": dict(
-                        n_layer=N_LAYER, n_head=N_HEAD, n_embd=N_EMBD,
-                        block_size=BLOCK_SIZE, vocab_size=vocab_size,
-                        dropout=DROPOUT, bias=BIAS,
+                        n_layer=N_LAYER,
+                        n_head=N_HEAD,
+                        n_embd=N_EMBD,
+                        block_size=BLOCK_SIZE,
+                        vocab_size=vocab_size,
+                        dropout=DROPOUT,
+                        bias=BIAS,
                     ),
                     "iter_num": it,
                     "best_val_loss": best_val_loss,
@@ -194,13 +209,14 @@ def main():
 
     total_time = time.time() - t0
     print(f"\n{'='*60}")
-    print(f"  ✅ SANITY CHECK PASSED")
+    print("  ✅ SANITY CHECK PASSED")
     print(f"  Best val loss  : {best_val_loss:.4f}")
     print(f"  Checkpoint     : {OUT_DIR / 'ckpt.pt'}")
     print(f"  Total time     : {total_time:.1f}s")
     print(f"{'='*60}")
-    print(f"\n  Dev environment is confirmed working.")
-    print(f"  Next step → data-pipeline: run  python data/prepare_data.py")
+    print("\n  Dev environment is confirmed working.")
+    print("  Next step → data-pipeline: run  python data/prepare_data.py")
+
 
 if __name__ == "__main__":
     main()

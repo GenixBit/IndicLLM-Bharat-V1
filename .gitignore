@@ -6,6 +6,12 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.coverage
+coverage/
+coverage.xml
+htmlcov/
 
 # ML artifacts
 checkpoints/
@@ -32,3 +38,19 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# Model artifacts (too large for git)
+*.safetensors
+*.pt
+*.bin
+*.gguf
+inference/ollama/
+checkpoints/
+
+# AWS state
+infra/.aws_instance_state
+
+# Python
+.venv/
+__pycache__/
+*.pyc
