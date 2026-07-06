@@ -364,6 +364,10 @@ def train_from_config(
         raise ValueError(
             f"Training data length ({len(train_data)}) must be > block_size ({block_size})"
         )
+    if len(val_data) <= block_size:
+        raise ValueError(
+            f"Validation data length ({len(val_data)}) must be > block_size ({block_size})"
+        )
     data = {"train": train_data, "val": val_data}
 
     out_dir = ensure_dir(cfg["checkpoint"]["out_dir"])
@@ -492,9 +496,15 @@ def train_from_config(
     t0 = time.time()
     completed_steps = next_step  # steps already done before this run
 
-    # If already past target, return no-op result from checkpoint metadata
-    if next_step >= max_iters:
-        print(f"  Already at next_step={next_step} >= max_iters={max_iters}, no training needed")
+    # Reject checkpoints ahead of the requested target
+    if next_step > max_iters:
+        raise ValueError(
+            f"Checkpoint next_step={next_step} exceeds requested max_iters={max_iters}"
+        )
+
+    # Already at target → no-op result
+    if next_step == max_iters:
+        print(f"  Already at next_step={next_step} == max_iters={max_iters}, no training needed")
         return {
             "final_loss": None,
             "completed_steps": completed_steps,
