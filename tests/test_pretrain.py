@@ -381,6 +381,148 @@ class TestPretrainFast:
         with pytest.raises((ValueError, AssertionError)):
             train_from_config(cfg)
 
+    def test_resume_at_target_returns_noop(self, tmp_path: Path, tiny_tokenizer_path: str):
+        """Resume with next_step == max_iters returns no-op result."""
+        shards = _create_tiny_shards(tmp_path)
+        out_dir = tmp_path / "ckpts"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        model = GPT(
+            GPTConfig(n_layer=1, n_head=2, n_embd=16, block_size=8, vocab_size=128, bias=False)
+        )
+        from bharat.tokenizer import load_tokenizer
+        from bharat.tokenizer.metadata import tokenizer_hash
+
+        tok = load_tokenizer(tiny_tokenizer_path)
+        correct_hash = tokenizer_hash(tok)
+        torch.save(
+            {
+                "model": model.state_dict(),
+                "optimizer": {},
+                "completed_steps": 5,
+                "next_step": 5,
+                "metadata": {
+                    "tokenizer_hash": correct_hash,
+                    "tokenizer_type": tok.tokenizer_type,
+                    "vocab_size": tok.vocab_size,
+                },
+                "rng_state": {
+                    "python": __import__("random").getstate(),
+                    "torch": torch.get_rng_state().tolist(),
+                    "cuda": {},
+                },
+            },
+            out_dir / "ckpt.pt",
+        )
+        cfg = _config_for(out_dir, shards, tiny_tokenizer_path, max_iters=5, init_from="resume")
+        result = train_from_config(cfg)
+        assert result["final_loss"] is None
+        assert result["completed_steps"] == 5
+        assert result["next_step"] == 5
+
+    def test_resume_ahead_of_target_raises(self, tmp_path: Path, tiny_tokenizer_path: str):
+        """Resume with next_step > max_iters raises ValueError."""
+        shards = _create_tiny_shards(tmp_path)
+        out_dir = tmp_path / "ckpts"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        model = GPT(
+            GPTConfig(n_layer=1, n_head=2, n_embd=16, block_size=8, vocab_size=128, bias=False)
+        )
+        from bharat.tokenizer import load_tokenizer
+        from bharat.tokenizer.metadata import tokenizer_hash
+
+        tok = load_tokenizer(tiny_tokenizer_path)
+        correct_hash = tokenizer_hash(tok)
+        torch.save(
+            {
+                "model": model.state_dict(),
+                "optimizer": {},
+                "completed_steps": 7,
+                "next_step": 7,
+                "metadata": {
+                    "tokenizer_hash": correct_hash,
+                    "tokenizer_type": tok.tokenizer_type,
+                    "vocab_size": tok.vocab_size,
+                },
+                "rng_state": {
+                    "python": __import__("random").getstate(),
+                    "torch": torch.get_rng_state().tolist(),
+                    "cuda": {},
+                },
+            },
+            out_dir / "ckpt.pt",
+        )
+        cfg = _config_for(out_dir, shards, tiny_tokenizer_path, max_iters=5, init_from="resume")
+        with pytest.raises(ValueError, match="exceeds requested"):
+            train_from_config(cfg)
+
+    def test_noop_result_has_no_loss(self, tmp_path: Path, tiny_tokenizer_path: str):
+        """No-op result must not have an undefined or invented loss value."""
+        shards = _create_tiny_shards(tmp_path)
+        out_dir = tmp_path / "ckpts"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        model = GPT(
+            GPTConfig(n_layer=1, n_head=2, n_embd=16, block_size=8, vocab_size=128, bias=False)
+        )
+        from bharat.tokenizer import load_tokenizer
+        from bharat.tokenizer.metadata import tokenizer_hash
+
+        tok = load_tokenizer(tiny_tokenizer_path)
+        correct_hash = tokenizer_hash(tok)
+        torch.save(
+            {
+                "model": model.state_dict(),
+                "optimizer": {},
+                "completed_steps": 5,
+                "next_step": 5,
+                "metadata": {
+                    "tokenizer_hash": correct_hash,
+                    "tokenizer_type": tok.tokenizer_type,
+                    "vocab_size": tok.vocab_size,
+                },
+                "rng_state": {
+                    "python": __import__("random").getstate(),
+                    "torch": torch.get_rng_state().tolist(),
+                    "cuda": {},
+                },
+            },
+            out_dir / "ckpt.pt",
+        )
+        cfg = _config_for(out_dir, shards, tiny_tokenizer_path, max_iters=5, init_from="resume")
+        result = train_from_config(cfg)
+        assert "final_loss" in result
+        assert result["final_loss"] is None
+
+    def test_val_data_too_short_raises(self, tmp_path: Path, tiny_tokenizer_path: str):
+        """Short validation data (<= block_size) raises ValueError."""
+        shards = _create_tiny_shards(tmp_path)  # default length=200 for train
+        # overwrite val.bin with data shorter than block_size
+        rng = __import__("numpy").random.RandomState(42)
+        short = rng.randint(0, 128, size=4, dtype=__import__("numpy").uint16)
+        (shards / "val.bin").write_bytes(short.tobytes())
+        out_dir = tmp_path / "ckpts"
+        cfg = _config_for(out_dir, shards, tiny_tokenizer_path, max_iters=1)
+        cfg["training"]["warmup_iters"] = 0
+        with pytest.raises(ValueError, match="Validation"):
+            train_from_config(cfg)
+
+    def test_train_data_too_short_raises(self, tmp_path: Path, tiny_tokenizer_path: str):
+        """Short training data (<= block_size) raises ValueError."""
+        shards = tmp_path / "shards"
+        shards.mkdir(parents=True, exist_ok=True)
+        rng = __import__("numpy").random.RandomState(42)
+        for name in ("train", "val"):
+            arr = rng.randint(0, 128, size=200, dtype=__import__("numpy").uint16)
+            (shards / f"{name}.bin").write_bytes(arr.tobytes())
+        with open(shards / "meta.pkl", "wb") as f:
+            pickle.dump({"vocab_size": 128}, f)
+        _create_tiny_shards(tmp_path)  # ensure shards dir exists
+        out_dir = tmp_path / "ckpts"
+        cfg = _config_for(out_dir, shards, tiny_tokenizer_path, max_iters=1)
+        cfg["model"]["block_size"] = 256
+        cfg["training"]["warmup_iters"] = 0
+        with pytest.raises(ValueError, match="Training"):
+            train_from_config(cfg)
+
 
 # ---------------------------------------------------------------------------
 # Slow / integration tests
