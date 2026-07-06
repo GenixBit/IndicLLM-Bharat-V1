@@ -65,6 +65,33 @@ class TestDPODataset:
 
 
 class TestDPOTraining:
+    def test_empty_dataset_raises(self, tokenizer):
+        from bharat.posttraining.dpo import DPOConfig, dpo_train
+        from train.pretrain import GPT, GPTConfig
+
+        model = GPT(
+            GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
+        )
+        ref = GPT(
+            GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
+        )
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write("")
+            data_path = f.name
+
+        config = DPOConfig(
+            data_path=data_path, max_iters=1, batch_size=1, block_size=64, device="cpu"
+        )
+        config.output_dir = tempfile.mkdtemp()
+
+        with pytest.raises(ValueError, match="empty"):
+            dpo_train(model, ref, config, tokenizer)
+
+        import os
+
+        os.unlink(data_path)
+
     def test_cpu_backward(self, preferences_jsonl, tokenizer):
         from train.pretrain import GPT, GPTConfig
 

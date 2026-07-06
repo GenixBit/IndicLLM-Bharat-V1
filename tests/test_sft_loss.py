@@ -139,8 +139,29 @@ class TestLossMasking:
         batch = [{"messages": messages}]
         result = collator(batch)
         labels = result["labels"][0]
-        non_masked = labels[labels != -100]
-        assert len(non_masked) > 0, "Assistant tokens should contribute to loss"
+
+        # Must have two distinct active regions (both assistant turns)
+        transitions = 0
+        prev_masked = True
+        for v in labels:
+            if prev_masked and v != -100:
+                transitions += 1
+            prev_masked = v == -100
+        assert transitions >= 2, f"Expected >=2 active regions, got {transitions}"
+
+        full_text = (
+            "<|instruction|>First Q<|endoftext|><|response|>First A<|endoftext|>"
+            "<|instruction|>Second Q<|endoftext|><|response|>Second A<|endoftext|>"
+        )
+        full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+        target_ids = full_ids[1:]
+
+        # Every non-masked label should match the corresponding target token
+        for i in range(len(labels)):
+            if labels[i] != -100:
+                assert labels[i].item() == target_ids[i], (
+                    f"Label at position {i} should match target token {target_ids[i]}"
+                )
 
     def test_assistant_content_active(self, tokenizer):
         # Directly test with a known conversation
@@ -191,3 +212,8 @@ class TestLossMasking:
         for i in range(len(batch)):
             pad_labels = labels[i, seq_lens[i] :]
             assert (pad_labels == -100).all(), f"Padding in sample {i} should have -100 labels"
+
+        # Both sequences should be padded to same length
+        assert (seq_lens <= labels.shape[1]).all()
+        # The shorter sequence (index 0) must have at least 1 padding token
+        assert seq_lens[0] < labels.shape[1]

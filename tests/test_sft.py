@@ -369,6 +369,30 @@ class TestSFTCollator:
 
 
 class TestSFTOneStepTraining:
+    def test_empty_dataset_raises(self):
+        from bharat.posttraining.sft import SFTConfig, sft_train
+        from train.pretrain import GPT, GPTConfig
+
+        model = GPT(
+            GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
+        )
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write("")
+            data_path = f.name
+
+        config = SFTConfig(
+            data_path=data_path, max_iters=1, batch_size=1, block_size=64, device="cpu"
+        )
+        config.output_dir = tempfile.mkdtemp()
+
+        with pytest.raises(ValueError, match="empty"):
+            sft_train(model, config)
+
+        import os
+
+        os.unlink(data_path)
+
     def test_cpu_backward(self, tokenizer):
         from bharat.posttraining.sft import SFTConfig, sft_train
 

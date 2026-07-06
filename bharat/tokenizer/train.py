@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from bharat.tokenizer.base import BharatTokenizer
-from bharat.tokenizer.loader import _SentencePieceWrapper
+from bharat.tokenizer.loader import _SentencePieceHFWrapper as _SentencePieceWrapper
 
 
 def train_bpe_tokenizer(

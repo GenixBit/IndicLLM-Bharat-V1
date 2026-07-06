@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +37,7 @@ class _GPT2Wrapper(BharatTokenizer):
         return self._tok.encode(text, add_special_tokens=add_special_tokens)
 
     def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
-        return [self.encode(t, add_special_tokens=add_special_tokens) for t in texts]
+        return [self._tok.encode(t, add_special_tokens=add_special_tokens) for t in texts]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
         return self._tok.decode(ids, skip_special_tokens=skip_special_tokens)
@@ -49,10 +51,7 @@ class _GPT2Wrapper(BharatTokenizer):
             "vocab_size": self.vocab_size,
             "eos_token_id": self.eos_token_id,
             "pad_token_id": self.pad_token_id,
-            "special_tokens": {
-                "eos": self.eos_token_id,
-                "pad": self.pad_token_id,
-            },
+            "special_tokens": {"eos": self.eos_token_id, "pad": self.pad_token_id},
             "is_fast": True,
         }
 
@@ -60,42 +59,112 @@ class _GPT2Wrapper(BharatTokenizer):
         return self._tok.add_special_tokens(special_tokens)
 
     def fingerprint(self) -> str:
-        import hashlib
-        import json
-
-        tok = self._tok.backend_tokenizer if hasattr(self._tok, "backend_tokenizer") else None
-        if tok is not None:
-            data = {
+        backend = getattr(self._tok, "backend_tokenizer", None)
+        if backend is not None:
+            raw = backend.to_str()
+            extra = {
+                "eos_id": self.eos_token_id,
+                "pad_id": self.pad_token_id,
+                "bos_id": self.bos_token_id,
+                "unk_id": self.unk_token_id,
                 "type": "gpt2",
-                "vocab": tok.get_vocab(),
-                "merges": tok.model.merges if hasattr(tok.model, "merges") else [],
-                "normalizer": str(tok.normalizer.__class__.__name__) if tok.normalizer else None,
-                "pre_tokenizer": str(tok.pre_tokenizer.__class__.__name__)
-                if tok.pre_tokenizer
-                else None,
-                "special_tokens": {
-                    t.content: tid for tid, t in tok.get_added_tokens_decoder().items()
-                },
-                "model_type": str(tok.model.__class__.__name__),
+                "name": getattr(self._tok, "name_or_path", ""),
             }
+            data = {"serialized": raw, "config": extra}
             return hashlib.sha256(
                 json.dumps(data, sort_keys=True, default=str).encode()
             ).hexdigest()
-
         fallback = json.dumps(
             {
                 "type": "gpt2",
                 "vocab_size": self.vocab_size,
                 "eos_id": self.eos_token_id,
                 "pad_id": self.pad_token_id,
-                "name": self._tok.name_or_path,
+                "name": getattr(self._tok, "name_or_path", ""),
             },
             sort_keys=True,
         )
         return hashlib.sha256(fallback.encode()).hexdigest()
 
 
-class _SentencePieceWrapper(BharatTokenizer):
+class _SentencePieceNativeWrapper(BharatTokenizer):
+    """Wraps a native google sentencepiece SentencePieceProcessor."""
+
+    def __init__(self, processor: Any) -> None:
+        self._sp = processor
+        self._vocab_size = processor.vocab_size()
+        self._bos_id: int = processor.bos_id()
+        self._eos_id: int = processor.eos_id()
+        self._pad_id: int = processor.pad_id()
+        self._unk_id: int = processor.unk_id()
+
+    @property
+    def vocab_size(self) -> int:
+        return self._vocab_size
+
+    @property
+    def eos_token_id(self) -> int:
+        return self._eos_id if self._eos_id >= 0 else 1
+
+    @property
+    def pad_token_id(self) -> int:
+        return self._pad_id if self._pad_id >= 0 else 0
+
+    @property
+    def bos_token_id(self) -> int:
+        return self._bos_id if self._bos_id >= 0 else 2
+
+    @property
+    def unk_token_id(self) -> int:
+        return self._unk_id if self._unk_id >= 0 else 3
+
+    @property
+    def tokenizer_type(self) -> str:
+        return "sentencepiece"
+
+    def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:  # noqa: ARG002
+        return self._sp.encode(text)
+
+    def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:  # noqa: ARG002
+        return self._sp.encode(texts)
+
+    def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:  # noqa: ARG002
+        return self._sp.decode(ids)
+
+    def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:  # noqa: ARG002
+        return self._sp.decode(batch)
+
+    def get_metadata(self) -> dict[str, Any]:
+        return {
+            "tokenizer_type": self.tokenizer_type,
+            "vocab_size": self.vocab_size,
+            "eos_token_id": self.eos_token_id,
+            "pad_token_id": self.pad_token_id,
+            "bos_token_id": self.bos_token_id,
+            "unk_token_id": self.unk_token_id,
+            "special_tokens": {
+                "eos": self.eos_token_id,
+                "pad": self.pad_token_id,
+                "bos": self.bos_token_id,
+                "unk": self.unk_token_id,
+            },
+        }
+
+    def fingerprint(self) -> str:
+        raw = self._sp.serialized_model_proto()
+        extra = {
+            "type": "sentencepiece",
+            "vocab_size": self.vocab_size,
+            "eos_id": self.eos_token_id,
+            "pad_id": self.pad_token_id,
+            "bos_id": self.bos_token_id,
+            "unk_id": self.unk_token_id,
+        }
+        data = {"proto_bytes": raw.hex(), "config": extra}
+        return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
+
+
+class _SentencePieceHFWrapper(BharatTokenizer):
     """Wraps a HuggingFace tokenizers SentencePiece tokenizer as a BharatTokenizer."""
 
     def __init__(self, tok: HFTokenizersTokenizer) -> None:
@@ -112,7 +181,7 @@ class _SentencePieceWrapper(BharatTokenizer):
         if eos is not None:
             return eos
         eos = self._tok.token_to_id("</s>")
-        return eos if eos is not None else 0
+        return eos if eos is not None else 1
 
     @property
     def pad_token_id(self) -> int:
@@ -146,34 +215,38 @@ class _SentencePieceWrapper(BharatTokenizer):
             "vocab_size": self.vocab_size,
             "eos_token_id": self.eos_token_id,
             "pad_token_id": self.pad_token_id,
-            "special_tokens": {
-                "eos": self.eos_token_id,
-                "pad": self.pad_token_id,
-            },
+            "special_tokens": {"eos": self.eos_token_id, "pad": self.pad_token_id},
         }
 
     def fingerprint(self) -> str:
-        import hashlib
-        import json
-
-        tok = self._tok
+        raw = self._tok.to_str() if hasattr(self._tok, "to_str") else None
+        if raw:
+            extra = {
+                "type": "sentencepiece_hf",
+                "eos_id": self.eos_token_id,
+                "pad_id": self.pad_token_id,
+                "vocab_size": self.vocab_size,
+            }
+            data = {"serialized": raw, "config": extra}
+            return hashlib.sha256(
+                json.dumps(data, sort_keys=True, default=str).encode()
+            ).hexdigest()
         data = {
             "type": "sentencepiece",
-            "vocab_size": tok.get_vocab_size(),
+            "vocab_size": self.vocab_size,
             "vocab": {
-                tok.id_to_token(i): i
-                for i in range(tok.get_vocab_size())
-                if tok.id_to_token(i) is not None
+                self._tok.id_to_token(i): i
+                for i in range(self._tok.get_vocab_size())
+                if self._tok.id_to_token(i) is not None
             },
-            "normalizer": str(tok.normalizer.__class__.__name__)
-            if hasattr(tok, "normalizer") and tok.normalizer
+            "normalizer": str(self._tok.normalizer.__class__.__name__)
+            if hasattr(self._tok, "normalizer") and self._tok.normalizer
             else None,
-            "pre_tokenizer": str(tok.pre_tokenizer.__class__.__name__)
-            if hasattr(tok, "pre_tokenizer") and tok.pre_tokenizer
+            "pre_tokenizer": str(self._tok.pre_tokenizer.__class__.__name__)
+            if hasattr(self._tok, "pre_tokenizer") and self._tok.pre_tokenizer
             else None,
-            "model_type": str(tok.model.__class__.__name__) if hasattr(tok, "model") else None,
-            "decoder": str(tok.decoder.__class__.__name__)
-            if hasattr(tok, "decoder") and tok.decoder
+            "model_type": str(self._tok.model.__class__.__name__)
+            if hasattr(self._tok, "model")
             else None,
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
@@ -205,13 +278,13 @@ class _HFWrapper(BharatTokenizer):
         return self._tok.encode(text, add_special_tokens=add_special_tokens)
 
     def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
-        return self._tok.encode_batch(texts, add_special_tokens=add_special_tokens)
+        return [self._tok.encode(t, add_special_tokens=add_special_tokens) for t in texts]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
         return self._tok.decode(ids, skip_special_tokens=skip_special_tokens)
 
     def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
-        return self._tok.decode_batch(batch, skip_special_tokens=skip_special_tokens)
+        return [self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch]
 
     def get_metadata(self) -> dict[str, Any]:
         return {
@@ -219,35 +292,29 @@ class _HFWrapper(BharatTokenizer):
             "vocab_size": self.vocab_size,
             "eos_token_id": self.eos_token_id,
             "pad_token_id": self.pad_token_id,
-            "special_tokens": {
-                "eos": self.eos_token_id,
-                "pad": self.pad_token_id,
-            },
+            "special_tokens": {"eos": self.eos_token_id, "pad": self.pad_token_id},
             "is_fast": True,
         }
 
-    def fingerprint(self) -> str:
-        import hashlib
-        import json
+    def add_special_tokens(self, special_tokens: dict[str, list[str]]) -> int:
+        return self._tok.add_special_tokens(special_tokens)
 
-        tok = self._tok.backend_tokenizer if hasattr(self._tok, "backend_tokenizer") else None
-        if tok is not None:
-            data = {
+    def fingerprint(self) -> str:
+        backend = getattr(self._tok, "backend_tokenizer", None)
+        if backend is not None:
+            raw = backend.to_str()
+            extra = {
                 "type": "hf",
-                "vocab": tok.get_vocab(),
-                "normalizer": str(tok.normalizer.__class__.__name__) if tok.normalizer else None,
-                "pre_tokenizer": str(tok.pre_tokenizer.__class__.__name__)
-                if tok.pre_tokenizer
-                else None,
-                "model_type": str(tok.model.__class__.__name__),
-                "special_tokens": {
-                    t.content: tid for tid, t in tok.get_added_tokens_decoder().items()
-                },
+                "eos_id": self.eos_token_id,
+                "pad_id": self.pad_token_id,
+                "bos_id": self.bos_token_id,
+                "unk_id": self.unk_token_id,
+                "name": getattr(self._tok, "name_or_path", ""),
             }
+            data = {"serialized": raw, "config": extra}
             return hashlib.sha256(
                 json.dumps(data, sort_keys=True, default=str).encode()
             ).hexdigest()
-
         fallback = json.dumps(
             {
                 "type": "hf",
@@ -287,24 +354,24 @@ def _load_from_path(source: Path) -> BharatTokenizer:
         tok = HFTokenizersTokenizer.from_file(str(source))
         mt = _detect_model_type(tok)
         if mt == "sentencepiece":
-            return _SentencePieceWrapper(tok)
-        # For generic tokenizer.json, wrap as HF
+            return _SentencePieceHFWrapper(tok)
         from transformers import PreTrainedTokenizerFast as HFPretrainedTokenizerFast
 
         hf_tok = HFPretrainedTokenizerFast(tokenizer_object=tok)
         return _HFWrapper(hf_tok)
     if source.suffix == ".model":
-        from tokenizers import SentencePieceBPETokenizer
+        import sentencepiece as sp
 
-        tok = SentencePieceBPETokenizer.from_file(str(source))
-        return _SentencePieceWrapper(tok)
+        processor = sp.SentencePieceProcessor()
+        processor.Load(str(source))
+        return _SentencePieceNativeWrapper(processor)
     if source.is_dir():
         tok_config = source / "tokenizer.json"
         if tok_config.exists():
             tok = HFTokenizersTokenizer.from_file(str(tok_config))
             mt = _detect_model_type(tok)
             if mt == "sentencepiece":
-                return _SentencePieceWrapper(tok)
+                return _SentencePieceHFWrapper(tok)
             from transformers import PreTrainedTokenizerFast as HFPretrainedTokenizerFast
 
             hf_tok = HFPretrainedTokenizerFast(tokenizer_object=tok)
@@ -327,19 +394,6 @@ def load_tokenizer(
     tokenizer_type: str | None = None,
     **kwargs: Any,
 ) -> BharatTokenizer:
-    """Load a tokenizer and wrap it as a BharatTokenizer.
-
-    Args:
-        source: Path to tokenizer directory/file, or model name (e.g. 'gpt2').
-        tokenizer_type: One of 'gpt2', 'sentencepiece', 'hf', or None for auto-detection.
-        **kwargs: Additional arguments passed to the underlying tokenizer loader.
-
-    Returns:
-        A BharatTokenizer instance.
-
-    Raises:
-        ValueError: If the tokenizer type cannot be determined or loaded.
-    """
     if source is None:
         from transformers import GPT2TokenizerFast
 

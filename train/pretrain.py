@@ -176,27 +176,31 @@ def estimate_loss(model, data, block_size, batch_size, eval_iters, device, ctx):
     return out
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--max-iters", type=int, default=None, help="Override max_iters")
-    args = parser.parse_args()
+def train_from_config(
+    cfg: dict,
+    max_iters: int | None = None,
+) -> dict[str, int | float | str]:
+    """Run the pretraining loop and return a TrainingResult.
 
-    cfg = load_config(args.config)
+    Args:
+        cfg: Training configuration dict.
+        max_iters: Optional override for maximum training iterations.
+
+    Returns:
+        dict with keys: final_loss, completed_steps, output_dir, history.
+    """
     model_cfg = cfg["model"]
-    train_cfg = cfg["training"]
-    if args.max_iters is not None:
-        train_cfg["max_iters"] = args.max_iters
+    train_cfg = cfg["training"].copy()
+    if max_iters is not None:
+        train_cfg["max_iters"] = max_iters
+    else:
+        max_iters = train_cfg.get("max_iters", 0)
 
     device = get_device_preference()
     print(f"Device      : {device.upper()}")
-    print(f"Config      : {args.config}")
     print(f"Max iters   : {train_cfg['max_iters']}")
-    print(
-        f"Batch size  : {train_cfg['batch_size']} x grad_accum {train_cfg['gradient_accumulation_steps']}"
-    )
-    print(f"Block size  : {model_cfg['block_size']}")
     sys.stdout.flush()
+
     dtype_name = train_cfg.get("dtype", "float32")
     if device == "mps" and dtype_name == "bfloat16":
         dtype_name = "float16"
@@ -243,30 +247,26 @@ def main() -> None:
     # Build optimizer
     import inspect
 
-    raw_model = model  # may be replaced with compiled version
-
     decay = set()
     no_decay = set()
     for mn, m in model.named_modules():
-        for pn, p in m.named_parameters(recurse=False):
+        for pn, _p in m.named_parameters(recurse=False):
             fpn = f"{mn}.{pn}" if mn else pn
-            if (
-                pn.endswith("bias")
-                or (pn.endswith("weight")
-                and isinstance(m, (nn.LayerNorm, nn.Embedding)))
+            if pn.endswith("bias") or (
+                pn.endswith("weight") and isinstance(m, (nn.LayerNorm, nn.Embedding))
             ):
                 no_decay.add(fpn)
             else:
                 decay.add(fpn)
     param_dict = {pn: p for pn, p in model.named_parameters()}
-    decay = decay & param_dict.keys()
-    no_decay = no_decay & param_dict.keys()
+    decay_set = decay & param_dict.keys()
+    no_decay_set = no_decay & param_dict.keys()
     optim_groups = [
         {
-            "params": [param_dict[p] for p in sorted(decay)],
+            "params": [param_dict[p] for p in sorted(decay_set)],
             "weight_decay": train_cfg["weight_decay"],
         },
-        {"params": [param_dict[p] for p in sorted(no_decay)], "weight_decay": 0.0},
+        {"params": [param_dict[p] for p in sorted(no_decay_set)], "weight_decay": 0.0},
     ]
     fused = "fused" in inspect.signature(torch.optim.AdamW).parameters
     optimizer = torch.optim.AdamW(
@@ -307,16 +307,25 @@ def main() -> None:
                 for k, v in model_state.items():
                     clean_state[k.replace("_orig_mod.", "")] = v
                 model_state = clean_state
-            model.load_state_dict(model_state, strict=False)
+            missing_keys, unexpected_keys = model.load_state_dict(model_state, strict=False)
+            if missing_keys or unexpected_keys:
+                print(
+                    f"  Warning: model state keys mismatch. "
+                    f"Missing: {missing_keys[:5]}, Unexpected: {unexpected_keys[:5]}"
+                )
 
             # Load optimizer state
             if "optimizer" in old_ckpt:
                 optimizer.load_state_dict(old_ckpt["optimizer"])
+            else:
+                raise ValueError("Resume checkpoint missing optimizer state. Cannot resume.")
 
             # Restore iteration
             if "iter_num" in old_ckpt:
                 start_iter = old_ckpt["iter_num"]
                 print(f"  Resumed at iteration {start_iter}")
+            else:
+                raise ValueError("Resume checkpoint missing iter_num. Cannot resume.")
 
             # Restore RNG state
             if "rng_state" in old_ckpt:
@@ -332,6 +341,8 @@ def main() -> None:
                             torch.tensor(dev_state, dtype=torch.uint8),
                             device=int(dev_id),
                         )
+            else:
+                raise ValueError("Resume checkpoint missing rng_state. Cannot resume.")
         else:
             print(f"  No checkpoint found at {ckpt_path}, starting from scratch")
     else:
@@ -343,10 +354,11 @@ def main() -> None:
 
     block_size = model_cfg["block_size"]
     batch_size = train_cfg["batch_size"]
-    grad_accum = train_cfg["gradient_accumulation_steps"]
+    grad_accum = train_cfg.get("gradient_accumulation_steps", 1)
 
     t0 = time.time()
-    for it in range(start_iter, train_cfg["max_iters"] + 1):
+    completed_steps = start_iter
+    for it in range(start_iter, max_iters + 1):
         lr = get_lr(it, train_cfg)
         for pg in optimizer.param_groups:
             pg["lr"] = lr
@@ -407,6 +419,7 @@ def main() -> None:
             dt = time.time() - t0
             print(f"iter {it}: loss {loss.item() * grad_accum:.4f}, time {dt * 1000:.0f}ms")
             t0 = time.time()
+        completed_steps = it
 
     import random
 
@@ -419,7 +432,7 @@ def main() -> None:
                 "tokenizer_hash": tokenizer_hash(tokenizer),
                 "vocab_size": tokenizer.vocab_size,
                 "git_sha": get_git_sha(),
-                "training_step": train_cfg["max_iters"],
+                "training_step": max_iters,
                 "config_name": cfg.get("name", ""),
                 "package_versions": get_package_versions(),
             },
@@ -437,6 +450,22 @@ def main() -> None:
         out_dir / "final.pt",
     )
     print(f"Training complete. Checkpoints in {out_dir}")
+
+    return {
+        "final_loss": loss.item() * grad_accum if "loss" in dir() else float("nan"),
+        "completed_steps": completed_steps,
+        "output_dir": str(out_dir),
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--max-iters", type=int, default=None, help="Override max_iters")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    train_from_config(cfg, max_iters=args.max_iters)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,13 @@ def dpo_train(
 
     template = get_template(config.template_name)
     dataset = PreferenceDataset(config.data_path, template, config.block_size, tokenizer)
+
+    if len(dataset) == 0:
+        raise ValueError(
+            f"DPO dataset at '{config.data_path}' is empty. "
+            "Provide at least one valid preference sample."
+        )
+
     loader = DataLoader(
         dataset,
         batch_size=config.batch_size,
@@ -78,6 +85,7 @@ def dpo_train(
     ref_ctx = torch.no_grad()
 
     step = 0
+    best_loss = float("inf")
     config.output_dir = Path(config.output_dir)
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -143,4 +151,4 @@ def dpo_train(
             break
 
     torch.save({"model": policy_model.state_dict()}, config.output_dir / "final.pt")
-    return loss.item()
+    return best_loss if best_loss < float("inf") else loss.item()

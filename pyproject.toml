@@ -59,11 +59,13 @@ markers = [
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-strict = ["bharat/"]
+strict = true
 ignore_missing_imports = true
 allow_redefinition = true
+
+[[tool.mypy.overrides]]
+module = ["train.*", "eval.*", "inference.*", "scripts.*", "data.*"]
+ignore_errors = true
 
 [tool.coverage.run]
 source = ["bharat", "train", "eval", "inference", "scripts"]

@@ -18,6 +18,14 @@ class BharatTokenizer(ABC):
     def pad_token_id(self) -> int: ...
 
     @property
+    def bos_token_id(self) -> int:
+        return self.eos_token_id
+
+    @property
+    def unk_token_id(self) -> int:
+        return self.pad_token_id
+
+    @property
     @abstractmethod
     def tokenizer_type(self) -> str: ...
 

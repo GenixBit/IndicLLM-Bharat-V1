@@ -58,6 +58,13 @@ def sft_train(
 
     template = get_template(config.template_name)
     dataset = SFTDataset(config.data_path, template, config.block_size)
+
+    if len(dataset) == 0:
+        raise ValueError(
+            f"SFT dataset at '{config.data_path}' is empty. "
+            "Provide at least one valid training sample."
+        )
+
     collator = SFTCollator(
         tokenizer=tokenizer,
         template=template,
