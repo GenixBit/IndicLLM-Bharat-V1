@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402, N806
 """
 nanoGPT-style pretraining with precise step semantics.
 
@@ -44,7 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from bharat.tokenizer import load_tokenizer
-from bharat.tokenizer.metadata import tokenizer_hash, metadata_from_tokenizer
+from bharat.tokenizer.metadata import tokenizer_hash
 from bharat.training.checkpointing import get_git_sha, get_package_versions
 from train.utils import ensure_dir, get_device_preference, init_wandb, load_config
 
@@ -138,7 +139,7 @@ class GPT(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
-        B, T = idx.size()
+        _B, T = idx.size()
         assert self.config.block_size >= T
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
         x = self.transformer.drop(self.transformer.wte(idx) + self.transformer.wpe(pos))
@@ -223,7 +224,7 @@ def _build_optimizer(model, train_cfg):
     return optimizer
 
 
-def _build_checkpoint(model, optimizer, completed_steps, tokenizer, cfg, grad_accum):
+def _build_checkpoint(model, optimizer, completed_steps, tokenizer, cfg, _grad_accum):
     import random
 
     return {
@@ -232,6 +233,7 @@ def _build_checkpoint(model, optimizer, completed_steps, tokenizer, cfg, grad_ac
         "completed_steps": completed_steps,
         "next_step": completed_steps,
         "config": cfg,
+        "final_loss": None,
         "metadata": {
             "tokenizer_type": tokenizer.tokenizer_type,
             "tokenizer_hash": tokenizer_hash(tokenizer),
@@ -254,10 +256,58 @@ def _build_checkpoint(model, optimizer, completed_steps, tokenizer, cfg, grad_ac
     }
 
 
+def _validate_pretrain_config(cfg: dict) -> None:
+    errors: list[str] = []
+    train_cfg = cfg.get("training", {})
+    model_cfg = cfg.get("model", {})
+
+    max_iters = train_cfg.get("max_iters", 0)
+    if max_iters <= 0:
+        errors.append(f"training.max_iters must be > 0, got {max_iters}")
+
+    batch_size = train_cfg.get("batch_size", 0)
+    if batch_size <= 0:
+        errors.append(f"training.batch_size must be > 0, got {batch_size}")
+
+    block_size = model_cfg.get("block_size", 0)
+    if block_size <= 0:
+        errors.append(f"model.block_size must be > 0, got {block_size}")
+
+    grad_accum = train_cfg.get("gradient_accumulation_steps", 1)
+    if grad_accum <= 0:
+        errors.append(f"training.gradient_accumulation_steps must be > 0, got {grad_accum}")
+
+    eval_interval = train_cfg.get("eval_interval", 100)
+    if eval_interval <= 0:
+        errors.append(f"training.eval_interval must be > 0, got {eval_interval}")
+
+    save_interval = train_cfg.get("save_interval", eval_interval)
+    if save_interval <= 0:
+        errors.append(f"training.save_interval must be > 0, got {save_interval}")
+
+    log_interval = train_cfg.get("log_interval", 10)
+    if log_interval <= 0:
+        errors.append(f"training.log_interval must be > 0, got {log_interval}")
+
+    warmup_iters = train_cfg.get("warmup_iters", 0)
+    if warmup_iters < 0:
+        errors.append(f"training.warmup_iters must be >= 0, got {warmup_iters}")
+
+    lr_decay_iters = train_cfg.get("lr_decay_iters", max_iters)
+    if lr_decay_iters <= warmup_iters:
+        errors.append(
+            f"training.lr_decay_iters ({lr_decay_iters}) must be > "
+            f"training.warmup_iters ({warmup_iters})"
+        )
+
+    if errors:
+        raise ValueError("Pretrain config validation failed:\n" + "\n".join(errors))
+
+
 def train_from_config(
     cfg: dict,
     max_iters: int | None = None,
-) -> dict[str, int | float | str]:
+) -> dict[str, int | float | str | None]:
     """Run the pretraining loop.
 
     Args:
@@ -265,14 +315,22 @@ def train_from_config(
         max_iters: Optional override for maximum training iterations.
 
     Returns:
-        dict with keys: final_loss, completed_steps, output_dir.
+        dict with keys: final_loss, completed_steps, next_step, output_dir.
     """
+    _validate_pretrain_config(cfg)
+
     model_cfg = cfg["model"]
     train_cfg = cfg["training"].copy()
     if max_iters is not None:
         train_cfg["max_iters"] = max_iters
     else:
         max_iters = train_cfg.get("max_iters", 0)
+
+    if max_iters <= 0:
+        raise ValueError(
+            f"max_iters must be > 0 for training, got {max_iters}. "
+            "Use a positive value to run training steps."
+        )
 
     device = get_device_preference()
     print(f"Device      : {device.upper()}")
@@ -300,6 +358,12 @@ def train_from_config(
 
     train_data = load_bin(Path(data_cfg["train_bin"]))
     val_data = load_bin(Path(data_cfg["val_bin"]))
+
+    block_size = model_cfg["block_size"]
+    if len(train_data) <= block_size:
+        raise ValueError(
+            f"Training data length ({len(train_data)}) must be > block_size ({block_size})"
+        )
     data = {"train": train_data, "val": val_data}
 
     out_dir = ensure_dir(cfg["checkpoint"]["out_dir"])
@@ -419,7 +483,6 @@ def train_from_config(
         print("  torch.compile enabled (CUDA)")
         model = torch.compile(model)
 
-    block_size = model_cfg["block_size"]
     batch_size = train_cfg["batch_size"]
     grad_accum = train_cfg.get("gradient_accumulation_steps", 1)
     eval_interval = train_cfg.get("eval_interval", 100)
@@ -428,6 +491,16 @@ def train_from_config(
 
     t0 = time.time()
     completed_steps = next_step  # steps already done before this run
+
+    # If already past target, return no-op result from checkpoint metadata
+    if next_step >= max_iters:
+        print(f"  Already at next_step={next_step} >= max_iters={max_iters}, no training needed")
+        return {
+            "final_loss": None,
+            "completed_steps": completed_steps,
+            "next_step": next_step,
+            "output_dir": str(out_dir),
+        }
 
     for step in range(next_step, max_iters):
         # Set learning rate for this step
@@ -452,28 +525,29 @@ def train_from_config(
         # Step is complete
         completed_steps = step + 1
 
-        # Logging before evaluation
+        # Logging
         if step % log_interval == 0 or step == next_step:
             dt = time.time() - t0
             print(f"step {step}: loss {loss.item() * grad_accum:.4f}, time {dt * 1000:.0f}ms")
             t0 = time.time()
 
-        # Evaluation (may log to wandb)
-        completed = step + 1
-        if completed % eval_interval == 0:
+        # Evaluation
+        if completed_steps % eval_interval == 0:
             losses = estimate_loss(
                 model, data, block_size, batch_size, train_cfg["eval_iters"], device, ctx
             )
-            print(f"step {step} (completed {completed}): train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            print(
+                f"step {step} (completed {completed_steps}): train loss {losses['train']:.4f}, val loss {losses['val']:.4f}"
+            )
             if wandb:
                 wandb.log(
                     {"train/loss": losses["train"], "val/loss": losses["val"], "lr": lr},
-                    step=completed,
+                    step=completed_steps,
                 )
 
         # Checkpoint after step
-        if completed % save_interval == 0:
-            ckpt = _build_checkpoint(model, optimizer, completed, tokenizer, cfg, grad_accum)
+        if completed_steps % save_interval == 0:
+            ckpt = _build_checkpoint(model, optimizer, completed_steps, tokenizer, cfg, grad_accum)
             torch.save(ckpt, out_dir / "ckpt.pt")
 
     # Final checkpoint
@@ -486,6 +560,7 @@ def train_from_config(
     return {
         "final_loss": final_loss_val,
         "completed_steps": completed_steps,
+        "next_step": completed_steps,
         "output_dir": str(out_dir),
     }
 

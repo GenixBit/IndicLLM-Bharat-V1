@@ -18,6 +18,8 @@ from bharat.posttraining.templates import get_template
 from bharat.tokenizer import BharatTokenizer, load_tokenizer
 from bharat.tokenizer.metadata import tokenizer_hash
 
+_VALID_DEVICES = {"cpu", "cuda", "mps"}
+
 
 @dataclass
 class DPOConfig:
@@ -37,12 +39,33 @@ class DPOConfig:
     save_interval: int = 500
     device: str = "cpu"
 
+    def __post_init__(self) -> None:
+        errors: list[str] = []
+        if self.max_iters <= 0:
+            errors.append(f"max_iters must be > 0, got {self.max_iters}")
+        if self.batch_size <= 0:
+            errors.append(f"batch_size must be > 0, got {self.batch_size}")
+        if self.block_size <= 1:
+            errors.append(f"block_size must be > 1, got {self.block_size}")
+        if self.learning_rate <= 0:
+            errors.append(f"learning_rate must be > 0, got {self.learning_rate}")
+        if self.save_interval <= 0:
+            errors.append(f"save_interval must be > 0, got {self.save_interval}")
+        if self.log_interval <= 0:
+            errors.append(f"log_interval must be > 0, got {self.log_interval}")
+        dev = self.device.split(":")[0]
+        if dev not in _VALID_DEVICES:
+            errors.append(f"device must be one of {_VALID_DEVICES}, got {self.device}")
+        if errors:
+            raise ValueError("DPOConfig validation failed:\n" + "\n".join(errors))
+
 
 @dataclass
 class DPOResult:
     final_loss: float
     best_loss: float
     completed_steps: int
+    next_step: int
     samples_processed: int
     chosen_tokens: int
     rejected_tokens: int
@@ -56,7 +79,7 @@ def dpo_train(
     ref_model: torch.nn.Module,
     config: DPOConfig,
     tokenizer: BharatTokenizer | None = None,
-) -> DPOResult | float:
+) -> DPOResult:
     if tokenizer is None:
         tokenizer = load_tokenizer("gpt2")
 
@@ -152,8 +175,10 @@ def dpo_train(
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
+            completed_steps = step + 1
             final_loss = loss.item()
-            if final_loss < best_loss:
+            is_best = final_loss < best_loss
+            if is_best:
                 best_loss = final_loss
 
             samples_processed += chosen.size(0)
@@ -178,56 +203,53 @@ def dpo_train(
                     f"reward_acc {final_reward_acc:.2%}  kl {final_kl_val:.4f}"
                 )
 
+            ckpt = _build_dpo_ckpt(
+                policy_model,
+                optimizer,
+                completed_steps,
+                config,
+                tokenizer,
+                final_loss,
+                best_loss,
+                samples_processed,
+                total_chosen_tokens,
+                total_rejected_tokens,
+                final_reward_acc,
+                final_kl_val,
+            )
+
             if step % config.save_interval == 0 and step > 0:
-                ckpt = {
-                    "model": policy_model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "step": step,
-                    "config": config,
-                    "final_loss": final_loss,
-                    "best_loss": best_loss,
-                    "samples_processed": samples_processed,
-                    "chosen_tokens": total_chosen_tokens,
-                    "rejected_tokens": total_rejected_tokens,
-                    "reward_accuracy": final_reward_acc,
-                    "kl": final_kl_val,
-                    "metadata": {
-                        "tokenizer_type": tokenizer.tokenizer_type,
-                        "tokenizer_hash": tokenizer_hash(tokenizer),
-                        "vocab_size": tokenizer.vocab_size,
-                    },
-                }
                 torch.save(ckpt, config.output_dir / "ckpt.pt")
+
+            if is_best:
+                torch.save(ckpt, config.output_dir / "best.pt")
 
             step += 1
 
         if step >= config.max_iters:
             break
 
-    final_ckpt = {
-        "model": policy_model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "step": step,
-        "config": config,
-        "final_loss": final_loss,
-        "best_loss": best_loss,
-        "samples_processed": samples_processed,
-        "chosen_tokens": total_chosen_tokens,
-        "rejected_tokens": total_rejected_tokens,
-        "reward_accuracy": final_reward_acc,
-        "kl": final_kl_val,
-        "metadata": {
-            "tokenizer_type": tokenizer.tokenizer_type,
-            "tokenizer_hash": tokenizer_hash(tokenizer),
-            "vocab_size": tokenizer.vocab_size,
-        },
-    }
+    final_ckpt = _build_dpo_ckpt(
+        policy_model,
+        optimizer,
+        step,
+        config,
+        tokenizer,
+        final_loss,
+        best_loss,
+        samples_processed,
+        total_chosen_tokens,
+        total_rejected_tokens,
+        final_reward_acc,
+        final_kl_val,
+    )
     torch.save(final_ckpt, config.output_dir / "final.pt")
 
     result = DPOResult(
         final_loss=final_loss,
         best_loss=best_loss if best_loss < float("inf") else final_loss,
         completed_steps=step,
+        next_step=step,
         samples_processed=samples_processed,
         chosen_tokens=total_chosen_tokens,
         rejected_tokens=total_rejected_tokens,
@@ -236,3 +258,38 @@ def dpo_train(
         checkpoint_path=str(config.output_dir),
     )
     return result
+
+
+def _build_dpo_ckpt(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    completed_steps: int,
+    config: DPOConfig,
+    tokenizer: BharatTokenizer,
+    final_loss: float,
+    best_loss: float,
+    samples_processed: int,
+    chosen_tokens: int,
+    rejected_tokens: int,
+    reward_accuracy_val: float,
+    kl_val: float,
+) -> dict[str, object]:
+    return {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "completed_steps": completed_steps,
+        "next_step": completed_steps,
+        "config": config,
+        "final_loss": final_loss,
+        "best_loss": best_loss,
+        "samples_processed": samples_processed,
+        "chosen_tokens": chosen_tokens,
+        "rejected_tokens": rejected_tokens,
+        "reward_accuracy": reward_accuracy_val,
+        "kl": kl_val,
+        "metadata": {
+            "tokenizer_type": tokenizer.tokenizer_type,
+            "tokenizer_hash": tokenizer_hash(tokenizer),
+            "vocab_size": tokenizer.vocab_size,
+        },
+    }

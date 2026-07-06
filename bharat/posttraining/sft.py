@@ -14,6 +14,8 @@ from bharat.posttraining.templates import get_template
 from bharat.tokenizer import BharatTokenizer, load_tokenizer
 from bharat.tokenizer.metadata import tokenizer_hash
 
+_VALID_DEVICES = {"cpu", "cuda", "mps"}
+
 
 @dataclass
 class SFTConfig:
@@ -37,12 +39,33 @@ class SFTConfig:
     device: str = "cpu"
     compile_model: bool = False
 
+    def __post_init__(self) -> None:
+        errors: list[str] = []
+        if self.max_iters <= 0:
+            errors.append(f"max_iters must be > 0, got {self.max_iters}")
+        if self.batch_size <= 0:
+            errors.append(f"batch_size must be > 0, got {self.batch_size}")
+        if self.block_size <= 1:
+            errors.append(f"block_size must be > 1, got {self.block_size}")
+        if self.learning_rate <= 0:
+            errors.append(f"learning_rate must be > 0, got {self.learning_rate}")
+        if self.save_interval <= 0:
+            errors.append(f"save_interval must be > 0, got {self.save_interval}")
+        if self.log_interval <= 0:
+            errors.append(f"log_interval must be > 0, got {self.log_interval}")
+        dev = self.device.split(":")[0]
+        if dev not in _VALID_DEVICES:
+            errors.append(f"device must be one of {_VALID_DEVICES}, got {self.device}")
+        if errors:
+            raise ValueError("SFTConfig validation failed:\n" + "\n".join(errors))
+
 
 @dataclass
 class SFTResult:
     final_loss: float
     best_loss: float
     completed_steps: int
+    next_step: int
     samples_processed: int
     active_tokens: int
     checkpoint_path: str
@@ -63,7 +86,7 @@ def sft_train(
     model: torch.nn.Module,
     config: SFTConfig,
     tokenizer: BharatTokenizer | None = None,
-) -> SFTResult | float:
+) -> SFTResult:
     if tokenizer is None:
         tokenizer = load_tokenizer("gpt2")
 
@@ -141,8 +164,10 @@ def sft_train(
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
+            completed_steps = step + 1
             final_loss = loss.item()
-            if final_loss < best_loss:
+            is_best = final_loss < best_loss
+            if is_best:
                 best_loss = final_loss
 
             samples_processed += input_ids.size(0)
@@ -152,55 +177,78 @@ def sft_train(
                 nz = (labels != -100).sum().item()
                 print(f"  step {step:>5}: loss {final_loss:.4f}  lr {lr:.2e}  active_tokens {nz}")
 
+            ckpt = _build_sft_ckpt(
+                model,
+                optimizer,
+                completed_steps,
+                config,
+                tokenizer,
+                final_loss,
+                best_loss,
+                samples_processed,
+                total_active_tokens,
+            )
+
             if step % config.save_interval == 0 and step > 0:
-                ckpt = {
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "step": step,
-                    "config": config,
-                    "final_loss": final_loss,
-                    "best_loss": best_loss,
-                    "samples_processed": samples_processed,
-                    "active_tokens": total_active_tokens,
-                    "metadata": {
-                        "tokenizer_type": tokenizer.tokenizer_type,
-                        "tokenizer_hash": tokenizer_hash(tokenizer),
-                        "vocab_size": tokenizer.vocab_size,
-                    },
-                }
                 torch.save(ckpt, config.output_dir / "ckpt.pt")
-                if final_loss < best_loss:
-                    best_loss = final_loss
-                    torch.save(ckpt, config.output_dir / "best.pt")
+
+            if is_best:
+                torch.save(ckpt, config.output_dir / "best.pt")
 
             step += 1
 
         if step >= config.max_iters:
             break
 
-    final_ckpt = {
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "step": step,
-        "config": config,
-        "final_loss": final_loss,
-        "best_loss": best_loss,
-        "samples_processed": samples_processed,
-        "active_tokens": total_active_tokens,
-        "metadata": {
-            "tokenizer_type": tokenizer.tokenizer_type,
-            "tokenizer_hash": tokenizer_hash(tokenizer),
-            "vocab_size": tokenizer.vocab_size,
-        },
-    }
+    final_ckpt = _build_sft_ckpt(
+        model,
+        optimizer,
+        step,
+        config,
+        tokenizer,
+        final_loss,
+        best_loss,
+        samples_processed,
+        total_active_tokens,
+    )
     torch.save(final_ckpt, config.output_dir / "final.pt")
 
     result = SFTResult(
         final_loss=final_loss,
         best_loss=best_loss if best_loss < float("inf") else final_loss,
         completed_steps=step,
+        next_step=step,
         samples_processed=samples_processed,
         active_tokens=total_active_tokens,
         checkpoint_path=str(config.output_dir),
     )
     return result
+
+
+def _build_sft_ckpt(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    completed_steps: int,
+    config: SFTConfig,
+    tokenizer: BharatTokenizer,
+    final_loss: float,
+    best_loss: float,
+    samples_processed: int,
+    active_tokens: int,
+) -> dict[str, object]:
+    return {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "completed_steps": completed_steps,
+        "next_step": completed_steps,
+        "config": config,
+        "final_loss": final_loss,
+        "best_loss": best_loss,
+        "samples_processed": samples_processed,
+        "active_tokens": active_tokens,
+        "metadata": {
+            "tokenizer_type": tokenizer.tokenizer_type,
+            "tokenizer_hash": tokenizer_hash(tokenizer),
+            "vocab_size": tokenizer.vocab_size,
+        },
+    }

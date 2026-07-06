@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import tempfile
+from pathlib import Path
 
 import pytest
 import torch
@@ -12,11 +14,9 @@ from bharat.posttraining.templates import Template
 from bharat.tokenizer import load_tokenizer
 from train.pretrain import GPT, GPTConfig
 
-
-@pytest.fixture(scope="module")
-def tokenizer():
-    return load_tokenizer("gpt2")
-
+# ---------------------------------------------------------------------------
+# Shared test data
+# ---------------------------------------------------------------------------
 
 INDIC_TEMPLATE = Template(
     name="indic_instruction",
@@ -25,6 +25,110 @@ INDIC_TEMPLATE = Template(
     assistant_prefix="<|response|>",
     suffix="<|endoftext|>",
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_tiny_model(vocab_size: int = 256):
+    return GPT(
+        GPTConfig(vocab_size=vocab_size, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Config validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestDPOConfig:
+    def test_valid_config(self):
+        c = DPOConfig(max_iters=1, batch_size=1, block_size=64, save_interval=1, log_interval=1)
+        assert c.max_iters == 1
+
+    def test_max_iters_zero_raises(self):
+        with pytest.raises(ValueError, match="max_iters"):
+            DPOConfig(max_iters=0)
+
+    def test_max_iters_negative_raises(self):
+        with pytest.raises(ValueError, match="max_iters"):
+            DPOConfig(max_iters=-1)
+
+    def test_batch_size_zero_raises(self):
+        with pytest.raises(ValueError, match="batch_size"):
+            DPOConfig(max_iters=1, batch_size=0)
+
+    def test_block_size_one_raises(self):
+        with pytest.raises(ValueError, match="block_size"):
+            DPOConfig(max_iters=1, block_size=1)
+
+    def test_lr_zero_raises(self):
+        with pytest.raises(ValueError, match="learning_rate"):
+            DPOConfig(max_iters=1, learning_rate=0)
+
+    def test_lr_negative_raises(self):
+        with pytest.raises(ValueError, match="learning_rate"):
+            DPOConfig(max_iters=1, learning_rate=-1)
+
+    def test_save_interval_zero_raises(self):
+        with pytest.raises(ValueError, match="save_interval"):
+            DPOConfig(max_iters=1, save_interval=0)
+
+    def test_log_interval_zero_raises(self):
+        with pytest.raises(ValueError, match="log_interval"):
+            DPOConfig(max_iters=1, log_interval=0)
+
+    def test_invalid_device_raises(self):
+        with pytest.raises(ValueError, match="device"):
+            DPOConfig(max_iters=1, device="invalid_device")
+
+
+# ---------------------------------------------------------------------------
+# Offline tokenizer fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def tokenizer():
+    return load_tokenizer("gpt2")
+
+
+@pytest.fixture(scope="module")
+def tiny_tokenizer():
+    from tokenizers import Tokenizer as HFTokenizersTokenizer
+    from tokenizers.models import BPE
+    from tokenizers.pre_tokenizers import ByteLevel
+    from tokenizers.trainers import BpeTrainer
+
+    bpe = BPE()
+    tok = HFTokenizersTokenizer(bpe)
+    tok.pre_tokenizer = ByteLevel(add_prefix_space=False)
+    trainer = BpeTrainer(
+        vocab_size=256,
+        min_frequency=1,
+        special_tokens=["<|endoftext|>", "<|pad|>", "<|instruction|>", "<|response|>"],
+    )
+    tok.train_from_iterator(
+        [
+            "Hello world how are you today",
+            "I am fine thank you",
+            "a b c d e f g h i j k l m n o p q r s t u v w x y z",
+            "Machine learning is fascinating",
+            "User: hi Assistant: hello there",
+            "What is the capital of France",
+        ],
+        trainer=trainer,
+    )
+    import os
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tok.save(f.name)
+        path = f.name
+    yield load_tokenizer(path)
+    os.unlink(path)
 
 
 @pytest.fixture
@@ -45,15 +149,6 @@ def preferences_jsonl():
     import os
 
     os.unlink(path)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_tiny_model():
-    return GPT(GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False))
 
 
 # ---------------------------------------------------------------------------
@@ -79,14 +174,14 @@ class TestDPODataset:
 
 
 # ---------------------------------------------------------------------------
-# Training tests
+# Training tests (offline, use tiny_tokenizer)
 # ---------------------------------------------------------------------------
 
 
 class TestDPOTraining:
-    def test_empty_dataset_raises(self, tokenizer):
-        model = _make_tiny_model()
-        ref = _make_tiny_model()
+    def test_empty_dataset_raises(self, tiny_tokenizer):
+        policy = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+        ref = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write("")
@@ -98,16 +193,16 @@ class TestDPOTraining:
         config.output_dir = tempfile.mkdtemp()
 
         with pytest.raises(ValueError, match="empty"):
-            dpo_train(model, ref, config, tokenizer)
+            dpo_train(policy, ref, config, tiny_tokenizer)
 
         import os
 
         os.unlink(data_path)
 
-    def test_one_sample_batch_four(self, tokenizer):
+    def test_one_sample_batch_four(self, tiny_tokenizer):
         """1 preference sample with batch_size=4 must still train."""
-        policy = _make_tiny_model()
-        ref = _make_tiny_model()
+        policy = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+        ref = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
@@ -132,10 +227,12 @@ class TestDPOTraining:
         )
         config.output_dir = tempfile.mkdtemp()
 
-        result = dpo_train(policy, ref, config, tokenizer)
+        result = dpo_train(policy, ref, config, tiny_tokenizer)
         assert isinstance(result, DPOResult)
+        assert math.isfinite(result.final_loss)
         assert result.final_loss > 0
         assert result.completed_steps == 1
+        assert result.next_step == 1
 
         import os
         import shutil
@@ -143,15 +240,28 @@ class TestDPOTraining:
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
-    def test_cpu_backward(self, preferences_jsonl, tokenizer):
-        policy = _make_tiny_model()
-        ref = _make_tiny_model()
+    def test_cpu_backward(self, tiny_tokenizer):
+        policy = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+        ref = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         init_policy = {k: v.clone() for k, v in policy.named_parameters() if v.requires_grad}
         init_ref = {k: v.clone() for k, v in ref.named_parameters() if v.requires_grad}
 
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "What is 2+2?",
+                        "chosen": "4",
+                        "rejected": "5",
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
         config = DPOConfig(
-            data_path=preferences_jsonl,
+            data_path=data_path,
             max_iters=1,
             batch_size=1,
             block_size=64,
@@ -160,13 +270,14 @@ class TestDPOTraining:
         )
         config.output_dir = tempfile.mkdtemp()
 
-        result = dpo_train(policy, ref, config, tokenizer)
+        result = dpo_train(policy, ref, config, tiny_tokenizer)
         assert isinstance(result, DPOResult)
+        assert math.isfinite(result.final_loss)
         assert result.final_loss > 0
         assert result.best_loss > 0
         assert result.completed_steps == 1
+        assert result.next_step == 1
 
-        # Policy should have changed
         policy_changed = False
         for k, v in policy.named_parameters():
             if v.requires_grad and not torch.equal(v, init_policy[k]):
@@ -174,7 +285,6 @@ class TestDPOTraining:
                 break
         assert policy_changed, "Policy model parameters should change after training"
 
-        # Reference should NOT have changed
         ref_changed = False
         for k, v in ref.named_parameters():
             if v.requires_grad and not torch.equal(v, init_ref[k]):
@@ -182,8 +292,10 @@ class TestDPOTraining:
                 break
         assert not ref_changed, "Reference model parameters should NOT change"
 
+        import os
         import shutil
 
+        os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
     def test_different_prompt_lengths_in_batch(self, tokenizer):
@@ -294,7 +406,6 @@ class TestDPOTraining:
         os.unlink(path)
 
     def test_both_responses_empty(self, tokenizer):
-        """Both responses empty — dataset should still load but training will fail."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -318,15 +429,13 @@ class TestDPOTraining:
 
         os.unlink(path)
 
-    def test_both_empty_responses_training(self, tokenizer):
+    def test_both_empty_responses_training(self, tiny_tokenizer):
         """Both responses empty — prefix tokens still provide non-zero mask."""
-        policy = _make_tiny_model()
-        ref = _make_tiny_model()
+        policy = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+        ref = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(
-                json.dumps({"prompt": "Test", "chosen": "", "rejected": ""}) + "\n"
-            )
+            f.write(json.dumps({"prompt": "Test", "chosen": "", "rejected": ""}) + "\n")
             path = f.name
 
         config = DPOConfig(
@@ -338,10 +447,105 @@ class TestDPOTraining:
         )
         config.output_dir = tempfile.mkdtemp()
 
-        result = dpo_train(policy, ref, config, tokenizer)
+        result = dpo_train(policy, ref, config, tiny_tokenizer)
         assert isinstance(result, DPOResult)
+        assert math.isfinite(result.final_loss)
         assert result.final_loss > 0
+        assert result.next_step == 1
 
         import os
 
         os.unlink(path)
+
+    # --- Best checkpoint tests ---
+
+    def test_best_pt_created(self, tiny_tokenizer):
+        """best.pt is created during training."""
+        policy = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+        ref = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "What is 2+2?",
+                        "chosen": "4",
+                        "rejected": "5",
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        out_dir = Path(tempfile.mkdtemp())
+        config = DPOConfig(
+            data_path=data_path,
+            max_iters=3,
+            batch_size=1,
+            block_size=64,
+            beta=0.1,
+            learning_rate=1e-3,
+            device="cpu",
+            save_interval=5,
+        )
+        config.output_dir = out_dir
+
+        result = dpo_train(policy, ref, config, tiny_tokenizer)
+        assert isinstance(result, DPOResult)
+
+        best_path = out_dir / "best.pt"
+        assert best_path.exists(), "best.pt should be created"
+
+        best_ckpt = torch.load(best_path, map_location="cpu", weights_only=False)
+        assert math.isfinite(best_ckpt["best_loss"])
+        assert best_ckpt["best_loss"] <= best_ckpt["final_loss"]
+        assert best_ckpt["completed_steps"] > 0
+        assert best_ckpt["next_step"] == best_ckpt["completed_steps"]
+        assert best_ckpt["metadata"]["tokenizer_hash"]
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_best_loss_matches_checkpoint(self, tiny_tokenizer):
+        """best_loss in DPOResult matches the saved checkpoint."""
+        policy = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+        ref = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "What is 2+2?",
+                        "chosen": "4",
+                        "rejected": "5",
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        out_dir = Path(tempfile.mkdtemp())
+        config = DPOConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=1,
+            block_size=64,
+            beta=0.1,
+            device="cpu",
+        )
+        config.output_dir = out_dir
+
+        result = dpo_train(policy, ref, config, tiny_tokenizer)
+
+        best_ckpt = torch.load(out_dir / "best.pt", map_location="cpu", weights_only=False)
+        assert abs(result.best_loss - best_ckpt["best_loss"]) < 1e-6
+        assert result.next_step == best_ckpt["next_step"]
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(out_dir, ignore_errors=True)

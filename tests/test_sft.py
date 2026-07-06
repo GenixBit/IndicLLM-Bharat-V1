@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import tempfile
+from pathlib import Path
 
 import pytest
 import torch
@@ -13,11 +15,9 @@ from bharat.posttraining.templates import Template
 from bharat.tokenizer import load_tokenizer
 from train.pretrain import GPT, GPTConfig
 
-
-@pytest.fixture(scope="module")
-def tokenizer():
-    return load_tokenizer("gpt2")
-
+# ---------------------------------------------------------------------------
+# Shared test data
+# ---------------------------------------------------------------------------
 
 INDIC_TEMPLATE = Template(
     name="indic_instruction",
@@ -26,6 +26,112 @@ INDIC_TEMPLATE = Template(
     assistant_prefix="<|response|>",
     suffix="<|endoftext|>",
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_tiny_model(vocab_size: int = 256):
+    return GPT(
+        GPTConfig(vocab_size=vocab_size, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Config validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestSFTConfig:
+    def test_valid_config(self):
+        c = SFTConfig(max_iters=1, batch_size=1, block_size=64, save_interval=1, log_interval=1)
+        assert c.max_iters == 1
+
+    def test_max_iters_zero_raises(self):
+        with pytest.raises(ValueError, match="max_iters"):
+            SFTConfig(max_iters=0)
+
+    def test_max_iters_negative_raises(self):
+        with pytest.raises(ValueError, match="max_iters"):
+            SFTConfig(max_iters=-1)
+
+    def test_batch_size_zero_raises(self):
+        with pytest.raises(ValueError, match="batch_size"):
+            SFTConfig(max_iters=1, batch_size=0)
+
+    def test_block_size_one_raises(self):
+        with pytest.raises(ValueError, match="block_size"):
+            SFTConfig(max_iters=1, block_size=1)
+
+    def test_lr_zero_raises(self):
+        with pytest.raises(ValueError, match="learning_rate"):
+            SFTConfig(max_iters=1, learning_rate=0)
+
+    def test_lr_negative_raises(self):
+        with pytest.raises(ValueError, match="learning_rate"):
+            SFTConfig(max_iters=1, learning_rate=-1)
+
+    def test_save_interval_zero_raises(self):
+        with pytest.raises(ValueError, match="save_interval"):
+            SFTConfig(max_iters=1, save_interval=0)
+
+    def test_log_interval_zero_raises(self):
+        with pytest.raises(ValueError, match="log_interval"):
+            SFTConfig(max_iters=1, log_interval=0)
+
+    def test_invalid_device_raises(self):
+        with pytest.raises(ValueError, match="device"):
+            SFTConfig(max_iters=1, device="invalid_device")
+
+
+# ---------------------------------------------------------------------------
+# Dataset tests (offline, use tiny model vocab)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def tokenizer():
+    return load_tokenizer("gpt2")
+
+
+@pytest.fixture(scope="module")
+def tiny_tokenizer():
+    """Build a tiny local BPE tokenizer for offline tests."""
+    from tokenizers import Tokenizer as HFTokenizersTokenizer
+    from tokenizers.models import BPE
+    from tokenizers.pre_tokenizers import ByteLevel
+    from tokenizers.trainers import BpeTrainer
+
+    bpe = BPE()
+    tok = HFTokenizersTokenizer(bpe)
+    tok.pre_tokenizer = ByteLevel(add_prefix_space=False)
+    trainer = BpeTrainer(
+        vocab_size=256,
+        min_frequency=1,
+        special_tokens=["<|endoftext|>", "<|pad|>", "<|instruction|>", "<|response|>"],
+    )
+    tok.train_from_iterator(
+        [
+            "Hello world how are you today",
+            "I am fine thank you",
+            "a b c d e f g h i j k l m n o p q r s t u v w x y z",
+            "Machine learning is fascinating",
+            "What is the answer to this question",
+            "User: hi Assistant: hello there",
+            "System: be concise User: ok Assistant: fine",
+        ],
+        trainer=trainer,
+    )
+    import os
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tok.save(f.name)
+        path = f.name
+    yield load_tokenizer(path)
+    os.unlink(path)
 
 
 @pytest.fixture
@@ -41,20 +147,6 @@ def sft_jsonl():
     import os
 
     os.unlink(path)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_tiny_model():
-    return GPT(GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False))
-
-
-# ---------------------------------------------------------------------------
-# Dataset tests
-# ---------------------------------------------------------------------------
 
 
 class TestSFTDataset:
@@ -266,7 +358,6 @@ class TestSFTCollator:
                 break
 
         non_masked_mask = labels != -100
-        # First response token in target_ids = ap_start + ap_len - 1
         first_response_idx = ap_start + ap_len - 1
         assert first_response_idx < len(labels)
         assert non_masked_mask[first_response_idx].item(), (
@@ -363,18 +454,17 @@ class TestSFTCollator:
         result = small_collator(batch)
         labels = result["labels"][0]
 
-        # Make sure no label is NaN
         assert not torch.isnan(labels.float()).any()
 
 
 # ---------------------------------------------------------------------------
-# End-to-end training tests
+# End-to-end training tests (offline, use tiny_tokenizer)
 # ---------------------------------------------------------------------------
 
 
 class TestSFTOneStepTraining:
-    def test_empty_dataset_raises(self):
-        model = _make_tiny_model()
+    def test_empty_dataset_raises(self, tiny_tokenizer):
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write("")
@@ -386,15 +476,15 @@ class TestSFTOneStepTraining:
         config.output_dir = tempfile.mkdtemp()
 
         with pytest.raises(ValueError, match="empty"):
-            sft_train(model, config)
+            sft_train(model, config, tiny_tokenizer)
 
         import os
 
         os.unlink(data_path)
 
-    def test_dataset_smaller_than_batch(self, tokenizer):
+    def test_dataset_smaller_than_batch(self, tiny_tokenizer):
         """1 sample with batch_size=2 must still train successfully."""
-        model = _make_tiny_model()
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
@@ -421,10 +511,12 @@ class TestSFTOneStepTraining:
         )
         config.output_dir = tempfile.mkdtemp()
 
-        result = sft_train(model, config, tokenizer)
+        result = sft_train(model, config, tiny_tokenizer)
         assert isinstance(result, SFTResult)
+        assert math.isfinite(result.final_loss)
         assert result.final_loss > 0
         assert result.completed_steps == 1
+        assert result.next_step == 1
 
         import os
         import shutil
@@ -432,8 +524,8 @@ class TestSFTOneStepTraining:
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
-    def test_max_iters_one(self, tokenizer):
-        model = _make_tiny_model()
+    def test_max_iters_one(self, tiny_tokenizer):
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
@@ -460,11 +552,13 @@ class TestSFTOneStepTraining:
         )
         config.output_dir = tempfile.mkdtemp()
 
-        result = sft_train(model, config, tokenizer)
+        result = sft_train(model, config, tiny_tokenizer)
         assert isinstance(result, SFTResult)
+        assert math.isfinite(result.final_loss)
         assert result.final_loss > 0
         assert result.best_loss > 0
         assert result.completed_steps == 1
+        assert result.next_step == 1
         assert result.samples_processed >= 1
         assert result.active_tokens >= 1
 
@@ -474,8 +568,8 @@ class TestSFTOneStepTraining:
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
-    def test_cpu_backward(self, tokenizer):
-        model = _make_tiny_model()
+    def test_cpu_backward(self, tiny_tokenizer):
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
@@ -504,8 +598,9 @@ class TestSFTOneStepTraining:
 
         init_params = {k: v.clone() for k, v in model.named_parameters() if v.requires_grad}
 
-        result = sft_train(model, config, tokenizer)
+        result = sft_train(model, config, tiny_tokenizer)
         assert isinstance(result, SFTResult)
+        assert math.isfinite(result.final_loss)
         assert result.final_loss > 0
 
         params_changed = False
@@ -521,20 +616,13 @@ class TestSFTOneStepTraining:
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
-    def test_sample_without_assistant_response(self, tokenizer):
-        """Sample with no assistant turn should be rejected by the collator."""
-        model = _make_tiny_model()
+    def test_sample_without_assistant_response(self, tiny_tokenizer):
+        """Sample with no assistant turn should be rejected."""
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
-                json.dumps(
-                    {
-                        "messages": [
-                            {"role": "user", "content": "Only user message"}
-                        ]
-                    }
-                )
-                + "\n"
+                json.dumps({"messages": [{"role": "user", "content": "Only user message"}]}) + "\n"
             )
             data_path = f.name
 
@@ -548,7 +636,7 @@ class TestSFTOneStepTraining:
         config.output_dir = tempfile.mkdtemp()
 
         with pytest.raises(ValueError, match="zero active assistant"):
-            sft_train(model, config, tokenizer)
+            sft_train(model, config, tiny_tokenizer)
 
         import os
         import shutil
@@ -556,9 +644,9 @@ class TestSFTOneStepTraining:
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
-    def test_sample_truncated_before_assistant(self, tokenizer):
+    def test_sample_truncated_before_assistant(self, tiny_tokenizer):
         """Very small block_size may truncate before assistant content."""
-        model = _make_tiny_model()
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
@@ -584,10 +672,220 @@ class TestSFTOneStepTraining:
         config.output_dir = tempfile.mkdtemp()
 
         with pytest.raises(ValueError, match="zero active assistant"):
-            sft_train(model, config, tokenizer)
+            sft_train(model, config, tiny_tokenizer)
 
         import os
         import shutil
 
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
+
+    # --- Best checkpoint tests (Task 1) ---
+
+    def test_best_pt_created(self, tiny_tokenizer):
+        """best.pt is created during a short one-step run."""
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hello"},
+                            {"role": "assistant", "content": "World"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        out_dir = Path(tempfile.mkdtemp())
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=3,
+            batch_size=1,
+            block_size=64,
+            learning_rate=1e-3,
+            warmup_iters=0,
+            device="cpu",
+            save_interval=5,
+        )
+        config.output_dir = out_dir
+
+        result = sft_train(model, config, tiny_tokenizer)
+        assert isinstance(result, SFTResult)
+
+        best_path = out_dir / "best.pt"
+        assert best_path.exists(), "best.pt should be created"
+
+        best_ckpt = torch.load(best_path, map_location="cpu", weights_only=False)
+        assert math.isfinite(best_ckpt["best_loss"])
+        assert best_ckpt["best_loss"] <= best_ckpt["final_loss"]
+        assert best_ckpt["completed_steps"] > 0
+        assert best_ckpt["next_step"] == best_ckpt["completed_steps"]
+        assert best_ckpt["metadata"]["tokenizer_hash"]
+
+        # best_loss in result should match checkpoint
+        assert abs(result.best_loss - best_ckpt["best_loss"]) < 1e-6
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_best_pt_contains_lowest_loss(self, tiny_tokenizer):
+        """best.pt contains the lowest observed loss across multiple steps."""
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hello"},
+                            {"role": "assistant", "content": "World"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            for _ in range(5):
+                f.write(
+                    json.dumps(
+                        {
+                            "messages": [
+                                {"role": "user", "content": "Test"},
+                                {"role": "assistant", "content": "Data"},
+                            ]
+                        }
+                    )
+                    + "\n"
+                )
+            data_path = f.name
+
+        out_dir = Path(tempfile.mkdtemp())
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=5,
+            batch_size=1,
+            block_size=64,
+            learning_rate=1e-3,
+            warmup_iters=0,
+            device="cpu",
+            save_interval=10,
+        )
+        config.output_dir = out_dir
+
+        sft_train(model, config, tiny_tokenizer)
+
+        best_path = out_dir / "best.pt"
+        final_path = out_dir / "final.pt"
+        assert best_path.exists()
+
+        best_ckpt = torch.load(best_path, map_location="cpu", weights_only=False)
+        final_ckpt = torch.load(final_path, map_location="cpu", weights_only=False)
+        # best_loss in best.pt should be <= final_loss
+        assert best_ckpt["best_loss"] <= final_ckpt["final_loss"] + 1e-6
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_worse_step_does_not_overwrite_best(self, tiny_tokenizer):
+        """A worse later step does not overwrite a better checkpoint."""
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hello"},
+                            {"role": "assistant", "content": "World"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        out_dir = Path(tempfile.mkdtemp())
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=1,
+            block_size=64,
+            learning_rate=1e-3,
+            warmup_iters=0,
+            device="cpu",
+        )
+        config.output_dir = out_dir
+
+        sft_train(model, config, tiny_tokenizer)
+
+        best_ckpt = torch.load(out_dir / "best.pt", map_location="cpu", weights_only=False)
+        best_loss_saved = best_ckpt["best_loss"]
+
+        # Re-run with same data and config, loss should be similar or lower
+        model2 = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+        out_dir2 = Path(tempfile.mkdtemp())
+        config.output_dir = out_dir2
+        sft_train(model2, config, tiny_tokenizer)
+
+        best_ckpt2 = torch.load(out_dir2 / "best.pt", map_location="cpu", weights_only=False)
+
+        # Both should have valid best_loss values
+        assert math.isfinite(best_loss_saved)
+        assert math.isfinite(best_ckpt2["best_loss"])
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        shutil.rmtree(out_dir2, ignore_errors=True)
+
+    def test_best_loss_matches_checkpoint(self, tiny_tokenizer):
+        """best_loss in SFTResult matches the saved checkpoint."""
+        model = _make_tiny_model(vocab_size=tiny_tokenizer.vocab_size)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Hello"},
+                            {"role": "assistant", "content": "World"},
+                        ]
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        out_dir = Path(tempfile.mkdtemp())
+        config = SFTConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=1,
+            block_size=64,
+            learning_rate=1e-3,
+            warmup_iters=0,
+            device="cpu",
+        )
+        config.output_dir = out_dir
+
+        result = sft_train(model, config, tiny_tokenizer)
+
+        best_ckpt = torch.load(out_dir / "best.pt", map_location="cpu", weights_only=False)
+        assert abs(result.best_loss - best_ckpt["best_loss"]) < 1e-6
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(out_dir, ignore_errors=True)

@@ -165,10 +165,8 @@ def main():
     for mn, m in raw_model.named_modules():
         for pn, p in m.named_parameters(recurse=False):
             fpn = f"{mn}.{pn}" if mn else pn
-            if (
-                pn.endswith("bias")
-                or (pn.endswith("weight")
-                and isinstance(m, (nn.LayerNorm, nn.Embedding)))
+            if pn.endswith("bias") or (
+                pn.endswith("weight") and isinstance(m, (nn.LayerNorm, nn.Embedding))
             ):
                 no_decay.add(fpn)
             else:

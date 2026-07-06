@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from tokenizers import Tokenizer as HFTokenizersTokenizer
 from tokenizers.models import BPE

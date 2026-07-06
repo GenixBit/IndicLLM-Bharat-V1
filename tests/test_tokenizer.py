@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from bharat.tokenizer.metadata import (
     metadata_from_tokenizer,
     validate_tokenizer_compatibility,
 )
-
 
 # ---------------------------------------------------------------------------
 # Offline core tests using tiny BPE tokenizer
