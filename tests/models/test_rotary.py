@@ -12,7 +12,6 @@ class TestRotaryEmbedding:
         return RotaryEmbedding(head_dim=64, max_position_embeddings=2048, rope_theta=10_000.0)
 
     def test_position_zero_behavior(self, rotary: RotaryEmbedding):
-        """At position 0, cos=1 and sin=0 → no rotation."""
         cos, sin = rotary(seq_len=1)
         assert torch.allclose(cos[0], torch.ones_like(cos[0]), atol=1e-6)
         assert torch.allclose(sin[0], torch.zeros_like(sin[0]), atol=1e-6)
@@ -56,7 +55,6 @@ class TestRotaryEmbedding:
         assert torch.isfinite(k.grad).all()
 
     def test_cache_extension(self):
-        """RoPE can compute beyond initial max_position_embeddings."""
         rotary = RotaryEmbedding(head_dim=32, max_position_embeddings=16, rope_theta=10_000.0)
         cos_short, _sin_short = rotary(seq_len=16)
         cos_long, sin_long = rotary(seq_len=24)
@@ -79,14 +77,86 @@ class TestRotaryEmbedding:
         assert q_rot.dtype == torch.bfloat16
         assert k_rot.dtype == torch.bfloat16
 
+    # ---------- One-dimensional position IDs ----------
+
     def test_explicit_position_ids(self, rotary: RotaryEmbedding):
         position_ids = torch.tensor([3, 7, 11])
         cos, _sin = rotary(seq_len=3, position_ids=position_ids)
         assert cos.shape == (3, 32)
 
-    def test_invalid_odd_head_dim_raises(self):
+    # ---------- Batched (2-D) position IDs ----------
+
+    def test_batched_position_ids(self, rotary: RotaryEmbedding):
+        position_ids = torch.tensor([[0, 1, 2], [3, 4, 5]])
+        cos, sin = rotary(seq_len=3, position_ids=position_ids)
+        # Batched position IDs produce 3-D cos/sin: (batch, seq, head_dim/2)
+        assert cos.shape == (2, 3, 32)
+        assert sin.shape == (2, 3, 32)
+        q = torch.randn(2, 8, 3, 64)
+        k = torch.randn(2, 8, 3, 64)
+        q_rot, k_rot = apply_rotary_pos_emb(q, k, cos, sin)
+        assert q_rot.shape == q.shape
+        assert k_rot.shape == k.shape
+
+    # ---------- Repeated position IDs ----------
+
+    def test_repeated_position_ids(self, rotary: RotaryEmbedding):
+        position_ids = torch.tensor([1, 1, 2])
+        cos, _sin = rotary(seq_len=3, position_ids=position_ids)
+        assert torch.allclose(cos[0], cos[1], atol=1e-6)
+
+    # ---------- Non-contiguous position IDs ----------
+
+    def test_non_contiguous_positions(self, rotary: RotaryEmbedding):
+        position_ids = torch.tensor([5, 10, 15])
+        cos, sin = rotary(seq_len=3, position_ids=position_ids)
+        assert cos.shape == (3, 32)
+        assert sin.shape == (3, 32)
+
+    # ---------- Offset ----------
+
+    def test_offset(self, rotary: RotaryEmbedding):
+        cos_no_offset, _ = rotary(seq_len=3)
+        cos_with_offset, _ = rotary(seq_len=3, offset=4)
+        assert not torch.allclose(cos_no_offset[0], cos_with_offset[0], atol=1e-6)
+
+    # ---------- Device consistency ----------
+
+    def test_device_consistency(self, rotary: RotaryEmbedding):
+        cos, sin = rotary(seq_len=4)
+        assert cos.device == rotary.inv_freq.device
+        assert sin.device == rotary.inv_freq.device
+
+        # Explicit position IDs follow inv_freq device
+        pos = torch.tensor([0, 1, 2])
+        cos_explicit, _sin_explicit = rotary(seq_len=3, position_ids=pos)
+        assert cos_explicit.device == rotary.inv_freq.device
+
+    # ---------- Invalid values ----------
+
+    def test_negative_seq_len_raises(self, rotary: RotaryEmbedding):
+        with pytest.raises(ValueError, match="seq_len"):
+            rotary(seq_len=-1)
+
+    def test_negative_offset_raises(self, rotary: RotaryEmbedding):
+        with pytest.raises(ValueError, match="offset"):
+            rotary(seq_len=1, offset=-1)
+
+    def test_invalid_head_dim_raises(self):
         with pytest.raises(ValueError, match="even"):
             RotaryEmbedding(head_dim=63)
+
+    def test_zero_max_position_embeddings_raises(self):
+        with pytest.raises(ValueError, match="max_position_embeddings"):
+            RotaryEmbedding(head_dim=64, max_position_embeddings=0)
+
+    def test_negative_rope_theta_raises(self):
+        with pytest.raises(ValueError, match="rope_theta"):
+            RotaryEmbedding(head_dim=64, rope_theta=-1.0)
+
+    def test_zero_rope_theta_raises(self):
+        with pytest.raises(ValueError, match="rope_theta"):
+            RotaryEmbedding(head_dim=64, rope_theta=0.0)
 
 
 class TestApplyRotaryPosEmb:
@@ -106,6 +176,15 @@ class TestApplyRotaryPosEmb:
         sin = torch.randn(1, 1, 10, 32)
         q_out, _k_out = apply_rotary_pos_emb(q, k, cos, sin)
         assert q_out.shape == q.shape
+
+    def test_broadcast_with_3d_cos(self):
+        q = torch.randn(2, 8, 3, 64)
+        k = torch.randn(2, 4, 3, 64)
+        cos = torch.randn(2, 3, 32)
+        sin = torch.randn(2, 3, 32)
+        q_out, k_out = apply_rotary_pos_emb(q, k, cos, sin)
+        assert q_out.shape == q.shape
+        assert k_out.shape == k.shape
 
     def test_norm_preserved(self):
         q = torch.randn(2, 4, 8, 32)
