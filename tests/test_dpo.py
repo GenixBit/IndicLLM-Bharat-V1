@@ -6,10 +6,11 @@ import tempfile
 import pytest
 import torch
 
-from bharat.posttraining.dpo import DPOConfig, dpo_train
+from bharat.posttraining.dpo import DPOConfig, DPOResult, dpo_train
 from bharat.posttraining.preference_dataset import PreferenceDataset, dpo_collate
 from bharat.posttraining.templates import Template
 from bharat.tokenizer import load_tokenizer
+from train.pretrain import GPT, GPTConfig
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +47,20 @@ def preferences_jsonl():
     os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_tiny_model():
+    return GPT(GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False))
+
+
+# ---------------------------------------------------------------------------
+# Dataset tests
+# ---------------------------------------------------------------------------
+
+
 class TestDPODataset:
     def test_dataset_initialization(self, preferences_jsonl, tokenizer):
         dataset = PreferenceDataset(
@@ -60,21 +75,18 @@ class TestDPODataset:
         item = dataset[0]
         chosen = item["chosen_ids"]
         mask = item["chosen_response_mask"]
-        # mask should be aligned to the full chosen sequence
         assert mask.shape[0] == chosen.shape[0]
+
+
+# ---------------------------------------------------------------------------
+# Training tests
+# ---------------------------------------------------------------------------
 
 
 class TestDPOTraining:
     def test_empty_dataset_raises(self, tokenizer):
-        from bharat.posttraining.dpo import DPOConfig, dpo_train
-        from train.pretrain import GPT, GPTConfig
-
-        model = GPT(
-            GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
-        )
-        ref = GPT(
-            GPTConfig(vocab_size=50257, n_embd=32, n_head=4, n_layer=2, block_size=64, bias=False)
-        )
+        model = _make_tiny_model()
+        ref = _make_tiny_model()
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write("")
@@ -92,21 +104,49 @@ class TestDPOTraining:
 
         os.unlink(data_path)
 
-    def test_cpu_backward(self, preferences_jsonl, tokenizer):
-        from train.pretrain import GPT, GPTConfig
+    def test_one_sample_batch_four(self, tokenizer):
+        """1 preference sample with batch_size=4 must still train."""
+        policy = _make_tiny_model()
+        ref = _make_tiny_model()
 
-        model_cfg = GPTConfig(
-            vocab_size=50257,
-            n_embd=32,
-            n_head=4,
-            n_layer=2,
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "What is 2+2?",
+                        "chosen": "4",
+                        "rejected": "5",
+                    }
+                )
+                + "\n"
+            )
+            data_path = f.name
+
+        config = DPOConfig(
+            data_path=data_path,
+            max_iters=1,
+            batch_size=4,
             block_size=64,
-            bias=False,
+            beta=0.1,
+            device="cpu",
         )
-        policy = GPT(model_cfg)
-        ref = GPT(model_cfg)
+        config.output_dir = tempfile.mkdtemp()
 
-        # Save initial params
+        result = dpo_train(policy, ref, config, tokenizer)
+        assert isinstance(result, DPOResult)
+        assert result.final_loss > 0
+        assert result.completed_steps == 1
+
+        import os
+        import shutil
+
+        os.unlink(data_path)
+        shutil.rmtree(config.output_dir, ignore_errors=True)
+
+    def test_cpu_backward(self, preferences_jsonl, tokenizer):
+        policy = _make_tiny_model()
+        ref = _make_tiny_model()
+
         init_policy = {k: v.clone() for k, v in policy.named_parameters() if v.requires_grad}
         init_ref = {k: v.clone() for k, v in ref.named_parameters() if v.requires_grad}
 
@@ -120,11 +160,13 @@ class TestDPOTraining:
         )
         config.output_dir = tempfile.mkdtemp()
 
-        loss = dpo_train(policy, ref, config, tokenizer)
+        result = dpo_train(policy, ref, config, tokenizer)
+        assert isinstance(result, DPOResult)
+        assert result.final_loss > 0
+        assert result.best_loss > 0
+        assert result.completed_steps == 1
 
-        assert loss > 0, "DPO loss should be positive"
-
-        # Policy parameters should have changed
+        # Policy should have changed
         policy_changed = False
         for k, v in policy.named_parameters():
             if v.requires_grad and not torch.equal(v, init_policy[k]):
@@ -132,7 +174,7 @@ class TestDPOTraining:
                 break
         assert policy_changed, "Policy model parameters should change after training"
 
-        # Reference parameters should NOT have changed
+        # Reference should NOT have changed
         ref_changed = False
         for k, v in ref.named_parameters():
             if v.requires_grad and not torch.equal(v, init_ref[k]):
@@ -174,8 +216,6 @@ class TestDPOTraining:
 
         assert result["chosen_ids"].shape[0] == 2
         assert result["chosen_response_mask"].shape[0] == 2
-
-        # The two prompts should have different response mask patterns
         assert not torch.equal(result["chosen_response_mask"][0], result["chosen_response_mask"][1])
 
         import os
@@ -199,14 +239,13 @@ class TestDPOTraining:
         dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
         item = dataset[0]
 
-        # Chosen and rejected should have different lengths
         assert item["chosen_ids"].shape[0] != item["rejected_ids"].shape[0]
 
         import os
 
         os.unlink(path)
 
-    def test_empty_assistant_response(self, tokenizer):
+    def test_empty_chosen_response(self, tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -223,9 +262,85 @@ class TestDPOTraining:
         dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
         item = dataset[0]
 
-        # Even with empty chosen response, the assistant prefix + suffix are present
         assert item["chosen_response_mask"] is not None
         assert item["rejected_response_mask"] is not None
+
+        import os
+
+        os.unlink(path)
+
+    def test_empty_rejected_response(self, tokenizer):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "Test",
+                        "chosen": "Something",
+                        "rejected": "",
+                    }
+                )
+                + "\n"
+            )
+            path = f.name
+
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        item = dataset[0]
+
+        assert item["chosen_response_mask"] is not None
+        assert item["rejected_response_mask"] is not None
+
+        import os
+
+        os.unlink(path)
+
+    def test_both_responses_empty(self, tokenizer):
+        """Both responses empty — dataset should still load but training will fail."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "prompt": "Test",
+                        "chosen": "",
+                        "rejected": "",
+                    }
+                )
+                + "\n"
+            )
+            path = f.name
+
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        item = dataset[0]
+
+        assert item["chosen_response_mask"] is not None
+        assert item["rejected_response_mask"] is not None
+
+        import os
+
+        os.unlink(path)
+
+    def test_both_empty_responses_training(self, tokenizer):
+        """Both responses empty — prefix tokens still provide non-zero mask."""
+        policy = _make_tiny_model()
+        ref = _make_tiny_model()
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                json.dumps({"prompt": "Test", "chosen": "", "rejected": ""}) + "\n"
+            )
+            path = f.name
+
+        config = DPOConfig(
+            data_path=path,
+            max_iters=1,
+            batch_size=4,
+            block_size=64,
+            device="cpu",
+        )
+        config.output_dir = tempfile.mkdtemp()
+
+        result = dpo_train(policy, ref, config, tokenizer)
+        assert isinstance(result, DPOResult)
+        assert result.final_loss > 0
 
         import os
 

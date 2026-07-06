@@ -1,6 +1,22 @@
 #!/usr/bin/env python3
 """
-nanoGPT-style pretraining with W&B logging.
+nanoGPT-style pretraining with precise step semantics.
+
+Step semantics
+--------------
+- completed_steps : number of optimizer steps already finished.
+- next_step       : the optimizer-step index to execute next.
+                    Always equal to completed_steps during a fresh run.
+- Checkpoints are saved AFTER each completed optimizer step.
+- Resuming starts at checkpoint[next_step] and never repeats a step.
+- LR scheduling uses the global step index (0-based).
+
+Legacy compatibility
+--------------------
+Pre-Milestone-1.3 checkpoints used the key ``iter_num`` to store the
+last-evaluated iteration.  During resume those are converted to
+``next_step`` automatically when ``compatibility_mode: legacy`` is
+set in the checkpoint config.
 
 Usage:
   python train/pretrain.py --config configs/gpt2-124m.yaml
@@ -28,7 +44,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from bharat.tokenizer import load_tokenizer
-from bharat.tokenizer.metadata import tokenizer_hash
+from bharat.tokenizer.metadata import tokenizer_hash, metadata_from_tokenizer
 from bharat.training.checkpointing import get_git_sha, get_package_versions
 from train.utils import ensure_dir, get_device_preference, init_wandb, load_config
 
@@ -151,7 +167,7 @@ def get_lr(it: int, cfg: dict) -> float:
 
 
 def load_bin(path: Path) -> torch.Tensor:
-    # Cast uint16 → int64: cross_entropy requires int64 targets
+    # Cast uint16 -> int64: cross_entropy requires int64 targets
     data = __import__("numpy").memmap(path, dtype=__import__("numpy").uint16, mode="r")
     return torch.from_numpy(data.astype(__import__("numpy").int64))
 
@@ -176,75 +192,7 @@ def estimate_loss(model, data, block_size, batch_size, eval_iters, device, ctx):
     return out
 
 
-def train_from_config(
-    cfg: dict,
-    max_iters: int | None = None,
-) -> dict[str, int | float | str]:
-    """Run the pretraining loop and return a TrainingResult.
-
-    Args:
-        cfg: Training configuration dict.
-        max_iters: Optional override for maximum training iterations.
-
-    Returns:
-        dict with keys: final_loss, completed_steps, output_dir, history.
-    """
-    model_cfg = cfg["model"]
-    train_cfg = cfg["training"].copy()
-    if max_iters is not None:
-        train_cfg["max_iters"] = max_iters
-    else:
-        max_iters = train_cfg.get("max_iters", 0)
-
-    device = get_device_preference()
-    print(f"Device      : {device.upper()}")
-    print(f"Max iters   : {train_cfg['max_iters']}")
-    sys.stdout.flush()
-
-    dtype_name = train_cfg.get("dtype", "float32")
-    if device == "mps" and dtype_name == "bfloat16":
-        dtype_name = "float16"
-    ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[
-        dtype_name
-    ]
-    ctx = (
-        nullcontext()
-        if device == "cpu"
-        else torch.amp.autocast(device_type=device.split(":")[0], dtype=ptdtype)
-    )
-
-    data_cfg = cfg["data"]
-    meta_path = Path(data_cfg["meta_pkl"])
-    if meta_path.exists():
-        with open(meta_path, "rb") as f:
-            meta = pickle.load(f)
-        model_cfg["vocab_size"] = meta["vocab_size"]
-
-    train_data = load_bin(Path(data_cfg["train_bin"]))
-    val_data = load_bin(Path(data_cfg["val_bin"]))
-    data = {"train": train_data, "val": val_data}
-
-    out_dir = ensure_dir(cfg["checkpoint"]["out_dir"])
-
-    # Tokenizer
-    tok_src = cfg.get("tokenizer", {}).get("source")
-    tokenizer = load_tokenizer(tok_src)
-    print(f"  Tokenizer: {tokenizer.tokenizer_type} (vocab={tokenizer.vocab_size})")
-
-    init_wandb(cfg)
-    wandb = None
-    if os.environ.get("WANDB_API_KEY") and cfg.get("wandb", {}).get("enabled"):
-        import wandb as _wandb
-
-        wandb = _wandb
-
-    model = GPT.from_config(model_cfg).to(device)
-
-    init_from = cfg.get("checkpoint", {}).get("init_from", "scratch")
-    start_iter = 0
-    rng_state = None
-
-    # Build optimizer
+def _build_optimizer(model, train_cfg):
     import inspect
 
     decay = set()
@@ -272,79 +220,198 @@ def train_from_config(
     optimizer = torch.optim.AdamW(
         optim_groups, lr=train_cfg["learning_rate"], betas=(0.9, 0.95), fused=fused
     )
+    return optimizer
+
+
+def _build_checkpoint(model, optimizer, completed_steps, tokenizer, cfg, grad_accum):
+    import random
+
+    return {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "completed_steps": completed_steps,
+        "next_step": completed_steps,
+        "config": cfg,
+        "metadata": {
+            "tokenizer_type": tokenizer.tokenizer_type,
+            "tokenizer_hash": tokenizer_hash(tokenizer),
+            "vocab_size": tokenizer.vocab_size,
+            "git_sha": get_git_sha(),
+            "training_step": completed_steps,
+            "config_name": cfg.get("name", ""),
+            "package_versions": get_package_versions(),
+        },
+        "rng_state": {
+            "python": random.getstate(),
+            "torch": torch.get_rng_state().tolist(),
+            "cuda": {
+                str(i): torch.cuda.get_rng_state(i).tolist()
+                for i in range(torch.cuda.device_count())
+            }
+            if torch.cuda.is_available()
+            else {},
+        },
+    }
+
+
+def train_from_config(
+    cfg: dict,
+    max_iters: int | None = None,
+) -> dict[str, int | float | str]:
+    """Run the pretraining loop.
+
+    Args:
+        cfg: Training configuration dict.
+        max_iters: Optional override for maximum training iterations.
+
+    Returns:
+        dict with keys: final_loss, completed_steps, output_dir.
+    """
+    model_cfg = cfg["model"]
+    train_cfg = cfg["training"].copy()
+    if max_iters is not None:
+        train_cfg["max_iters"] = max_iters
+    else:
+        max_iters = train_cfg.get("max_iters", 0)
+
+    device = get_device_preference()
+    print(f"Device      : {device.upper()}")
+    print(f"Max iters   : {max_iters}")
+    sys.stdout.flush()
+
+    dtype_name = train_cfg.get("dtype", "float32")
+    if device == "mps" and dtype_name == "bfloat16":
+        dtype_name = "float16"
+    ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[
+        dtype_name
+    ]
+    ctx = (
+        nullcontext()
+        if device == "cpu"
+        else torch.amp.autocast(device_type=device.split(":")[0], dtype=ptdtype)
+    )
+
+    data_cfg = cfg["data"]
+    meta_path = Path(data_cfg["meta_pkl"])
+    if meta_path.exists():
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+        model_cfg["vocab_size"] = meta["vocab_size"]
+
+    train_data = load_bin(Path(data_cfg["train_bin"]))
+    val_data = load_bin(Path(data_cfg["val_bin"]))
+    data = {"train": train_data, "val": val_data}
+
+    out_dir = ensure_dir(cfg["checkpoint"]["out_dir"])
+
+    tok_src = cfg.get("tokenizer", {}).get("source")
+    tokenizer = load_tokenizer(tok_src)
+    print(f"  Tokenizer: {tokenizer.tokenizer_type} (vocab={tokenizer.vocab_size})")
+
+    init_wandb(cfg)
+    wandb = None
+    if os.environ.get("WANDB_API_KEY") and cfg.get("wandb", {}).get("enabled"):
+        import wandb as _wandb
+
+        wandb = _wandb
+
+    model = GPT.from_config(model_cfg).to(device)
+
+    init_from = cfg.get("checkpoint", {}).get("init_from", "scratch")
+    compatibility_mode = cfg.get("checkpoint", {}).get("compatibility_mode")
+    next_step = 0
+    rng_state = None
+
+    optimizer = _build_optimizer(model, train_cfg)
 
     # Handle resume
     if init_from == "resume":
         ckpt_path = out_dir / "ckpt.pt"
-        if ckpt_path.exists():
-            print(f"  Resuming from {ckpt_path}")
-            old_ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        if not ckpt_path.exists():
+            raise FileNotFoundError(
+                f"Resume requested but no checkpoint found at {ckpt_path}. "
+                "Use init_from: scratch to start fresh."
+            )
 
-            # Validate tokenizer
-            old_meta = old_ckpt.get("metadata")
-            if old_meta and old_meta.get("tokenizer_hash"):
-                old_hash = old_meta["tokenizer_hash"]
-                cur_hash = tokenizer_hash(tokenizer)
-                if old_hash != cur_hash:
-                    raise ValueError(
-                        f"Tokenizer mismatch on resume: checkpoint has hash="
-                        f"{old_hash[:12]}..., current={cur_hash[:12]}...\n"
-                        f"Use the same tokenizer that was used during training."
-                    )
-            elif old_meta:
-                print(
-                    "  Warning: checkpoint has metadata but no tokenizer_hash — skipping validation."
+        print(f"  Resuming from {ckpt_path}")
+        old_ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+
+        # --- Validate metadata ---
+        old_meta = old_ckpt.get("metadata")
+        if old_meta and old_meta.get("tokenizer_hash"):
+            cur_hash = tokenizer_hash(tokenizer)
+            if old_meta["tokenizer_hash"] != cur_hash:
+                raise ValueError(
+                    f"Tokenizer mismatch on resume: checkpoint hash="
+                    f"{old_meta['tokenizer_hash'][:12]}..., "
+                    f"current={cur_hash[:12]}...\n"
+                    f"Use the same tokenizer that was used during training."
                 )
-            else:
-                print(
-                    "  Warning: checkpoint has no metadata section — skipping tokenizer validation."
-                )
-
-            # Load model state, handling _orig_mod prefix from torch.compile
-            model_state = old_ckpt["model"]
-            if any(k.startswith("_orig_mod.") for k in model_state):
-                clean_state = {}
-                for k, v in model_state.items():
-                    clean_state[k.replace("_orig_mod.", "")] = v
-                model_state = clean_state
-            missing_keys, unexpected_keys = model.load_state_dict(model_state, strict=False)
-            if missing_keys or unexpected_keys:
-                print(
-                    f"  Warning: model state keys mismatch. "
-                    f"Missing: {missing_keys[:5]}, Unexpected: {unexpected_keys[:5]}"
-                )
-
-            # Load optimizer state
-            if "optimizer" in old_ckpt:
-                optimizer.load_state_dict(old_ckpt["optimizer"])
-            else:
-                raise ValueError("Resume checkpoint missing optimizer state. Cannot resume.")
-
-            # Restore iteration
-            if "iter_num" in old_ckpt:
-                start_iter = old_ckpt["iter_num"]
-                print(f"  Resumed at iteration {start_iter}")
-            else:
-                raise ValueError("Resume checkpoint missing iter_num. Cannot resume.")
-
-            # Restore RNG state
-            if "rng_state" in old_ckpt:
-                rng_state = old_ckpt["rng_state"]
-                import random
-
-                random.setstate(rng_state.get("python", random.getstate()))
-                if rng_state.get("torch"):
-                    torch.set_rng_state(torch.tensor(rng_state["torch"], dtype=torch.uint8))
-                if torch.cuda.is_available():
-                    for dev_id, dev_state in rng_state.get("cuda", {}).items():
-                        torch.cuda.set_rng_state(
-                            torch.tensor(dev_state, dtype=torch.uint8),
-                            device=int(dev_id),
-                        )
-            else:
-                raise ValueError("Resume checkpoint missing rng_state. Cannot resume.")
+        elif old_meta:
+            raise ValueError(
+                "Checkpoint has metadata but no tokenizer_hash. "
+                "Cannot safely validate tokenizer compatibility."
+            )
         else:
-            print(f"  No checkpoint found at {ckpt_path}, starting from scratch")
+            raise ValueError(
+                "Checkpoint has no metadata section. "
+                "Cannot safely validate tokenizer compatibility."
+            )
+
+        # --- Resolve step ---
+        if "next_step" in old_ckpt:
+            next_step = old_ckpt["next_step"]
+        elif compatibility_mode == "legacy":
+            # Legacy checkpoint: was saved with iter_num = the step just evaluated
+            # (NOT the step just completed).  We stored iter_num == it where
+            # it was the loop variable BEFORE the optimizer step.
+            # Legacy resume started at iter_num, which repeated that step.
+            # Clean resume must start at iter_num + 1 to skip the repeated work.
+            legacy_iter = old_ckpt.get("iter_num", 0)
+            next_step = legacy_iter + 1
+            print(
+                f"  Legacy checkpoint: converting iter_num={legacy_iter} -> next_step={next_step}"
+            )
+        else:
+            raise ValueError(
+                "Checkpoint missing 'next_step' key and compatibility_mode is not 'legacy'. "
+                "Set checkpoint.compatibility_mode: legacy to load pre-Milestone-1.3 checkpoints."
+            )
+
+        print(f"  Resuming at step {next_step}")
+
+        # --- Load model state (strict) ---
+        model_state = old_ckpt["model"]
+        if any(k.startswith("_orig_mod.") for k in model_state):
+            clean_state = {}
+            for k, v in model_state.items():
+                clean_state[k.replace("_orig_mod.", "")] = v
+            model_state = clean_state
+
+        missing_keys, unexpected_keys = model.load_state_dict(model_state, strict=True)
+        assert not missing_keys, f"Missing model keys on resume: {missing_keys}"
+        assert not unexpected_keys, f"Unexpected model keys on resume: {unexpected_keys}"
+
+        # --- Load optimizer state ---
+        if "optimizer" not in old_ckpt:
+            raise ValueError("Resume checkpoint missing optimizer state. Cannot resume.")
+        optimizer.load_state_dict(old_ckpt["optimizer"])
+
+        # --- Restore RNG state ---
+        if "rng_state" not in old_ckpt:
+            raise ValueError("Resume checkpoint missing rng_state. Cannot resume.")
+        rng_state = old_ckpt["rng_state"]
+        import random
+
+        random.setstate(rng_state.get("python", random.getstate()))
+        if rng_state.get("torch"):
+            torch.set_rng_state(torch.tensor(rng_state["torch"], dtype=torch.uint8))
+        if torch.cuda.is_available():
+            for dev_id, dev_state in rng_state.get("cuda", {}).items():
+                torch.cuda.set_rng_state(
+                    torch.tensor(dev_state, dtype=torch.uint8),
+                    device=int(dev_id),
+                )
     else:
         print("  Initializing from scratch")
 
@@ -355,53 +422,20 @@ def train_from_config(
     block_size = model_cfg["block_size"]
     batch_size = train_cfg["batch_size"]
     grad_accum = train_cfg.get("gradient_accumulation_steps", 1)
+    eval_interval = train_cfg.get("eval_interval", 100)
+    log_interval = train_cfg.get("log_interval", 10)
+    save_interval = train_cfg.get("save_interval", eval_interval)
 
     t0 = time.time()
-    completed_steps = start_iter
-    for it in range(start_iter, max_iters + 1):
-        lr = get_lr(it, train_cfg)
+    completed_steps = next_step  # steps already done before this run
+
+    for step in range(next_step, max_iters):
+        # Set learning rate for this step
+        lr = get_lr(step, train_cfg)
         for pg in optimizer.param_groups:
             pg["lr"] = lr
 
-        if it % train_cfg["eval_interval"] == 0 and it > 0:
-            losses = estimate_loss(
-                model, data, block_size, batch_size, train_cfg["eval_iters"], device, ctx
-            )
-            print(f"step {it}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-            if wandb:
-                wandb.log(
-                    {"train/loss": losses["train"], "val/loss": losses["val"], "lr": lr}, step=it
-                )
-            if it > 0:
-                import random
-
-                ckpt = {
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "iter_num": it,
-                    "config": cfg,
-                    "metadata": {
-                        "tokenizer_type": tokenizer.tokenizer_type,
-                        "tokenizer_hash": tokenizer_hash(tokenizer),
-                        "vocab_size": tokenizer.vocab_size,
-                        "git_sha": get_git_sha(),
-                        "training_step": it,
-                        "config_name": cfg.get("name", ""),
-                        "package_versions": get_package_versions(),
-                    },
-                    "rng_state": {
-                        "python": random.getstate(),
-                        "torch": torch.get_rng_state().tolist(),
-                        "cuda": {
-                            str(i): torch.cuda.get_rng_state(i).tolist()
-                            for i in range(torch.cuda.device_count())
-                        }
-                        if torch.cuda.is_available()
-                        else {},
-                    },
-                }
-                torch.save(ckpt, out_dir / "ckpt.pt")
-
+        # Forward / backward / optimizer
         optimizer.zero_grad(set_to_none=True)
         for _ in range(grad_accum):
             ix = torch.randint(len(train_data) - block_size, (batch_size,))
@@ -415,44 +449,42 @@ def train_from_config(
         torch.nn.utils.clip_grad_norm_(model.parameters(), train_cfg["grad_clip"])
         optimizer.step()
 
-        if it % train_cfg["log_interval"] == 0:
+        # Step is complete
+        completed_steps = step + 1
+
+        # Logging before evaluation
+        if step % log_interval == 0 or step == next_step:
             dt = time.time() - t0
-            print(f"iter {it}: loss {loss.item() * grad_accum:.4f}, time {dt * 1000:.0f}ms")
+            print(f"step {step}: loss {loss.item() * grad_accum:.4f}, time {dt * 1000:.0f}ms")
             t0 = time.time()
-        completed_steps = it
 
-    import random
+        # Evaluation (may log to wandb)
+        completed = step + 1
+        if completed % eval_interval == 0:
+            losses = estimate_loss(
+                model, data, block_size, batch_size, train_cfg["eval_iters"], device, ctx
+            )
+            print(f"step {step} (completed {completed}): train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            if wandb:
+                wandb.log(
+                    {"train/loss": losses["train"], "val/loss": losses["val"], "lr": lr},
+                    step=completed,
+                )
 
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "config": cfg,
-            "metadata": {
-                "tokenizer_type": tokenizer.tokenizer_type,
-                "tokenizer_hash": tokenizer_hash(tokenizer),
-                "vocab_size": tokenizer.vocab_size,
-                "git_sha": get_git_sha(),
-                "training_step": max_iters,
-                "config_name": cfg.get("name", ""),
-                "package_versions": get_package_versions(),
-            },
-            "rng_state": {
-                "python": random.getstate(),
-                "torch": torch.get_rng_state().tolist(),
-                "cuda": {
-                    str(i): torch.cuda.get_rng_state(i).tolist()
-                    for i in range(torch.cuda.device_count())
-                }
-                if torch.cuda.is_available()
-                else {},
-            },
-        },
-        out_dir / "final.pt",
-    )
+        # Checkpoint after step
+        if completed % save_interval == 0:
+            ckpt = _build_checkpoint(model, optimizer, completed, tokenizer, cfg, grad_accum)
+            torch.save(ckpt, out_dir / "ckpt.pt")
+
+    # Final checkpoint
+    final_loss_val = loss.item() * grad_accum
+    final_ckpt = _build_checkpoint(model, optimizer, completed_steps, tokenizer, cfg, grad_accum)
+    final_ckpt["final_loss"] = final_loss_val
+    torch.save(final_ckpt, out_dir / "final.pt")
     print(f"Training complete. Checkpoints in {out_dir}")
 
     return {
-        "final_loss": loss.item() * grad_accum if "loss" in dir() else float("nan"),
+        "final_loss": final_loss_val,
         "completed_steps": completed_steps,
         "output_dir": str(out_dir),
     }
