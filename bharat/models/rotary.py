@@ -24,6 +24,9 @@ class RotaryEmbedding(nn.Module):
     .. note::
         Frequencies beyond ``max_position_embeddings`` are computed on the fly;
         no NTK-aware / YaRN / LongRoPE scaling is applied.
+
+    All frequency products, cosine and sine are always computed in float32
+    and cast to the requested output dtype only at the end.
     """
 
     def __init__(
@@ -33,6 +36,8 @@ class RotaryEmbedding(nn.Module):
         rope_theta: float = 10_000.0,
     ) -> None:
         super().__init__()
+        if head_dim <= 0:
+            raise ValueError(f"head_dim must be positive, got {head_dim}")
         if head_dim % 2 != 0:
             raise ValueError(f"head_dim must be even for rotary embeddings, got {head_dim}")
         if max_position_embeddings <= 0:
@@ -62,11 +67,29 @@ class RotaryEmbedding(nn.Module):
         if offset < 0:
             raise ValueError(f"offset must be non-negative, got {offset}")
 
-        compute_dtype = dtype if dtype else torch.float32
-
         buf_device: torch.device = typing.cast(torch.device, self.inv_freq.device)
 
         if position_ids is not None:
+            if position_ids.dim() not in (1, 2):
+                raise ValueError(f"position_ids must be 1-D or 2-D, got {position_ids.dim()}-D")
+            expected_seq = seq_len
+            if position_ids.dim() == 1:
+                if position_ids.shape[0] != expected_seq:
+                    raise ValueError(
+                        f"position_ids length ({position_ids.shape[0]}) must match "
+                        f"seq_len ({expected_seq})"
+                    )
+            else:
+                if position_ids.shape[1] != expected_seq:
+                    raise ValueError(
+                        f"position_ids sequence length ({position_ids.shape[1]}) must "
+                        f"match seq_len ({expected_seq})"
+                    )
+            if position_ids.numel() > 0 and position_ids.min() < 0:
+                raise ValueError(
+                    f"position_ids must not contain negative values, "
+                    f"got min={position_ids.min().item()}"
+                )
             position_ids = position_ids.to(device=buf_device)
         else:
             position_ids = torch.arange(
@@ -76,17 +99,24 @@ class RotaryEmbedding(nn.Module):
                 device=buf_device,
             )
 
-        inv_freq = self.inv_freq.to(dtype=dtype) if dtype else self.inv_freq
+        # Always compute in float32
+        inv_freq_f32 = self.inv_freq.float()
+        positions_f32 = position_ids.float()
 
         if position_ids.dim() == 1:
-            freqs = torch.einsum("i,j->ij", position_ids.float(), inv_freq.float())
+            freqs = torch.einsum("i,j->ij", positions_f32, inv_freq_f32)
         elif position_ids.dim() == 2:
-            freqs = torch.einsum("bi,j->bij", position_ids.float(), inv_freq.float())
+            freqs = torch.einsum("bi,j->bij", positions_f32, inv_freq_f32)
         else:
             raise ValueError(f"position_ids must be 1-D or 2-D, got {position_ids.dim()}-D")
 
-        cos = freqs.cos().to(dtype=compute_dtype)
-        sin = freqs.sin().to(dtype=compute_dtype)
+        cos = freqs.cos()
+        sin = freqs.sin()
+
+        if dtype is not None:
+            cos = cos.to(dtype=dtype)
+            sin = sin.to(dtype=dtype)
+
         return cos, sin
 
 
@@ -106,7 +136,7 @@ def apply_rotary_pos_emb(
         sin: Sine values broadcastable to query/key heads.
 
     Returns:
-        Tuple of rotated ``(q, k)`` with the same shapes as inputs.
+        Tuple of rotated ``(q, k)`` with the same shapes and dtype as inputs.
     """
     q_embed = _rotate_half(q, cos, sin)
     k_embed = _rotate_half(k, cos, sin)
@@ -119,6 +149,7 @@ def _rotate_half(
     sin: torch.Tensor,
 ) -> torch.Tensor:
     """Apply interleaved rotation to the last dimension of x."""
+    dtype = x.dtype
     x1 = x[..., 0::2]
     x2 = x[..., 1::2]
 
@@ -130,8 +161,9 @@ def _rotate_half(
         cos = cos.unsqueeze(1)
         sin = sin.unsqueeze(1)
 
-    cos = cos.to(x.dtype)
-    sin = sin.to(x.dtype)
+    # Cast cos/sin to input dtype (they were computed in float32)
+    cos = cos.to(dtype=dtype)
+    sin = sin.to(dtype=dtype)
 
     rotated = torch.stack([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1)
     return rotated.flatten(-2)

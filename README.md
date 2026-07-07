@@ -4,7 +4,7 @@
 
 Bharat AI is transitioning from a GPT-2 based prototype to a modern decoder architecture (RoPE, RMSNorm, SwiGLU, GQA) with unified tokenizer, proper evaluation, and production serving.
 
-> **Status**: Milestone 1 ongoing — see [vision](docs/VISION.md), [roadmap](docs/ROADMAP.md), and [current audit](docs/CURRENT_STATE_AUDIT.md) for details.
+> **Status**: Milestone 1 ✅, Milestone 2.1 ✅ (components), Milestone 2.2 ✅ (full model + generation) — see [vision](docs/VISION.md), [roadmap](docs/ROADMAP.md), and [implementation plan](docs/IMPLEMENTATION_PLAN.md) for details.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://python.org)
