@@ -572,7 +572,7 @@ class TestBharatForCausalLM:
         )
         model = BharatForCausalLM(cfg)
         input_ids = torch.randint(0, 10, (1, 2))
-        mask = torch.zeros(1, 2, dtype=torch.long)
+        mask = torch.ones(1, 2, dtype=torch.long)
         labels = -100 * torch.ones(1, 2, dtype=torch.long)
         with pytest.raises(ValueError, match="No active target labels"):
             model(input_ids, labels=labels, attention_mask=mask)
@@ -609,6 +609,66 @@ class TestBharatForCausalLM:
         labels = torch.randint(0, 16, (1, 4))
         with pytest.raises(ValueError, match="labels shape"):
             model(inputs_embeds=embeds, labels=labels)
+
+    def test_labels_with_cache_raises(self):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 6))
+        out = model(input_ids, use_cache=True)
+        labels = torch.randint(0, cfg.vocab_size, (1, 6))
+        with pytest.raises(ValueError, match="labels cannot be used with cached"):
+            model(input_ids, past_key_values=out.past_key_values, labels=labels, use_cache=True)
+
+    def test_labels_inputs_embeds_batch_mismatch_raises(self):
+        cfg = _small_config(
+            vocab_size=16,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=32,
+        )
+        model = BharatForCausalLM(cfg)
+        embeds = torch.randn(2, 6, cfg.hidden_size)
+        labels = torch.randint(0, 16, (1, 6))
+        with pytest.raises(ValueError, match="batch size"):
+            model(inputs_embeds=embeds, labels=labels)
+
+    def test_attention_mask_non_binary_raises(self):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 6))
+        mask = torch.full((2, 6), 2, dtype=torch.long)
+        with pytest.raises(ValueError, match="0/1"):
+            model(input_ids, attention_mask=mask)
+
+    def test_attention_mask_all_zero_raises(self):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 6))
+        mask = torch.zeros(2, 6)
+        with pytest.raises(ValueError, match=r"all-zero|valid token"):
+            model(input_ids, attention_mask=mask)
+
+    def test_attention_mask_one_valid_per_row(self):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 6))
+        mask = torch.zeros(2, 6)
+        mask[0, 0] = 1
+        mask[1, 0] = 1
+        out = model(input_ids, attention_mask=mask)
+        assert out.logits is not None
+
+    def test_attention_mask_unsupported_dtype_raises(self):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 6))
+        mask = torch.ones(2, 6)
+        mask = mask.to(torch.complex64)
+        with pytest.raises(ValueError, match="unsupported dtype"):
+            model(input_ids, attention_mask=mask)
 
     # --- Task 7: Strict save/load ---
 
@@ -682,14 +742,21 @@ class TestBharatForCausalLM:
         with pytest.raises(RuntimeError):
             BharatForCausalLM.from_pretrained(str(tmp_path))
 
-    def test_load_corrupted_state_raises(self, tmp_path):
+    def test_load_corrupted_state_raises_actionable_message(self, tmp_path):
         cfg = _small_config()
         model = BharatForCausalLM(cfg)
         model.save_pretrained(str(tmp_path))
-        with open(os.path.join(str(tmp_path), "model.pt"), "wb") as f:
+        model_path = os.path.join(str(tmp_path), "model.pt")
+        with open(model_path, "wb") as f:
             f.write(b"not a valid state dict")
-        with pytest.raises((RuntimeError, Exception)):
+        with pytest.raises(RuntimeError) as exc:
             BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert model_path in str(exc.value), (
+            f"Error message must contain the checkpoint path:\n{exc.value}"
+        )
+        assert "corrupted" in str(exc.value).lower() or "incompatible" in str(exc.value).lower(), (
+            f"Error must mention corruption or incompatibility:\n{exc.value}"
+        )
 
     def test_tied_after_strict_load(self, tmp_path):
         cfg = _small_config(tie_word_embeddings=True)

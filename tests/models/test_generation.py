@@ -5,7 +5,7 @@ import torch
 
 from bharat.models.bharat_model import BharatForCausalLM
 from bharat.models.config import BharatModelConfig
-from bharat.models.generation import generate
+from bharat.models.generation import _apply_top_k, _apply_top_p, generate
 
 
 def _small_lm(
@@ -98,6 +98,124 @@ def _make_fixed_logit_model(vocab_size: int = 32) -> BharatForCausalLM:
     model = FixedLogitLM(cfg)
     model.eval()
     return model
+
+
+def _make_deterministic_sample_model(vocab_size: int = 32) -> BharatForCausalLM:
+    """Logits where token 1 is overwhelmingly likely under softmax."""
+    cfg = BharatModelConfig(
+        vocab_size=vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        max_position_embeddings=128,
+        attention_dropout=0.0,
+        hidden_dropout=0.0,
+        tie_word_embeddings=False,
+    )
+
+    class DeterministicLogitLM(BharatForCausalLM):
+        def forward(self, **kwargs):
+            output = super().forward(**kwargs)
+            logits = output.logits
+            batch, seq, v = logits.shape
+            forced = torch.full((batch, seq, v), -1e9, dtype=logits.dtype)
+            forced[:, :, 1] = 0.0
+            output.logits = forced
+            return output
+
+    model = DeterministicLogitLM(cfg)
+    model.eval()
+    return model
+
+
+def _make_per_row_eos_model(
+    vocab_size: int = 32,
+    batch_size: int = 2,
+    eos_at_step: list[int] | None = None,
+) -> BharatForCausalLM:
+    """
+    Each row fires EOS (token 0) on a specific generation step.
+
+    ``eos_at_step[i]`` is the 0-indexed generation step at which row *i*'s
+    logits make token 0 the highest.  -1 means the row never fires EOS.
+    """
+    if eos_at_step is None:
+        eos_at_step = [-1] * batch_size
+    cfg = BharatModelConfig(
+        vocab_size=vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        max_position_embeddings=128,
+        attention_dropout=0.0,
+        hidden_dropout=0.0,
+        tie_word_embeddings=False,
+    )
+
+    class PerRowEOSLM(BharatForCausalLM):
+        def __init__(self, cfg):
+            super().__init__(cfg)
+            self._schedule = eos_at_step
+            self.register_buffer("_call_count", torch.full((1,), -1, dtype=torch.long))
+
+        def forward(self, **kwargs):
+            self._call_count += 1
+            output = super().forward(**kwargs)
+            logits = output.logits
+            batch, seq, vocab = logits.shape
+
+            forced = torch.full((batch, seq, vocab), -1e9, dtype=logits.dtype)
+            forced[:, :, 1] = 0.0
+            forced[:, :, 0] = -100.0
+
+            gen_step = self._call_count.item()  # 0 → prefill (first generated token)
+            for b_idx, step in enumerate(self._schedule):
+                if b_idx < batch and step >= 0 and gen_step == step:
+                    forced[b_idx, :, 0] = 100.0
+                    forced[b_idx, :, 1] = -1e9
+
+            output.logits = forced
+            return output
+
+    model = PerRowEOSLM(cfg)
+    model.eval()
+    return model
+
+
+class TestGenerationHelpers:
+    def test_apply_top_k_identity_when_k_large(self):
+        logits = torch.randn(2, 16)
+        result = _apply_top_k(logits, 16)
+        assert torch.equal(result, logits), "top_k=N must be identity when N == vocab_size"
+
+    def test_apply_top_k_keeps_top_k(self):
+        logits = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        result = _apply_top_k(logits, 2)
+        kept = result[result != float("-inf")]
+        assert kept.numel() == 2, f"Expected 2 kept, got {kept.numel()}"
+        assert 5.0 in kept and 4.0 in kept
+
+    def test_apply_top_p_all_kept_when_p_one(self):
+        logits = torch.randn(2, 16)
+        result = _apply_top_p(logits, 1.0)
+        assert torch.equal(result, logits), "top_p=1 must be identity"
+
+    def test_apply_top_p_keeps_at_least_one(self):
+        logits = torch.tensor([[1.0, -100.0, -200.0, -300.0]])
+        result = _apply_top_p(logits, 0.01)
+        kept = (result != float("-inf")).sum(dim=-1)
+        assert (kept >= 1).all(), "At least one candidate must survive top_p filtering"
+
+    def test_apply_top_p_preserves_order(self):
+        logits = torch.tensor([[10.0, 9.0, 1.0, 0.5]])
+        indices = torch.tensor([3, 2, 0, 1])
+        shuffled = logits[:, indices]
+        result = _apply_top_p(shuffled, 0.9)
+        assert result.shape == shuffled.shape
 
 
 class TestGeneration:
@@ -455,3 +573,175 @@ class TestGeneration:
         out = generate(model, input_ids, max_new_tokens=20, eos_token_id=0, pad_token_id=0)
         assert out.shape[0] == 2
         assert out.shape[1] <= 4 + 20
+
+    # ---- Task 1/2: Mixed completion with per-row EOS ----
+
+    def test_mixed_completion_respected(self):
+        """Row 0 finishes at gen step 0, row 1 never finishes."""
+        model = _make_per_row_eos_model(batch_size=2, eos_at_step=[0, -1])
+        prompts = torch.randint(5, 15, (2, 3))
+        out = generate(
+            model,
+            prompts,
+            max_new_tokens=10,
+            eos_token_id=0,
+            pad_token_id=0,
+        )
+        # Row 0 must emit EOS at first gen position, then PADs
+        assert out[0, 3] == 0, "Row 0 should emit EOS on first gen step"
+        for t in out[0, 4:]:
+            assert t.item() == 0, f"Row 0 post-EOS token {t.item()} must be PAD"
+        # Row 1 should have no EOS/PAD tokens
+        for t in out[1, 3:]:
+            assert t.item() != 0, "Row 1 generated EOS but should not have"
+
+    def test_mixed_completion_different_steps(self):
+        """Row 0 finishes at gen step 0, row 1 at gen step 2."""
+        model = _make_per_row_eos_model(batch_size=2, eos_at_step=[0, 2])
+        prompts = torch.randint(5, 15, (2, 3))
+        out = generate(
+            model,
+            prompts,
+            max_new_tokens=10,
+            eos_token_id=0,
+            pad_token_id=0,
+        )
+        assert out[0, 3] == 0, "Row 0 should emit EOS on first gen step"
+        for t in out[0, 4:]:
+            assert t.item() == 0, f"Row 0 post-EOS token {t.item()} must be PAD"
+        assert out[1, 3] != 0, "Row 1 token 0 should not be EOS"
+        assert out[1, 4] != 0, "Row 1 token 1 should not be EOS"
+        assert out[1, 5] == 0, "Row 1 should emit EOS on gen step 2 (position 5)"
+        for t in out[1, 6:]:
+            assert t.item() == 0, f"Row 1 post-EOS token {t.item()} must be PAD"
+
+    # ---- Task 3: RNG isolation for finished rows ----
+
+    def test_rng_isolation_finished_rows_dont_consume_randomness(self):
+        """Active rows must sample the same tokens whether batched with
+        a finished row or generated alone."""
+        model = _make_deterministic_sample_model()
+        prompt_a = torch.randint(5, 15, (1, 3))
+        prompt_b = torch.randint(5, 15, (1, 3))
+        batch_input = torch.cat([prompt_a, prompt_b], dim=0)
+
+        # Row 0 gets an attention mask with only 1 valid token → generate
+        # will mark it finished immediately because its last valid token
+        # produces EOS.  We use a short prompt so EOS fires on first gen step.
+        mask = torch.ones(2, 3, dtype=torch.long)
+        mask[0, 1:] = 0
+        mask[1, :] = 1
+
+        # Generate with batch (row 0 finishes due to attention mask,
+        # row 1 continues)
+        g = torch.Generator()
+        g.manual_seed(42)
+        batch_out = generate(
+            model,
+            batch_input,
+            attention_mask=mask,
+            max_new_tokens=10,
+            eos_token_id=0,
+            pad_token_id=0,
+            do_sample=True,
+            temperature=0.8,
+            generator=g,
+        )
+
+        # Generate row 1 independently with same seed
+        g2 = torch.Generator()
+        g2.manual_seed(42)
+        single_out = generate(
+            model,
+            prompt_b,
+            max_new_tokens=10,
+            eos_token_id=0,
+            pad_token_id=0,
+            do_sample=True,
+            temperature=0.8,
+            generator=g2,
+        )
+
+        # Active row (row 1) tokens must match independent generation
+        common_len = min(batch_out.shape[1], single_out.shape[1])
+        assert torch.equal(batch_out[1, 3:common_len], single_out[0, 3:common_len]), (
+            "Active row tokens differ between batch and single-row generation"
+        )
+
+    # ---- Task 4: Attention-mask additional validation ----
+
+    def test_non_binary_attention_mask_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        mask = torch.full((1, 4), 2, dtype=torch.long)
+        with pytest.raises(ValueError, match="0/1"):
+            generate(model, input_ids, attention_mask=mask)
+
+    def test_all_zero_attention_mask_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        mask = torch.zeros(1, 4, dtype=torch.long)
+        with pytest.raises(ValueError, match=r"all-zero|valid token"):
+            generate(model, input_ids, attention_mask=mask)
+
+    # ---- Task 5: Input validation additions ----
+
+    def test_batch_size_zero_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (0, 4))
+        with pytest.raises(ValueError, match="greater than zero"):
+            generate(model, input_ids)
+
+    def test_bool_max_new_tokens_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(TypeError, match=r"max_new_tokens.*integer"):
+            generate(model, input_ids, max_new_tokens=True)
+
+    def test_float_max_new_tokens_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(TypeError, match=r"max_new_tokens.*integer"):
+            generate(model, input_ids, max_new_tokens=5.0)
+
+    def test_float_input_ids_dtype_raises(self):
+        model = _small_lm()
+        input_ids = torch.tensor([[0.0, 1.0, 2.0, 3.0]])
+        with pytest.raises(ValueError, match="integer dtype"):
+            generate(model, input_ids)
+
+    def test_nan_temperature_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(ValueError, match=r"temperature.*finite"):
+            generate(model, input_ids, do_sample=True, temperature=float("nan"))
+
+    def test_infinite_temperature_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(ValueError, match=r"temperature.*finite"):
+            generate(model, input_ids, do_sample=True, temperature=float("inf"))
+
+    def test_nan_top_p_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(ValueError, match="top_p must be in"):
+            generate(model, input_ids, top_p=float("nan"))
+
+    def test_bool_top_k_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(TypeError, match=r"top_k.*integer"):
+            generate(model, input_ids, top_k=True)
+
+    def test_non_integer_eos_token_id_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(TypeError, match=r"eos_token_id.*integer"):
+            generate(model, input_ids, eos_token_id=0.5)
+
+    def test_non_integer_pad_token_id_raises(self):
+        model = _small_lm()
+        input_ids = torch.randint(0, 10, (1, 4))
+        with pytest.raises(TypeError, match=r"pad_token_id.*integer"):
+            generate(model, input_ids, pad_token_id=0.5)
