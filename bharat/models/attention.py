@@ -11,6 +11,29 @@ from bharat.models.rotary import RotaryEmbedding, apply_rotary_pos_emb
 KeyValueCache = tuple[torch.Tensor, torch.Tensor]
 
 
+def _build_causal_mask(
+    query_length: int,
+    key_length: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    past_length: int = 0,
+) -> torch.Tensor:
+    """
+    Build an explicit causal mask with offset for KV cache.
+
+    Query index ``q`` may attend to key indices ``<= past_length + q``.
+    The causal mask is built via ``torch.triu(..., diagonal=1 + past_length)``
+    on an all-``-inf`` tensor.
+
+    Returns a 4-D float mask of shape ``(1, 1, query_length, key_length)``.
+    """
+    causal_mask = torch.full(
+        (1, 1, query_length, key_length), float("-inf"), dtype=dtype, device=device
+    )
+    causal_mask = torch.triu(causal_mask, diagonal=1 + past_length)
+    return causal_mask
+
+
 def _build_combined_mask(
     attention_mask: torch.Tensor | None,
     query_length: int,
@@ -30,48 +53,44 @@ def _build_combined_mask(
     The mask is validated to have exactly ``(batch_size, key_length)`` shape.
 
     ``past_length`` accounts for cached key positions: query index ``q`` may
-    attend to key indices ``<= past_length + q``.  The causal mask is built via
-    ``torch.triu(..., diagonal=1 + past_length)`` on an all-``-inf`` tensor.
+    attend to key indices ``<= past_length + q``.
 
-    Returns ``None`` when no padding mask is supplied (caller should fall back to
-    ``is_causal=True``), or a 4-D float mask broadcastable to
+    Returns ``None`` only when there is **no** padding mask **and** no offset
+    is needed (``past_length == 0`` and ``query_length == 1``). Otherwise
+    returns a 4-D float mask broadcastable to
     ``(batch_size, num_heads, query_length, key_length)``.
     """
-    if attention_mask is None:
+    if attention_mask is None and past_length == 0:
         return None
 
-    if attention_mask.dim() != 2:
-        raise ValueError(
-            f"attention_mask must be 2-D (batch_size, sequence_length), "
-            f"got {attention_mask.dim()}-D"
-        )
+    if attention_mask is not None:
+        if attention_mask.dim() != 2:
+            raise ValueError(
+                f"attention_mask must be 2-D (batch_size, sequence_length), "
+                f"got {attention_mask.dim()}-D"
+            )
+        mask_batch, mask_seq_len = attention_mask.shape
+        if mask_batch != batch_size:
+            raise ValueError(
+                f"attention_mask batch size ({mask_batch}) must match"
+                f" input batch size ({batch_size})"
+            )
+        if mask_seq_len != key_length:
+            raise ValueError(
+                f"attention_mask sequence length ({mask_seq_len}) must"
+                f" match key_length ({key_length})"
+            )
+        pad_mask = attention_mask.to(dtype=dtype, device=device)
+        pad_mask = torch.where(pad_mask > 0.5, 0.0, float("-inf"))
+        pad_mask = pad_mask.unsqueeze(1).unsqueeze(2)  # (batch, 1, 1, key)
+    else:
+        pad_mask = None
 
-    mask_batch, mask_seq_len = attention_mask.shape
-    if mask_batch != batch_size:
-        raise ValueError(
-            f"attention_mask batch size ({mask_batch}) must match input batch size ({batch_size})"
-        )
-    if mask_seq_len != key_length:
-        raise ValueError(
-            f"attention_mask sequence length ({mask_seq_len}) must match key_length ({key_length})"
-        )
+    causal_mask = _build_causal_mask(query_length, key_length, device, dtype, past_length)
 
-    # Normalise to float: 0.0 = keep, -inf = mask
-    pad_mask = attention_mask.to(dtype=dtype, device=device)
-    pad_mask = torch.where(pad_mask > 0.5, 0.0, float("-inf"))
-    # (batch, 1, 1, key)
-    pad_mask = pad_mask.unsqueeze(1).unsqueeze(2)
-
-    # Causal mask: (1, 1, query, key), lower-triangular shifted by past_length.
-    # Start with all -inf, then zero out positions where key <= past_length + query.
-    # With past_length=0 this is the standard causal mask (key <= query).
-    causal_mask = torch.full(
-        (1, 1, query_length, key_length), float("-inf"), dtype=dtype, device=device
-    )
-    causal_mask = torch.triu(causal_mask, diagonal=1 + past_length)
-
-    # Combine: both use -inf semantics, so element-wise addition works
-    return causal_mask + pad_mask
+    if pad_mask is not None:
+        return causal_mask + pad_mask
+    return causal_mask
 
 
 class GroupedQueryAttention(nn.Module):
@@ -205,7 +224,7 @@ class GroupedQueryAttention(nn.Module):
             v,
             attn_mask=combined_mask,
             dropout_p=self.attention_dropout if self.training else 0.0,
-            is_causal=attention_mask is None and past_key_value is None,
+            is_causal=combined_mask is None,
         )
 
         output: torch.Tensor = attn_output.transpose(1, 2).contiguous()

@@ -678,3 +678,131 @@ class TestGroupedQueryAttention:
                 assert torch.allclose(out_full[:, pos], out_cached[:, pos], atol=1e-4), (
                     f"Cache with padding mask position {pos} mismatch"
                 )
+
+    # ---------- Multi-token cached causality ----------
+
+    def _check_multi_token_causal(self, attn, past, current_tokens, position_ids, hidden_size):
+        """Verify that changing a later token in a multi-token cached forward
+        does not affect earlier output positions (i.e. causal mask is correct)."""
+        seq = current_tokens.shape[1]
+
+        causal_out_a, _ = attn(
+            current_tokens,
+            position_ids=position_ids,
+            past_key_value=past,
+            use_cache=True,
+        )
+
+        # Change the last token
+        current_b = current_tokens.clone()
+        current_b[:, -1, :] = torch.randn_like(current_b[:, -1, :])
+        pos_ids_b = position_ids.clone()
+        pos_ids_b[:, -1] = position_ids[:, -1]
+
+        causal_out_b, _ = attn(
+            current_b,
+            position_ids=pos_ids_b,
+            past_key_value=past,
+            use_cache=True,
+        )
+
+        # Earlier positions must be identical
+        for pos in range(seq - 1):
+            assert torch.allclose(causal_out_a[:, pos, :], causal_out_b[:, pos, :], atol=1e-4), (
+                f"Changing last token altered output at position {pos}"
+            )
+
+        # Last position must differ
+        assert not torch.allclose(causal_out_a[:, -1, :], causal_out_b[:, -1, :], atol=1e-4), (
+            "Changing last token should alter its own output"
+        )
+
+    def test_cached_multi_token_mha(self):
+        cfg = _make_config(num_attention_heads=4, num_key_value_heads=4)
+        attn = GroupedQueryAttention(cfg)
+        attn.eval()
+        batch, hidden = 1, cfg.hidden_size
+        prefix = torch.randn(batch, 3, hidden)
+        _, cache = attn(prefix, use_cache=True)
+
+        current = torch.randn(batch, 3, hidden)
+        pos_ids = torch.arange(3, 6, dtype=torch.long).unsqueeze(0)
+        self._check_multi_token_causal(attn, cache, current, pos_ids, hidden)
+
+    def test_cached_multi_token_gqa(self):
+        cfg = _make_config(num_attention_heads=4, num_key_value_heads=2)
+        attn = GroupedQueryAttention(cfg)
+        attn.eval()
+        batch, hidden = 1, cfg.hidden_size
+        prefix = torch.randn(batch, 3, hidden)
+        _, cache = attn(prefix, use_cache=True)
+
+        current = torch.randn(batch, 3, hidden)
+        pos_ids = torch.arange(3, 6, dtype=torch.long).unsqueeze(0)
+        self._check_multi_token_causal(attn, cache, current, pos_ids, hidden)
+
+    def test_cached_multi_token_mqa(self):
+        cfg = _make_config(num_attention_heads=4, num_key_value_heads=1)
+        attn = GroupedQueryAttention(cfg)
+        attn.eval()
+        batch, hidden = 1, cfg.hidden_size
+        prefix = torch.randn(batch, 3, hidden)
+        _, cache = attn(prefix, use_cache=True)
+
+        current = torch.randn(batch, 3, hidden)
+        pos_ids = torch.arange(3, 6, dtype=torch.long).unsqueeze(0)
+        self._check_multi_token_causal(attn, cache, current, pos_ids, hidden)
+
+    def test_cached_multi_token_batch(self):
+        cfg = _make_config(num_attention_heads=4, num_key_value_heads=4)
+        attn = GroupedQueryAttention(cfg)
+        attn.eval()
+        batch, hidden = 2, cfg.hidden_size
+        prefix = torch.randn(batch, 3, hidden)
+        _, cache = attn(prefix, use_cache=True)
+
+        current = torch.randn(batch, 3, hidden)
+        pos_ids = torch.arange(3, 6, dtype=torch.long).unsqueeze(0).expand(batch, -1)
+        self._check_multi_token_causal(attn, cache, current, pos_ids, hidden)
+
+    def test_cached_multi_token_with_padding_mask(self):
+        cfg = _make_config(num_attention_heads=4, num_key_value_heads=4)
+        attn = GroupedQueryAttention(cfg)
+        attn.eval()
+        batch, hidden = 1, cfg.hidden_size
+        prefix = torch.randn(batch, 3, hidden)
+        pad_mask = torch.ones(batch, 3, dtype=torch.long)
+        _, cache = attn(prefix, attention_mask=pad_mask, use_cache=True)
+
+        current = torch.randn(batch, 3, hidden)
+        full_mask = torch.ones(batch, 6, dtype=torch.long)
+        full_mask[0, -2:] = 0
+        pos_ids = torch.arange(3, 6, dtype=torch.long).unsqueeze(0)
+
+        causal_out_a, _ = attn(
+            current,
+            attention_mask=full_mask,
+            position_ids=pos_ids,
+            past_key_value=cache,
+            use_cache=True,
+        )
+
+        current_b = current.clone()
+        current_b[:, -1, :] = torch.randn_like(current_b[:, -1, :])
+
+        causal_out_b, _ = attn(
+            current_b,
+            attention_mask=full_mask,
+            position_ids=pos_ids,
+            past_key_value=cache,
+            use_cache=True,
+        )
+
+        for pos in range(2):
+            assert torch.allclose(causal_out_a[:, pos, :], causal_out_b[:, pos, :], atol=1e-4), (
+                f"With padding mask, changing last token altered position {pos}"
+            )
+
+        assert not torch.allclose(causal_out_a[:, -1, :], causal_out_b[:, -1, :], atol=1e-4), (
+            "With padding mask, last token output should differ after change"
+        )
