@@ -621,7 +621,7 @@ class TestGroupedQueryAttention:
         past = None
         out_tokens = []
         for pos in range(seq):
-            token_input = x[:, pos:pos+1, :]
+            token_input = x[:, pos : pos + 1, :]
             token_out, past = attn(token_input, past_key_value=past, use_cache=True)
             out_tokens.append(token_out)
 
@@ -639,10 +639,10 @@ class TestGroupedQueryAttention:
 
         past = None
         for pos in range(seq):
-            token_input = x[:, pos:pos+1, :]
+            token_input = x[:, pos : pos + 1, :]
             token_out, past = attn(token_input, past_key_value=past, use_cache=True)
 
-            expected = out_full[:, pos:pos+1, :]
+            expected = out_full[:, pos : pos + 1, :]
             assert torch.allclose(token_out, expected, atol=1e-4), (
                 f"Position {pos} mismatch in cached decoding"
             )
@@ -662,8 +662,8 @@ class TestGroupedQueryAttention:
         past = None
         out_tokens = []
         for pos in range(seq):
-            token_input = x[:, pos:pos+1, :]
-            step_mask = mask[:, :pos+1]
+            token_input = x[:, pos : pos + 1, :]
+            step_mask = mask[:, : pos + 1]
             token_out, past = attn(
                 token_input,
                 attention_mask=step_mask,

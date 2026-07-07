@@ -71,9 +71,7 @@ class RotaryEmbedding(nn.Module):
 
         if position_ids is not None:
             if position_ids.dim() not in (1, 2):
-                raise ValueError(
-                    f"position_ids must be 1-D or 2-D, got {position_ids.dim()}-D"
-                )
+                raise ValueError(f"position_ids must be 1-D or 2-D, got {position_ids.dim()}-D")
             expected_seq = seq_len
             if position_ids.dim() == 1:
                 if position_ids.shape[0] != expected_seq:

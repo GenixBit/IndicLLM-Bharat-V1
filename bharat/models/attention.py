@@ -18,6 +18,7 @@ def _build_combined_mask(
     batch_size: int,
     device: torch.device,
     dtype: torch.dtype,
+    past_length: int = 0,
 ) -> torch.Tensor | None:
     """
     Build a combined causal + padding attention mask.
@@ -27,6 +28,10 @@ def _build_combined_mask(
         - ``0`` or ``False`` = padding (mask out) token
 
     The mask is validated to have exactly ``(batch_size, key_length)`` shape.
+
+    ``past_length`` accounts for cached key positions: query index ``q`` may
+    attend to key indices ``<= past_length + q``.  The causal mask is built via
+    ``torch.triu(..., diagonal=1 + past_length)`` on an all-``-inf`` tensor.
 
     Returns ``None`` when no padding mask is supplied (caller should fall back to
     ``is_causal=True``), or a 4-D float mask broadcastable to
@@ -44,8 +49,7 @@ def _build_combined_mask(
     mask_batch, mask_seq_len = attention_mask.shape
     if mask_batch != batch_size:
         raise ValueError(
-            f"attention_mask batch size ({mask_batch}) must match input "
-            f"batch size ({batch_size})"
+            f"attention_mask batch size ({mask_batch}) must match input batch size ({batch_size})"
         )
     if mask_seq_len != key_length:
         raise ValueError(
@@ -58,12 +62,13 @@ def _build_combined_mask(
     # (batch, 1, 1, key)
     pad_mask = pad_mask.unsqueeze(1).unsqueeze(2)
 
-    # Causal mask: (1, 1, query, key), lower-triangular
-    # Start with all -inf, then zero out positions where key <= query
+    # Causal mask: (1, 1, query, key), lower-triangular shifted by past_length.
+    # Start with all -inf, then zero out positions where key <= past_length + query.
+    # With past_length=0 this is the standard causal mask (key <= query).
     causal_mask = torch.full(
         (1, 1, query_length, key_length), float("-inf"), dtype=dtype, device=device
     )
-    causal_mask = torch.triu(causal_mask, diagonal=1)
+    causal_mask = torch.triu(causal_mask, diagonal=1 + past_length)
 
     # Combine: both use -inf semantics, so element-wise addition works
     return causal_mask + pad_mask
@@ -149,12 +154,16 @@ class GroupedQueryAttention(nn.Module):
 
         # Compute position IDs for current tokens
         if position_ids is None:
-            position_ids = torch.arange(
-                past_length,
-                past_length + seq_len,
-                dtype=torch.long,
-                device=hidden_states.device,
-            ).unsqueeze(0).expand(batch_size, -1)
+            position_ids = (
+                torch.arange(
+                    past_length,
+                    past_length + seq_len,
+                    dtype=torch.long,
+                    device=hidden_states.device,
+                )
+                .unsqueeze(0)
+                .expand(batch_size, -1)
+            )
 
         cos: torch.Tensor
         sin: torch.Tensor
@@ -187,6 +196,7 @@ class GroupedQueryAttention(nn.Module):
             batch_size=batch_size,
             device=hidden_states.device,
             dtype=hidden_states.dtype,
+            past_length=past_length,
         )
 
         attn_output = F.scaled_dot_product_attention(

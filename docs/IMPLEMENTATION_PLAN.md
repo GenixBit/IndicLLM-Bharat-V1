@@ -101,6 +101,8 @@ IndicLLM-Bharat-V1/
 
 **Goal:** RoPE, RMSNorm, SwiGLU, GQA, FlashAttention, modern configs.
 
+**Progress:** PR 7 (components) ✅, PR 8 (full model + generation) ✅.
+
 #### PR 7: Model components ✅ COMPLETED
 - **Files:** `bharat/models/config.py`, `bharat/models/rotary.py`, `bharat/models/normalization.py`, `bharat/models/mlp.py`, `bharat/models/attention.py`
 - **Content:** `BharatModelConfig` dataclass, RoPE, RMSNorm, SwiGLU, GQA with SDPA/FlashAttention
@@ -109,13 +111,13 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete `bharat/models/` components
 - **Acceptance:** Components pass forward/backward; RoPE preserves vector norms; GQA works in MHA/GQA/MQA modes; causal leakage test passes
 
-#### PR 8: Full Bharat model
-- **Files:** `bharat/models/bharat_model.py`, `bharat/models/generation.py`, `bharat/models/legacy_gpt2.py`
-- **Content:** Full decoder model, generation with KV cache, legacy GPT-2 moved to legacy namespace
-- **Tests:** Forward pass, backward pass, generation, save/load, legacy checkpoint compatibility
+#### PR 8: Full Bharat model ✅ COMPLETED
+- **Files:** `bharat/models/bharat_model.py`, `bharat/models/generation.py`, `bharat/models/outputs.py`, `bharat/models/cache.py`, `bharat/models/__init__.py`
+- **Content:** Full decoder model (BharatDecoderLayer, BharatModel, BharatForCausalLM), KV-cached generation, typed outputs, cache validation, save/load
+- **Tests:** Forward/backward pass, cache parity, generation, save/load, weight tying, causal loss reference
 - **Depends on:** PR 7
-- **Rollback:** Delete `bharat/models/bharat_model.py`; restore `train/pretrain.py` as sole model
-- **Acceptance:** Model trains, generates, saves, loads; legacy checkpoints load correctly
+- **Rollback:** Delete `bharat/models/bharat_model.py`, `generation.py`, `outputs.py`, `cache.py`; legacy `train/pretrain.py` unaffected
+- **Acceptance:** Full and incremental cached logits match; cache length grows; generation is deterministic; save/load produces identical outputs; all tests pass
 
 #### PR 9: Model configurations + parameter calculator
 - **Files:** `configs/bharat-350m.yaml`, `configs/bharat-1b.yaml`, `configs/bharat-3b.yaml`, `configs/bharat-7b.yaml`, `scripts/calculate_params.py`
@@ -262,7 +264,7 @@ IndicLLM-Bharat-V1/
 | 5 | feat: Checkpoint metadata and resume | `train/pretrain.py`, `train/pretrain_ddp.py`, `bharat/training/checkpointing.py` | PR 2 | 1-2 days | ✅ |
 | 6 | docs: Rebrand as Bharat AI | `README.md`, `docs/VISION.md`, `docs/ROADMAP.md`, etc. | PR 1 | 1 day | ✅ |
 | 7 | feat: Model components (RoPE, RMSNorm, SwiGLU, GQA) | `bharat/models/config.py`, `rotary.py`, `normalization.py`, `mlp.py`, `attention.py` | PR 1 | 3-4 days | ✅ |
-| 8 | feat: Bharat model + legacy GPT-2 move | `bharat/models/bharat_model.py`, `generation.py`, `legacy_gpt2.py` | PR 7 | 2-3 days |
+| 8 | feat: Bharat model + generation with KV cache | `bharat/models/bharat_model.py`, `generation.py`, `outputs.py`, `cache.py` | PR 7 | 2-3 days | ✅ |
 | 9 | feat: Model configs + parameter calculator | `configs/bharat-*.yaml`, `scripts/calculate_params.py` | PR 8 | 1 day |
 | 10 | feat: Data source registry and licensing | `bharat/data/registry.py`, `sources.py`, `licensing.py`, `data_registry/` | PR 1 | 2 days |
 | 11 | feat: Data quality filters and deduplication | `bharat/data/*_dedup.py`, `pii.py`, `quality.py`, `safety_filter.py` | PR 10 | 2-3 days |
