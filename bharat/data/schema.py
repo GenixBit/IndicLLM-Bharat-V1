@@ -88,8 +88,7 @@ def validate_date(value: str, path: str) -> str:
 
 _SECRET_PATTERNS = [
     re.compile(
-        r"(?i)(api[_-]?key|api[_-]?secret|password|secret|token|credential)"
-        r"\s*[:=]\s*\S+"
+        r"(?i)(api[_-]?key|api[_-]?secret|password|secret|token|credential)" r"\s*[:=]\s*\S+"
     ),
     re.compile(r"(?i)(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36,})"),
     re.compile(r"://[^:/\s]+:[^@/\s]+@"),  # user:pass@ in URI authority

@@ -212,9 +212,9 @@ class TestProductionSpecTotals:
 
         spec = load_model_spec(ROOT / "configs" / "models" / filename)
         params = calculate_parameter_count(spec.architecture)
-        assert params.total == expected, (
-            f"{filename}: analytical {params.total} != expected {expected}"
-        )
+        assert (
+            params.total == expected
+        ), f"{filename}: analytical {params.total} != expected {expected}"
 
 
 class TestStaticMemory:
@@ -381,6 +381,6 @@ class TestProductionMemory:
             spec.architecture, batch_size=1, sequence_length=4096, dtype="bf16"
         )
         actual_mib = report.total_bytes / (1024**2)
-        assert actual_mib == pytest.approx(expected_mib, rel=1e-4), (
-            f"{filename}: expected {expected_mib} MiB, got {actual_mib} MiB"
-        )
+        assert actual_mib == pytest.approx(
+            expected_mib, rel=1e-4
+        ), f"{filename}: expected {expected_mib} MiB, got {actual_mib} MiB"

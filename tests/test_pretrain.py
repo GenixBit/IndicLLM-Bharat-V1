@@ -188,9 +188,9 @@ class TestPretrainFast:
         )
 
         res_b = train_from_config(cfg_b)
-        assert res_b["completed_steps"] == 5, (
-            f"Expected 5 completed steps, got {res_b['completed_steps']}"
-        )
+        assert (
+            res_b["completed_steps"] == 5
+        ), f"Expected 5 completed steps, got {res_b['completed_steps']}"
         assert res_b["next_step"] == 5, f"Expected next_step=5, got {res_b['next_step']}"
         assert res_b["final_loss"] is not None
 

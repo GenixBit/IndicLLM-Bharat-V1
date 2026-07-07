@@ -114,9 +114,9 @@ def test_dpo_per_sample_prompt_length() -> None:
     for i in range(b_size):
         assert mask[i, : prompt_lens[i]].sum() == 0, "Prompt tokens should be masked"
         assert mask[i, prompt_lens[i] :].sum() > 0, "Non-prompt positions should be unmasked"
-        assert mask[i].sum() == t_len - prompt_lens[i], (
-            "All non-prompt positions contribute (including padding)"
-        )
+        assert (
+            mask[i].sum() == t_len - prompt_lens[i]
+        ), "All non-prompt positions contribute (including padding)"
 
 
 def test_dpo_variable_prompt_length_batch() -> None:

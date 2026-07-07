@@ -202,7 +202,7 @@ def _build_optimizer(model, train_cfg):
         for pn, _p in m.named_parameters(recurse=False):
             fpn = f"{mn}.{pn}" if mn else pn
             if pn.endswith("bias") or (
-                pn.endswith("weight") and isinstance(m, (nn.LayerNorm, nn.Embedding))
+                pn.endswith("weight") and isinstance(m, nn.LayerNorm | nn.Embedding)
             ):
                 no_decay.add(fpn)
             else:

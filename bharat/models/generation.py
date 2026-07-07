@@ -113,7 +113,7 @@ def generate(
         )
 
     if do_sample:
-        if not isinstance(temperature, (int, float)):
+        if not isinstance(temperature, int | float):
             raise TypeError(f"temperature must be a number, got {type(temperature).__name__}")
         if temperature <= 0.0:
             raise ValueError(f"temperature must be positive when sampling, got {temperature}")
@@ -131,7 +131,7 @@ def generate(
             )
 
     if top_p is not None:
-        if not isinstance(top_p, (int, float)):
+        if not isinstance(top_p, int | float):
             raise TypeError(f"top_p must be a number, got {type(top_p).__name__}")
         if not (0 < top_p <= 1.0):
             raise ValueError(f"top_p must be in (0, 1], got {top_p}")

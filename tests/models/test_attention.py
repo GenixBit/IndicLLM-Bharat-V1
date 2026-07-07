@@ -233,9 +233,9 @@ class TestGroupedQueryAttention:
         out2, _cache = attn(x2)
 
         for pos in range(prefix_len):
-            assert torch.allclose(out1[:, pos], out2[:, pos], atol=1e-5), (
-                f"Position {pos} differs despite identical prefix"
-            )
+            assert torch.allclose(
+                out1[:, pos], out2[:, pos], atol=1e-5
+            ), f"Position {pos} differs despite identical prefix"
 
     # ---------- Causal with mask (future masked tokens cannot affect)
     def test_causal_no_leakage_with_mask(self):
@@ -258,9 +258,9 @@ class TestGroupedQueryAttention:
         out2, _cache = attn(x2, attention_mask=mask)
 
         for pos in range(prefix_len):
-            assert torch.allclose(out1[:, pos], out2[:, pos], atol=1e-5), (
-                f"Position {pos} differs despite identical prefix (with mask)"
-            )
+            assert torch.allclose(
+                out1[:, pos], out2[:, pos], atol=1e-5
+            ), f"Position {pos} differs despite identical prefix (with mask)"
 
     # ---------- Masked token cannot affect valid outputs ----------
 
@@ -285,9 +285,9 @@ class TestGroupedQueryAttention:
 
         # Valid positions (0, 1, 3) should be unchanged
         for pos in [0, 1, 3]:
-            assert torch.allclose(out[0, pos], out2[0, pos], atol=1e-5), (
-                f"Position {pos} changed despite masked key at position 2"
-            )
+            assert torch.allclose(
+                out[0, pos], out2[0, pos], atol=1e-5
+            ), f"Position {pos} changed despite masked key at position 2"
 
     # ---------- Unmasked past token affects later outputs ----------
 
@@ -307,9 +307,9 @@ class TestGroupedQueryAttention:
         out2, _cache = attn(x2, attention_mask=mask)
 
         # Position 1 should be different since attention[1] depends on position 0
-        assert not torch.allclose(out[0, 1], out2[0, 1], atol=1e-5), (
-            "Changing position 0 should affect position 1 output"
-        )
+        assert not torch.allclose(
+            out[0, 1], out2[0, 1], atol=1e-5
+        ), "Changing position 0 should affect position 1 output"
 
     # ---------- Batch-specific padding masks ----------
 
@@ -333,9 +333,9 @@ class TestGroupedQueryAttention:
         out2, _cache = attn(x2, attention_mask=mask)
 
         # Sample 0, position 0 (valid) should be unchanged
-        assert torch.allclose(out[0, 0], out2[0, 0], atol=1e-5), (
-            "Masked token change in sample 0 affected sample 0, position 0"
-        )
+        assert torch.allclose(
+            out[0, 0], out2[0, 0], atol=1e-5
+        ), "Masked token change in sample 0 affected sample 0, position 0"
 
     # ---------- Malformed mask shapes ----------
 
@@ -376,9 +376,9 @@ class TestGroupedQueryAttention:
         out2, _cache = attn(x2, attention_mask=mask)
 
         for pos in range(prefix_len):
-            assert torch.allclose(out1[:, pos], out2[:, pos], atol=1e-5), (
-                f"MQA/GQA/MHA mode {kv_heads} position {pos} differs with mask"
-            )
+            assert torch.allclose(
+                out1[:, pos], out2[:, pos], atol=1e-5
+            ), f"MQA/GQA/MHA mode {kv_heads} position {pos} differs with mask"
 
     # ---------- Sequence length 1 ----------
 
@@ -512,9 +512,9 @@ class TestGroupedQueryAttention:
         attn_ref = attn_ref.transpose(1, 2).contiguous().view(batch, seq, -1)
         attn_ref = attn_ref @ w_o
 
-        assert torch.allclose(out, attn_ref, atol=1e-5), (
-            "Reference attention computation does not match implementation"
-        )
+        assert torch.allclose(
+            out, attn_ref, atol=1e-5
+        ), "Reference attention computation does not match implementation"
 
     # ---------- Padding mask forward finite ----------
 
@@ -546,9 +546,9 @@ class TestGroupedQueryAttention:
         out_no_mask, _ = attn(x)
         out_with_mask, _ = attn(x, attention_mask=mask)
 
-        assert torch.allclose(out_no_mask, out_with_mask, atol=1e-5), (
-            "All-valid mask produces different output from no mask"
-        )
+        assert torch.allclose(
+            out_no_mask, out_with_mask, atol=1e-5
+        ), "All-valid mask produces different output from no mask"
 
     # ---------- KV cache tests ----------
 
@@ -643,9 +643,9 @@ class TestGroupedQueryAttention:
             token_out, past = attn(token_input, past_key_value=past, use_cache=True)
 
             expected = out_full[:, pos : pos + 1, :]
-            assert torch.allclose(token_out, expected, atol=1e-4), (
-                f"Position {pos} mismatch in cached decoding"
-            )
+            assert torch.allclose(
+                token_out, expected, atol=1e-4
+            ), f"Position {pos} mismatch in cached decoding"
 
     def test_cache_with_padding_mask(self):
         cfg = _make_config(num_attention_heads=4, num_key_value_heads=4, hidden_size=256)
@@ -675,9 +675,9 @@ class TestGroupedQueryAttention:
         out_cached = torch.cat(out_tokens, dim=1)
         for pos in range(seq):
             if mask[0, pos] == 1:
-                assert torch.allclose(out_full[:, pos], out_cached[:, pos], atol=1e-4), (
-                    f"Cache with padding mask position {pos} mismatch"
-                )
+                assert torch.allclose(
+                    out_full[:, pos], out_cached[:, pos], atol=1e-4
+                ), f"Cache with padding mask position {pos} mismatch"
 
     # ---------- Multi-token cached causality ----------
 
@@ -708,14 +708,14 @@ class TestGroupedQueryAttention:
 
         # Earlier positions must be identical
         for pos in range(seq - 1):
-            assert torch.allclose(causal_out_a[:, pos, :], causal_out_b[:, pos, :], atol=1e-4), (
-                f"Changing last token altered output at position {pos}"
-            )
+            assert torch.allclose(
+                causal_out_a[:, pos, :], causal_out_b[:, pos, :], atol=1e-4
+            ), f"Changing last token altered output at position {pos}"
 
         # Last position must differ
-        assert not torch.allclose(causal_out_a[:, -1, :], causal_out_b[:, -1, :], atol=1e-4), (
-            "Changing last token should alter its own output"
-        )
+        assert not torch.allclose(
+            causal_out_a[:, -1, :], causal_out_b[:, -1, :], atol=1e-4
+        ), "Changing last token should alter its own output"
 
     def test_cached_multi_token_mha(self):
         cfg = _make_config(num_attention_heads=4, num_key_value_heads=4)
@@ -799,10 +799,10 @@ class TestGroupedQueryAttention:
         )
 
         for pos in range(2):
-            assert torch.allclose(causal_out_a[:, pos, :], causal_out_b[:, pos, :], atol=1e-4), (
-                f"With padding mask, changing last token altered position {pos}"
-            )
+            assert torch.allclose(
+                causal_out_a[:, pos, :], causal_out_b[:, pos, :], atol=1e-4
+            ), f"With padding mask, changing last token altered position {pos}"
 
-        assert not torch.allclose(causal_out_a[:, -1, :], causal_out_b[:, -1, :], atol=1e-4), (
-            "With padding mask, last token output should differ after change"
-        )
+        assert not torch.allclose(
+            causal_out_a[:, -1, :], causal_out_b[:, -1, :], atol=1e-4
+        ), "With padding mask, last token output should differ after change"

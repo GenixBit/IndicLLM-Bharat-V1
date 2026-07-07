@@ -360,9 +360,9 @@ class TestSFTCollator:
         non_masked_mask = labels != -100
         first_response_idx = ap_start + ap_len - 1
         assert first_response_idx < len(labels)
-        assert non_masked_mask[first_response_idx].item(), (
-            f"First response token at index {first_response_idx} should not be masked"
-        )
+        assert non_masked_mask[
+            first_response_idx
+        ].item(), f"First response token at index {first_response_idx} should not be masked"
         assert labels[first_response_idx].item() == target_ids[first_response_idx]
 
     def test_user_tokens_masked_multi_turn(self, tokenizer):
@@ -411,7 +411,9 @@ class TestSFTCollator:
             target_end = min(len(labels), up_end - 1)
             if target_start < target_end:
                 user_label_slice = labels[target_start:target_end]
-                assert (user_label_slice == -100).all(), (
+                assert (
+                    user_label_slice == -100
+                ).all(), (
                     f"User tokens at target positions {target_start}:{target_end} should be masked"
                 )
 

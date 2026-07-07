@@ -106,9 +106,9 @@ class TestPreferenceDataset:
         chosen = item["chosen_ids"]
         mask = item["chosen_response_mask"]
         # mask is aligned to the full chosen sequence
-        assert mask.shape[0] == chosen.shape[0], (
-            f"Mask length {mask.shape[0]} should be len(chosen) = {chosen.shape[0]}"
-        )
+        assert (
+            mask.shape[0] == chosen.shape[0]
+        ), f"Mask length {mask.shape[0]} should be len(chosen) = {chosen.shape[0]}"
 
     def test_variable_prompt_lengths(self, preferences_jsonl, tokenizer):
         dataset = PreferenceDataset(

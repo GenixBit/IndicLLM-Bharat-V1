@@ -159,9 +159,9 @@ class TestLossMasking:
         # Every non-masked label should match the corresponding target token
         for i in range(len(labels)):
             if labels[i] != -100:
-                assert labels[i].item() == target_ids[i], (
-                    f"Label at position {i} should match target token {target_ids[i]}"
-                )
+                assert (
+                    labels[i].item() == target_ids[i]
+                ), f"Label at position {i} should match target token {target_ids[i]}"
 
     def test_assistant_content_active(self, tokenizer):
         # Directly test with a known conversation
@@ -185,9 +185,9 @@ class TestLossMasking:
         # Where labels != -100, they should match target_ids
         for i in range(len(labels)):
             if labels[i] != -100:
-                assert labels[i].item() == target_ids[i], (
-                    f"Label at position {i} should match target token {target_ids[i]}"
-                )
+                assert (
+                    labels[i].item() == target_ids[i]
+                ), f"Label at position {i} should match target token {target_ids[i]}"
 
     def test_padding_excluded_from_loss(self, tokenizer):
         collator = SFTCollator(
