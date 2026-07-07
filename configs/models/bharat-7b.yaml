@@ -1,0 +1,22 @@
+schema_version: 1
+model_name: Bharat-7B
+size_label: 7B
+target_parameter_count: 7000000000
+expected_parameter_count: 7040405504
+
+architecture:
+  vocab_size: 64000
+  hidden_size: 4096
+  intermediate_size: 13824
+  num_hidden_layers: 32
+  num_attention_heads: 32
+  num_key_value_heads: 8
+  max_position_embeddings: 4096
+  rope_theta: 10000.0
+  rms_norm_eps: 0.000001
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
+  initializer_range: 0.02
+  attention_bias: false
+  mlp_bias: false
+  tie_word_embeddings: true
