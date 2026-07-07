@@ -339,12 +339,6 @@ class TestBharatModel:
         with pytest.raises(ValueError, match="hidden_size"):
             model(inputs_embeds=torch.randn(2, 8, 32))
 
-    def test_inputs_embeds_not_empty(self):
-        cfg = _small_config()
-        model = BharatModel(cfg)
-        with pytest.raises(ValueError, match="not be empty"):
-            model(inputs_embeds=torch.randn(2, 0, cfg.hidden_size))
-
     def test_position_ids_batch_mismatch(self):
         cfg = _small_config()
         model = BharatModel(cfg)

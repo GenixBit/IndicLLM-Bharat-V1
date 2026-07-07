@@ -19,40 +19,40 @@ class ParameterCount:
 
 
 def calculate_parameter_count(config: BharatModelConfig) -> ParameterCount:
-    H = config.hidden_size
-    I = config.intermediate_size
-    L = config.num_hidden_layers
-    A = config.num_attention_heads
-    K = config.num_key_value_heads
-    D = H // A
-    V = config.vocab_size
+    h = config.hidden_size
+    i = config.intermediate_size
+    l_val = config.num_hidden_layers
+    a = config.num_attention_heads
+    k = config.num_key_value_heads
+    d = h // a
+    v = config.vocab_size
 
-    token_embeddings = V * H
+    token_embeddings = v * h
 
-    q_proj = H * H
-    k_proj = H * (K * D)
-    v_proj = H * (K * D)
-    o_proj = H * H
+    q_proj = h * h
+    k_proj = h * (k * d)
+    v_proj = h * (k * d)
+    o_proj = h * h
     attention_weights = q_proj + k_proj + v_proj + o_proj
     if config.attention_bias:
-        attention_weights += H + (K * D) + (K * D) + H
+        attention_weights += h + (k * d) + (k * d) + h
 
-    gate_proj = H * I
-    up_proj = H * I
-    down_proj = I * H
+    gate_proj = h * i
+    up_proj = h * i
+    down_proj = i * h
     mlp_weights = gate_proj + up_proj + down_proj
     if config.mlp_bias:
-        mlp_weights += I + I + H
+        mlp_weights += i + i + h
 
     attention_per_layer = attention_weights
     mlp_per_layer = mlp_weights
-    norms_per_layer = 2 * H
+    norms_per_layer = 2 * h
 
-    transformer_layers = L * (attention_per_layer + mlp_per_layer + norms_per_layer)
+    transformer_layers = l_val * (attention_per_layer + mlp_per_layer + norms_per_layer)
 
-    final_norm = H
+    final_norm = h
 
-    lm_head = 0 if config.tie_word_embeddings else V * H
+    lm_head = 0 if config.tie_word_embeddings else v * h
 
     total = token_embeddings + transformer_layers + final_norm + lm_head
 

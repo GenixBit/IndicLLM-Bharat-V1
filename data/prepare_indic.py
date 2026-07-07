@@ -353,13 +353,13 @@ def main():
     )
     args = parser.parse_args()
 
-    langs = [l.strip() for l in args.langs.split(",") if l.strip()]
+    langs = [lang.strip() for lang in args.langs.split(",") if lang.strip()]
     out_dir = ROOT / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat — Indic Data Pipeline")
-    print(f"  Languages : {', '.join(INDIC_LANGS.get(l, l) for l in langs)}")
+    print(f"  Languages : {', '.join(INDIC_LANGS.get(lang, lang) for lang in langs)}")
     print(f"  Max docs  : {args.max_docs:,} per language")
     print(f"  Source    : {args.source}")
     print(f"  Out dir   : {out_dir}")
@@ -444,7 +444,7 @@ def main():
 
 ## Summary
 - **Source**: {args.source}
-- **Languages**: {", ".join(f"{INDIC_LANGS[l]} ({l})" for l in langs if l in INDIC_LANGS)}
+- **Languages**: {", ".join(f"{INDIC_LANGS[lang]} ({lang})" for lang in langs if lang in INDIC_LANGS)}
 - **Train tokens**: {train_tokens:,}
 - **Val tokens**: {val_tokens:,}
 - **Vocab size**: {vocab_size:,}

@@ -37,8 +37,8 @@ def check_training_log(log_path: str = "train.log"):
     lines = path.read_text().strip().split("\n")
 
     # Get last training iter
-    train_lines = [l for l in lines if l.startswith("iter ")]
-    eval_lines = [l for l in lines if l.startswith("step ")]
+    train_lines = [line for line in lines if line.startswith("iter ")]
+    eval_lines = [line for line in lines if line.startswith("step ")]
 
     result = {"total_lines": len(lines)}
 

@@ -94,7 +94,7 @@ def convert_to_hf(ckpt_path: Path, output_dir: Path) -> dict:
     # Our model uses nn.Linear [out_features, in_features]
     # HF GPT2 uses Conv1D [in_features, out_features] — need transpose
     # Keys that need transposing: attn.c_attn, attn.c_proj, mlp.c_fc, mlp.c_proj
-    TRANSPOSE_KEYS = {"c_attn.weight", "c_proj.weight", "c_fc.weight"}
+    transpose_keys = {"c_attn.weight", "c_proj.weight", "c_fc.weight"}
 
     mapped = {}
     for k, v in state.items():
@@ -103,7 +103,7 @@ def convert_to_hf(ckpt_path: Path, output_dir: Path) -> dict:
         )
 
         # Transpose 2D weight matrices for Conv1D compatibility
-        if v.ndim == 2 and any(tk in k for tk in TRANSPOSE_KEYS):
+        if v.ndim == 2 and any(tk in k for tk in transpose_keys):
             v = v.t()
 
         mapped[hf_key] = v

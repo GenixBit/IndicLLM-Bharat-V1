@@ -21,9 +21,9 @@ from pathlib import Path
 NANO_GPT_DIR = Path(__file__).parent.parent / "vendor" / "nanoGPT"
 sys.path.insert(0, str(NANO_GPT_DIR))
 
-import numpy as np
-import torch
-from model import GPT, GPTConfig  # from nanoGPT
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+from model import GPT, GPTConfig  # noqa: E402
 
 # ── Config ───────────────────────────────────────────────────────────────────
 # Tiny model that runs fast on M2 CPU/MPS

@@ -229,7 +229,7 @@ class TestSpecValidation:
         p = tmp_path / "bad.yaml"
         with p.open("w") as f:
             f.write(": broken yaml\n")
-        with pytest.raises(Exception):
+        with pytest.raises(yaml.YAMLError):
             load_model_spec(p)
 
     def test_missing_file(self) -> None:

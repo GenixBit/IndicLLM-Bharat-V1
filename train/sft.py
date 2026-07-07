@@ -31,11 +31,11 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from bharat.tokenizer import load_tokenizer
-from bharat.tokenizer.metadata import tokenizer_hash
-from bharat.training.checkpointing import get_git_sha, get_package_versions
-from train.pretrain import GPT, GPTConfig
-from train.utils import get_device_preference, init_wandb, load_config
+from bharat.tokenizer import load_tokenizer  # noqa: E402
+from bharat.tokenizer.metadata import tokenizer_hash  # noqa: E402
+from bharat.training.checkpointing import get_git_sha, get_package_versions  # noqa: E402
+from train.pretrain import GPT, GPTConfig  # noqa: E402
+from train.utils import get_device_preference, init_wandb, load_config  # noqa: E402
 
 PROMPT_TEMPLATE = "<|instruction|>{instruction}<|response|>{response}<|endoftext|>"
 RESPONSE_SEPARATOR = "<|response|>"

@@ -36,7 +36,7 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
+from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer  # noqa: E402
 
 MODEL_CARD_TEMPLATE = """---
 language:
@@ -107,7 +107,7 @@ Apache 2.0 — free for commercial and research use.
 """
 
 
-def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
+def convert_to_hf(ckpt_path: Path, _tok_path: Path | None) -> tuple:
     """Load our checkpoint and convert to HuggingFace GPT2LMHeadModel."""
     from transformers import GPT2Config, GPT2LMHeadModel
 
@@ -144,14 +144,14 @@ def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
     state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
 
     # Keys that need transposing (nn.Linear [out,in] → Conv1D [in,out])
-    TRANSPOSE_KEYS = {"c_attn.weight", "c_proj.weight", "c_fc.weight"}
+    transpose_keys = {"c_attn.weight", "c_proj.weight", "c_fc.weight"}
 
     mapped = {}
     for k, v in state.items():
         hf_key = (
             k if k.startswith("transformer.") or k.startswith("lm_head.") else f"transformer.{k}"
         )
-        if v.ndim == 2 and any(tk in k for tk in TRANSPOSE_KEYS):
+        if v.ndim == 2 and any(tk in k for tk in transpose_keys):
             v = v.t()
         mapped[hf_key] = v
 
@@ -163,7 +163,7 @@ def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
     return hf_model, hf_cfg, model_cfg, params
 
 
-def get_tokenizer_for_hub(tok_path: Path | None, vocab_size: int):
+def get_tokenizer_for_hub(tok_path: Path | None, _vocab_size: int):
     """Return an HF-compatible tokenizer using the unified loader."""
     from transformers import PreTrainedTokenizerFast
 
@@ -232,7 +232,7 @@ def main():
             "Kannada (kn)",
             "Malayalam (ml)",
         ]
-        lang_yaml = "\n".join(f"- {l.split(' ')[0].lower()}" for l in langs)
+        lang_yaml = "\n".join(f"- {lang.split(' ')[0].lower()}" for lang in langs)
         lang_table = "| Language | Script |\n|----------|--------|\n"
         scripts = {
             "Hindi": "Devanagari",

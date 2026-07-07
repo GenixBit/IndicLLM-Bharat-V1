@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from tokenizers import Tokenizer as HFTokenizersTokenizer
 from transformers import PreTrainedTokenizerFast
@@ -34,13 +35,13 @@ class _GPT2Wrapper(BharatTokenizer):
         return "gpt2"
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
-        return self._tok.encode(text, add_special_tokens=add_special_tokens)
+        return cast(list[int], self._tok.encode(text, add_special_tokens=add_special_tokens))
 
     def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
         return [self._tok.encode(t, add_special_tokens=add_special_tokens) for t in texts]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
-        return self._tok.decode(ids, skip_special_tokens=skip_special_tokens)
+        return cast(str, self._tok.decode(ids, skip_special_tokens=skip_special_tokens))
 
     def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
         return [self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch]
@@ -55,8 +56,8 @@ class _GPT2Wrapper(BharatTokenizer):
             "is_fast": True,
         }
 
-    def add_special_tokens(self, special_tokens: dict[str, list[str]]) -> int:
-        return self._tok.add_special_tokens(special_tokens)
+    def add_special_tokens(self, special_tokens: Mapping[str, list[str]]) -> int:
+        return self._tok.add_special_tokens(cast(dict[str, Any], special_tokens))
 
     def fingerprint(self) -> str:
         backend = getattr(self._tok, "backend_tokenizer", None)
@@ -92,11 +93,11 @@ class _SentencePieceNativeWrapper(BharatTokenizer):
 
     def __init__(self, processor: Any) -> None:
         self._sp = processor
-        self._vocab_size = processor.vocab_size()
-        self._bos_id: int = processor.bos_id()
-        self._eos_id: int = processor.eos_id()
-        self._pad_id: int = processor.pad_id()
-        self._unk_id: int = processor.unk_id()
+        self._vocab_size = cast(int, processor.vocab_size())
+        self._bos_id = cast(int, processor.bos_id())
+        self._eos_id = cast(int, processor.eos_id())
+        self._pad_id = cast(int, processor.pad_id())
+        self._unk_id = cast(int, processor.unk_id())
 
     @property
     def vocab_size(self) -> int:
@@ -123,16 +124,16 @@ class _SentencePieceNativeWrapper(BharatTokenizer):
         return "sentencepiece"
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:  # noqa: ARG002
-        return self._sp.encode(text)
+        return cast(list[int], self._sp.encode(text))
 
     def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:  # noqa: ARG002
-        return self._sp.encode(texts)
+        return cast(list[list[int]], self._sp.encode(texts))
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:  # noqa: ARG002
-        return self._sp.decode(ids)
+        return cast(str, self._sp.decode(ids))
 
     def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:  # noqa: ARG002
-        return self._sp.decode(batch)
+        return cast(list[str], self._sp.decode(batch))
 
     def get_metadata(self) -> dict[str, Any]:
         return {
@@ -169,7 +170,7 @@ class _SentencePieceHFWrapper(BharatTokenizer):
 
     def __init__(self, tok: HFTokenizersTokenizer) -> None:
         self._tok = tok
-        self._vocab_size = tok.get_vocab_size()
+        self._vocab_size = cast(int, tok.get_vocab_size())
 
     @property
     def vocab_size(self) -> int:
@@ -177,18 +178,18 @@ class _SentencePieceHFWrapper(BharatTokenizer):
 
     @property
     def eos_token_id(self) -> int:
-        eos = self._tok.token_to_id("<|endoftext|>")
+        eos = cast(int | None, self._tok.token_to_id("<|endoftext|>"))
         if eos is not None:
             return eos
-        eos = self._tok.token_to_id("</s>")
+        eos = cast(int | None, self._tok.token_to_id("</s>"))
         return eos if eos is not None else 1
 
     @property
     def pad_token_id(self) -> int:
-        pad = self._tok.token_to_id("<|pad|>")
+        pad = cast(int | None, self._tok.token_to_id("<|pad|>"))
         if pad is not None:
             return pad
-        pad = self._tok.token_to_id("<pad>")
+        pad = cast(int | None, self._tok.token_to_id("<pad>"))
         return pad if pad is not None else 0
 
     @property
@@ -197,17 +198,19 @@ class _SentencePieceHFWrapper(BharatTokenizer):
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         encoded = self._tok.encode(text, add_special_tokens=add_special_tokens)
-        return encoded.ids
+        return cast(list[int], encoded.ids)
 
     def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
         encoded = self._tok.encode_batch(texts, add_special_tokens=add_special_tokens)
-        return [e.ids for e in encoded]
+        return cast(list[list[int]], [e.ids for e in encoded])
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
-        return self._tok.decode(ids, skip_special_tokens=skip_special_tokens)
+        return cast(str, self._tok.decode(ids, skip_special_tokens=skip_special_tokens))
 
     def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
-        return self._tok.decode_batch(batch, skip_special_tokens=skip_special_tokens)
+        return cast(
+            list[str], self._tok.decode_batch(batch, skip_special_tokens=skip_special_tokens)
+        )
 
     def get_metadata(self) -> dict[str, Any]:
         return {
@@ -275,13 +278,13 @@ class _HFWrapper(BharatTokenizer):
         return "hf"
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
-        return self._tok.encode(text, add_special_tokens=add_special_tokens)
+        return cast(list[int], self._tok.encode(text, add_special_tokens=add_special_tokens))
 
     def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
         return [self._tok.encode(t, add_special_tokens=add_special_tokens) for t in texts]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
-        return self._tok.decode(ids, skip_special_tokens=skip_special_tokens)
+        return cast(str, self._tok.decode(ids, skip_special_tokens=skip_special_tokens))
 
     def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
         return [self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch]
@@ -296,8 +299,8 @@ class _HFWrapper(BharatTokenizer):
             "is_fast": True,
         }
 
-    def add_special_tokens(self, special_tokens: dict[str, list[str]]) -> int:
-        return self._tok.add_special_tokens(special_tokens)
+    def add_special_tokens(self, special_tokens: Mapping[str, list[str]]) -> int:
+        return self._tok.add_special_tokens(cast(dict[str, Any], special_tokens))
 
     def fingerprint(self) -> str:
         backend = getattr(self._tok, "backend_tokenizer", None)
@@ -357,7 +360,7 @@ def _load_from_path(source: Path) -> BharatTokenizer:
             return _SentencePieceHFWrapper(tok)
         from transformers import PreTrainedTokenizerFast as HFPretrainedTokenizerFast
 
-        hf_tok = HFPretrainedTokenizerFast(tokenizer_object=tok)
+        hf_tok = HFPretrainedTokenizerFast(tokenizer_object=cast(Any, tok))  # type: ignore[no-untyped-call]
         return _HFWrapper(hf_tok)
     if source.suffix == ".model":
         import sentencepiece as sp
@@ -374,7 +377,7 @@ def _load_from_path(source: Path) -> BharatTokenizer:
                 return _SentencePieceHFWrapper(tok)
             from transformers import PreTrainedTokenizerFast as HFPretrainedTokenizerFast
 
-            hf_tok = HFPretrainedTokenizerFast(tokenizer_object=tok)
+            hf_tok = HFPretrainedTokenizerFast(tokenizer_object=cast(Any, tok))  # type: ignore[no-untyped-call]
             return _HFWrapper(hf_tok)
         from transformers import PreTrainedTokenizerFast as HFPretrainedTokenizerFast
 
@@ -395,14 +398,14 @@ def load_tokenizer(
     **kwargs: Any,
 ) -> BharatTokenizer:
     if source is None:
-        from transformers import GPT2TokenizerFast
+        from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
 
         tok = GPT2TokenizerFast.from_pretrained("gpt2")
         return _GPT2Wrapper(tok)
 
     if isinstance(source, str):
         if source.lower() == "gpt2":
-            from transformers import GPT2TokenizerFast
+            from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
 
             tok = GPT2TokenizerFast.from_pretrained("gpt2")
             return _GPT2Wrapper(tok)
@@ -413,7 +416,7 @@ def load_tokenizer(
         try:
             from transformers import AutoTokenizer
 
-            tok = AutoTokenizer.from_pretrained(source, **kwargs)
+            tok = cast(PreTrainedTokenizerFast, AutoTokenizer.from_pretrained(source, **kwargs))
             detected = tokenizer_type or _detect_tokenizer_type(tok)
             if detected == "gpt2":
                 return _GPT2Wrapper(tok)
