@@ -309,6 +309,24 @@ class TestBharatModel:
         with pytest.raises(ValueError, match="not be empty"):
             model(input_ids=torch.randint(0, cfg.vocab_size, (2, 0)))
 
+    def test_input_ids_batch_zero_raises(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="batch_size"):
+            model(input_ids=torch.randint(0, cfg.vocab_size, (0, 4)))
+
+    def test_inputs_embeds_batch_zero_raises(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="batch_size"):
+            model(inputs_embeds=torch.randn(0, 4, cfg.hidden_size))
+
+    def test_inputs_embeds_not_empty(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="not be empty"):
+            model(inputs_embeds=torch.randn(2, 0, cfg.hidden_size))
+
     def test_inputs_embeds_rank_three(self):
         cfg = _small_config()
         model = BharatModel(cfg)
@@ -719,7 +737,7 @@ class TestBharatForCausalLM:
         state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
         state.pop("model.layers.0.self_attn.q_proj.weight")
         torch.save(state, os.path.join(str(tmp_path), "model.pt"))
-        with pytest.raises(RuntimeError, match="missing"):
+        with pytest.raises(RuntimeError, match="incompatible"):
             BharatForCausalLM.from_pretrained(str(tmp_path))
 
     def test_load_unexpected_key_raises(self, tmp_path):
@@ -729,7 +747,7 @@ class TestBharatForCausalLM:
         state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
         state["extra.key"] = torch.randn(1)
         torch.save(state, os.path.join(str(tmp_path), "model.pt"))
-        with pytest.raises(RuntimeError, match="unexpected"):
+        with pytest.raises(RuntimeError, match="incompatible"):
             BharatForCausalLM.from_pretrained(str(tmp_path))
 
     def test_load_incompatible_shape_raises(self, tmp_path):
@@ -739,7 +757,7 @@ class TestBharatForCausalLM:
         state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
         state["model.layers.0.self_attn.q_proj.weight"] = torch.randn(64, 32)
         torch.save(state, os.path.join(str(tmp_path), "model.pt"))
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="incompatible"):
             BharatForCausalLM.from_pretrained(str(tmp_path))
 
     def test_load_corrupted_state_raises_actionable_message(self, tmp_path):
@@ -754,9 +772,44 @@ class TestBharatForCausalLM:
         assert model_path in str(exc.value), (
             f"Error message must contain the checkpoint path:\n{exc.value}"
         )
-        assert "corrupted" in str(exc.value).lower() or "incompatible" in str(exc.value).lower(), (
-            f"Error must mention corruption or incompatibility:\n{exc.value}"
+        assert "Failed to load" in str(exc.value), (
+            f"Error must start with 'Failed to load':\n{exc.value}"
         )
+
+    def test_load_missing_key_raises_specific(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
+        state.pop("model.layers.0.self_attn.q_proj.weight")
+        torch.save(state, os.path.join(str(tmp_path), "model.pt"))
+        with pytest.raises(RuntimeError) as exc:
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert "incompatible" in str(exc.value).lower(), (
+            f"Missing-key error must mention incompatibility:\n{exc.value}"
+        )
+
+    def test_load_unexpected_key_raises_specific(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
+        state["extra.key"] = torch.randn(1)
+        torch.save(state, os.path.join(str(tmp_path), "model.pt"))
+        with pytest.raises(RuntimeError) as exc:
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert "incompatible" in str(exc.value).lower()
+
+    def test_load_incompatible_shape_raises_specific(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
+        state["model.layers.0.self_attn.q_proj.weight"] = torch.randn(64, 32)
+        torch.save(state, os.path.join(str(tmp_path), "model.pt"))
+        with pytest.raises(RuntimeError) as exc:
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert "incompatible" in str(exc.value).lower()
 
     def test_tied_after_strict_load(self, tmp_path):
         cfg = _small_config(tie_word_embeddings=True)

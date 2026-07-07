@@ -10,20 +10,24 @@ from bharat.models.cache import PastKeyValues, past_length
 def _apply_top_k(logits: torch.Tensor, top_k: int) -> torch.Tensor:
     """Zero out all logits except the top-k highest for each row.
 
-    The threshold is the k-th highest logit value.  Ties are resolved
-    by ``torch.topk`` which returns an arbitrary subset when multiple
-    candidates share the same value.
+    Uses index-based filtering: the top-k values and their indices are
+    selected via ``torch.topk`` and scattered back into a ``-inf``
+    tensor.  Exactly ``k`` entries remain finite per row regardless of
+    tied values at the cutoff.  PyTorch determines which tied indices
+    are selected.
 
     Args:
         logits: ``(batch_size, vocab_size)`` logits.
         top_k: Number of candidates to keep.
 
     Returns:
-        Filtered logits with excluded entries set to ``-inf``.
+        Filtered logits with exactly ``k`` finite entries per row.
     """
-    top_k_values, _ = torch.topk(logits, min(top_k, logits.size(-1)), dim=-1)
-    threshold = top_k_values[:, -1].unsqueeze(-1)
-    return torch.where(logits < threshold, float("-inf"), logits)
+    k = min(top_k, logits.size(-1))
+    values, indices = torch.topk(logits, k, dim=-1)
+    filtered = torch.full_like(logits, float("-inf"))
+    filtered.scatter_(dim=-1, index=indices, src=values)
+    return filtered
 
 
 def _apply_top_p(logits: torch.Tensor, top_p: float) -> torch.Tensor:

@@ -195,9 +195,15 @@ class TestGenerationHelpers:
     def test_apply_top_k_keeps_top_k(self):
         logits = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
         result = _apply_top_k(logits, 2)
-        kept = result[result != float("-inf")]
-        assert kept.numel() == 2, f"Expected 2 kept, got {kept.numel()}"
-        assert 5.0 in kept and 4.0 in kept
+        finite = torch.isfinite(result).sum(dim=-1)
+        assert finite.item() == 2, f"Expected exactly 2 finite entries, got {finite.item()}"
+        assert 5.0 in result and 4.0 in result
+
+    def test_apply_top_k_no_mutation(self):
+        logits = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        original = logits.clone()
+        _ = _apply_top_k(logits, 2)
+        assert torch.equal(logits, original), "Input tensor was mutated"
 
     def test_apply_top_p_all_kept_when_p_one(self):
         logits = torch.randn(2, 16)

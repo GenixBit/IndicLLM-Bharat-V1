@@ -136,6 +136,10 @@ class BharatModel(nn.Module):
             if input_ids.dtype not in (torch.long, torch.int, torch.int32, torch.int64):
                 raise ValueError(f"input_ids must be an integer dtype, got {input_ids.dtype}")
             batch_size, seq_len = input_ids.shape
+            if batch_size == 0:
+                raise ValueError(
+                    f"input_ids batch_size must be greater than zero, got {batch_size}"
+                )
             if seq_len == 0:
                 raise ValueError("input_ids must not be empty")
             total_len = seq_len
@@ -165,6 +169,10 @@ class BharatModel(nn.Module):
                     f"config.hidden_size ({self.config.hidden_size})"
                 )
             batch_size, seq_len = inputs_embeds.shape[:2]
+            if batch_size == 0:
+                raise ValueError(
+                    f"inputs_embeds batch_size must be greater than zero, got {batch_size}"
+                )
             if seq_len == 0:
                 raise ValueError("inputs_embeds must not be empty")
             total_len = seq_len
@@ -355,9 +363,17 @@ class BharatModel(nn.Module):
         model = cls(config)
         try:
             state = torch.load(model_path, map_location=map_location, weights_only=True)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load Bharat model weights from {model_path}: {exc}"
+            ) from exc
+        try:
             model.load_state_dict(state, strict=True)
-        except RuntimeError as e:
-            raise RuntimeError(f"Failed to load state dict from {model_path}: {e}") from e
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"Bharat checkpoint is incompatible with the configured architecture "
+                f"at {model_path}: {exc}"
+            ) from exc
         return model
 
 
@@ -527,17 +543,15 @@ class BharatForCausalLM(nn.Module):
         model = cls(config)
         try:
             state = torch.load(model_path, map_location=map_location, weights_only=True)
-        except Exception as e:
+        except Exception as exc:
             raise RuntimeError(
-                f"Failed to load checkpoint file {model_path}. "
-                f"The file may be corrupted or incompatible. "
-                f"Try re-downloading or re-saving the model.\n  Cause: {e}"
-            ) from e
+                f"Failed to load Bharat model weights from {model_path}: {exc}"
+            ) from exc
         try:
             model.load_state_dict(state, strict=True)
-        except RuntimeError as e:
+        except RuntimeError as exc:
             raise RuntimeError(
-                f"Failed to load state dict from {model_path}. "
-                f"The checkpoint may be for a different model architecture.\n  Cause: {e}"
-            ) from e
+                f"Bharat checkpoint is incompatible with the configured architecture "
+                f"at {model_path}: {exc}"
+            ) from exc
         return model
