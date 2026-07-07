@@ -154,6 +154,14 @@ class TestReorderCache:
             assert reordered[i][0].shape[0] == 0
             assert reordered[i][1].shape[0] == 0
 
+    def test_reorder_device_mismatch_raises(self):
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        cache = _make_cache(batch_size=3)
+        indices = torch.tensor([0, 1, 2], device="cuda:0")
+        with pytest.raises(ValueError, match="device"):
+            reorder_cache(cache, indices)
+
     def test_reorder_does_not_mutate_original(self):
         cache = _make_cache(batch_size=3)
         original_first = cache[0][0].clone()

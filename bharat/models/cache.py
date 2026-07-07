@@ -75,23 +75,30 @@ def reorder_cache(
     """
     Reorder the batch dimension of all cache layers according to ``indices``.
 
-    ``indices`` must be a 1-D integer tensor of length ``batch_size`` with
-    values in ``[0, batch_size)``.
+    ``indices`` must be a 1-D integer tensor with values in ``[0, batch_size)``.
+    When ``indices`` is empty (length zero) a zero-batch cache is returned.
+    The original cache is never mutated.
 
-    When ``indices`` is empty, the cache is returned unchanged (no elements
-    to select).  The original cache is never mutated.
+    Args:
+        cache: KV cache to reorder.
+        indices: 1-D integer tensor of target row indices.
 
-    Useful for future beam-search or sorting operations.
+    Returns:
+        Reordered cache with the same structure as the input.
     """
     if indices.dim() != 1:
         raise ValueError(f"reorder_cache indices must be 1-D, got {indices.dim()}-D")
     if indices.dtype not in (torch.long, torch.int, torch.int32, torch.int64):
         raise ValueError(f"reorder_cache indices must be an integer dtype, got {indices.dtype}")
-    if len(indices) > 0:
-        batch_size = cache[0][0].shape[0]
-        if indices.min() < 0 or indices.max() >= batch_size:
-            raise ValueError(
-                f"reorder_cache indices must be in [0, {batch_size - 1}], "
-                f"got range [{indices.min().item()}, {indices.max().item()}]"
-            )
+    device = cache[0][0].device
+    if indices.device != device:
+        raise ValueError(
+            f"reorder_cache indices device ({indices.device}) must match cache device ({device})"
+        )
+    batch_size = cache[0][0].shape[0]
+    if len(indices) > 0 and (indices.min() < 0 or indices.max() >= batch_size):
+        raise ValueError(
+            f"reorder_cache indices must be in [0, {batch_size - 1}], "
+            f"got range [{indices.min().item()}, {indices.max().item()}]"
+        )
     return tuple((k.index_select(0, indices), v.index_select(0, indices)) for k, v in cache)

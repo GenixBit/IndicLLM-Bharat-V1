@@ -234,6 +234,32 @@ class BharatModel(nn.Module):
                     f"attention_mask sequence length ({mask_seq}) must match "
                     f"total key length ({expected_key_len})"
                 )
+            # Validate mask dtype and binary values
+            mask_dtype = attention_mask.dtype
+            if mask_dtype not in (
+                torch.bool,
+                torch.uint8,
+                torch.int8,
+                torch.int16,
+                torch.int32,
+                torch.int64,
+                torch.float16,
+                torch.float32,
+                torch.float64,
+            ):
+                raise ValueError(f"attention_mask has unsupported dtype {mask_dtype}")
+            if not ((attention_mask == 0) | (attention_mask == 1)).all():
+                raise ValueError(
+                    "attention_mask must contain only 0/1 or True/False values, "
+                    f"got values in [{attention_mask.min().item()}, {attention_mask.max().item()}]"
+                )
+            # Each row must have at least one valid key
+            valid_counts = attention_mask.sum(dim=-1)
+            if (valid_counts == 0).any():
+                raise ValueError(
+                    "Every attention_mask row must contain at least one valid token (1). "
+                    "Found all-zero row(s)."
+                )
 
         # Validate cache if provided
         if past_key_values is not None:
@@ -395,6 +421,11 @@ class BharatForCausalLM(nn.Module):
 
         loss: torch.Tensor | None = None
         if labels is not None:
+            if use_cache and past_key_values is not None:
+                raise ValueError(
+                    "labels cannot be used with cached generation (past_key_values is set). "
+                    "Call forward with use_cache=False or without past_key_values when computing loss."
+                )
             if input_ids is not None:
                 if labels.shape != input_ids.shape:
                     raise ValueError(
@@ -406,6 +437,11 @@ class BharatForCausalLM(nn.Module):
                     raise ValueError(
                         f"labels shape {labels.shape} must match "
                         f"inputs_embeds sequence length ({seq_len})"
+                    )
+                if labels.shape[0] != inputs_embeds.shape[0]:
+                    raise ValueError(
+                        f"labels batch size ({labels.shape[0]}) must match "
+                        f"inputs_embeds batch size ({inputs_embeds.shape[0]})"
                     )
 
             # Clone labels and mask padding positions
@@ -468,11 +504,6 @@ class BharatForCausalLM(nn.Module):
         path: str,
         map_location: str | torch.device | None = None,
     ) -> BharatForCausalLM:
-        """
-        Load a BharatForCausalLM from a local directory.
-
-        Expects ``config.json`` and ``model.pt`` in the directory.
-        """
         config_path = os.path.join(path, "config.json")
         if not os.path.isfile(config_path):
             raise FileNotFoundError(f"Config not found: {config_path}")
@@ -496,7 +527,17 @@ class BharatForCausalLM(nn.Module):
         model = cls(config)
         try:
             state = torch.load(model_path, map_location=map_location, weights_only=True)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load checkpoint file {model_path}. "
+                f"The file may be corrupted or incompatible. "
+                f"Try re-downloading or re-saving the model.\n  Cause: {e}"
+            ) from e
+        try:
             model.load_state_dict(state, strict=True)
         except RuntimeError as e:
-            raise RuntimeError(f"Failed to load state dict from {model_path}: {e}") from e
+            raise RuntimeError(
+                f"Failed to load state dict from {model_path}. "
+                f"The checkpoint may be for a different model architecture.\n  Cause: {e}"
+            ) from e
         return model
