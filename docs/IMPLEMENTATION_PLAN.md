@@ -2,12 +2,14 @@
 
 ## Repository Audit Summary
 
-See `docs/CURRENT_STATE_AUDIT.md` for the full audit. Key findings (post-Milestone 1):
+See `docs/CURRENT_STATE_AUDIT.md` for the full audit. Key findings (post-Milestone 3.1):
 
-- **Milestone 1 completed at `637e2d3`:** Tests/CI, unified tokenizer, SFT loss masking, DPO per-sample masking, checkpoint metadata, API CORS, documentation
+- **Milestone 1 completed:** Tests/CI, unified tokenizer, SFT loss masking, DPO per-sample masking, checkpoint metadata, API CORS, documentation
+- **Milestone 2 completed:** Modern model architecture (RoPE, RMSNorm, SwiGLU, GQA, FlashAttention), generation, BharatModel/BharatForCausalLM
+- **Milestone 3.1 completed:** Governed data-source registry with default-deny licensing, immutable revision pins, SHA-256 integrity, deterministic digest, offline validation CLI
 - **Verified working:** GPT-2 pretraining, DDP training, SFT (with loss masking), DPO (with per-sample masks), evaluation, inference, export, data pipelines
-- **Critical defects fixed:** SFT loss masking (C1), DPO batch-level prompt length (C2-C3), tokenizer-embedding size mismatch (C4)
-- **High-severity issues fixed:** Hardcoded GPT-2 tokenizer (H5-H9), no checkpoint metadata (H10-H12), wildcard CORS (H13)
+- **Critical defects fixed:** SFT loss masking, DPO batch-level prompt length, tokenizer-embedding size mismatch
+- **High-severity issues fixed:** Hardcoded GPT-2 tokenizer, no checkpoint metadata, wildcard CORS
 - **Still open:** Hardcoded `uint16` storage (H1-H3), test implementations are stubs, no streaming API, no authentication, no quality filtering/dedup, no data engine (Milestone 3.2+)
 - **Not yet started:** Milestone 3.2 (Quality Filters + Dedup), Milestone 4 (BharatBench), Milestone 5 (Production Serving)
 

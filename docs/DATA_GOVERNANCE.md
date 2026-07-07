@@ -1,5 +1,58 @@
 # Data Governance
 
+## Default-deny licensing
+
+- `default_decision` is permanently set to `deny` and cannot be changed through a policy file.
+- Unknown or missing licence identifiers always resolve to `DENY`.
+- Approval is an engineering gate, not legal advice.
+
+## Allow-record requirements
+
+An ALLOW record requires all of:
+- `evidence_url` — valid `https://` URL
+- `verified_at` — ISO-8601 date
+- `verified_by` — non-empty identifier
+- `commercial_use_allowed` — must be `true`
+- `model_training_allowed` — must be `true`
+- `redistribution_allowed` — must be `true`
+- `attribution_required` — required field
+- `share_alike` — required field
+
+## Immutable revisions
+
+- Approved HuggingFace sources must use a 40-character lowercase hex commit SHA.
+- Branches (`main`, `master`), tags, and short SHAs are rejected.
+- Source revision must match `integrity.revision` when integrity is present.
+
+## Version semantics
+
+- Versions must be PEP 440-compatible (e.g., `1.0.0`, `2.0.0`, `10.0.0`).
+- `10.0.0` is newer than `2.0.0`.
+- Prerelease ordering is defined (`1.0.0` > `1.0.0-alpha`).
+- Duplicate normalized versions are rejected.
+
+## Supersession
+
+- Format: `source_id@version` (e.g., `fineweb_edu@1.0.0`).
+- Self-supersession and cycles are rejected.
+- Target must exist in the registry.
+
+## Registry digest
+
+- Covers all normalized source fields including notes.
+- License identifier changes, integrity changes, status changes, and supersession changes alter the digest.
+- Formatting and file ordering do not alter the digest.
+- Policy digest is separately exposed.
+- Policy changes alter the registry digest.
+
+## No dataset has been downloaded or processed.
+
+This governance framework is an empty structure. No data has been downloaded, filtered, deduplicated, or trained on.
+
+-----
+
+Original content follows:
+
 ## Purpose
 
 The Bharat AI data-source registry provides a single, versioned record of
