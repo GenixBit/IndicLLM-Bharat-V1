@@ -1,0 +1,12 @@
+# Bharat AI Data License Policy
+#
+# IMPORTANT: This registry is an engineering control, not legal advice.
+# Licence decisions recorded here reflect the project's current policy
+# and must not be treated as a substitute for independent legal review.
+#
+# schema_version: 1
+# default_decision: deny — unknown or missing licences are automatically denied.
+
+schema_version: 1
+default_decision: deny
+licenses: []
