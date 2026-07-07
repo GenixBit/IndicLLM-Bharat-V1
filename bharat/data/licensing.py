@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -12,6 +13,37 @@ class LicenseDecision(StrEnum):
     ALLOW = "allow"
     REVIEW = "review"
     DENY = "deny"
+
+
+_HTTPS_URL_RE = re.compile(r"^https://\S+$")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2}))?$")
+
+
+def _validate_allow_record(record: LicenseRecord, prefix: str) -> None:
+    """Validate that an ALLOW record has all required evidence fields."""
+    errors: list[str] = []
+    if not record.evidence_url:
+        errors.append("evidence_url is required")
+    elif not _HTTPS_URL_RE.match(record.evidence_url):
+        errors.append(f"evidence_url must be a valid https:// URL, got '{record.evidence_url}'")
+    if not record.verified_at:
+        errors.append("verified_at is required")
+    elif not _ISO_DATE_RE.match(record.verified_at):
+        errors.append(f"verified_at must be a valid ISO-8601 date, got '{record.verified_at}'")
+    if not record.verified_by:
+        errors.append("verified_by is required")
+    if record.commercial_use_allowed is not True:
+        errors.append("commercial_use_allowed must be true")
+    if record.model_training_allowed is not True:
+        errors.append("model_training_allowed must be true")
+    if record.redistribution_allowed is not True:
+        errors.append("redistribution_allowed must be true")
+    if record.attribution_required is None:
+        errors.append("attribution_required is required")
+    if record.share_alike is None:
+        errors.append("share_alike is required")
+    if errors:
+        raise ValueError(f"{prefix}: ALLOW record missing required fields: {'; '.join(errors)}")
 
 
 @dataclass(frozen=True)
@@ -46,7 +78,7 @@ class LicensePolicy:
     def decision_for(self, identifier: str) -> LicenseDecision:
         record = self.resolve(identifier)
         if record is None:
-            return self.default_decision
+            return LicenseDecision.DENY
         return record.decision
 
     def to_dict(self) -> dict[str, Any]:
@@ -150,7 +182,7 @@ def _validate_license_record(data: dict[str, Any], path: str, index: int) -> Lic
         if val is not None and not isinstance(val, str):
             raise TypeError(f"{prefix}: {field} must be a string, got {type(val).__name__}")
 
-    return LicenseRecord(
+    record = LicenseRecord(
         identifier=identifier,
         name=name,
         decision=decision,
@@ -165,6 +197,11 @@ def _validate_license_record(data: dict[str, Any], path: str, index: int) -> Lic
         conditions=conditions,
         notes=notes,
     )
+
+    if decision == LicenseDecision.ALLOW:
+        _validate_allow_record(record, prefix)
+
+    return record
 
 
 LICENSE_POLICY_ROOT_KEYS: frozenset[str] = frozenset(
@@ -213,6 +250,8 @@ def load_license_policy(path: str | Path) -> LicensePolicy:
             f"{file_path}: unknown default_decision '{default_val}'; "
             f"valid: {', '.join(d.value for d in LicenseDecision)}"
         )
+    if default_decision != LicenseDecision.DENY:
+        raise ValueError(f"{file_path}: default_decision must be 'deny', got '{default_val}'")
 
     licenses_raw = data.get("licenses", [])
     if not isinstance(licenses_raw, list):

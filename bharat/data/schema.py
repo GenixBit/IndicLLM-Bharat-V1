@@ -45,6 +45,16 @@ class UsageDomain(StrEnum):
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*[a-z0-9]$|^[a-z]$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2}))?$")
+_HF_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
+_CREDS_ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_VERSION_RE = re.compile(
+    r"^(?P<major>0|[1-9]\d*)"
+    r"\.(?P<minor>0|[1-9]\d*)"
+    r"\.(?P<patch>0|[1-9]\d*)"
+    r"(?P<prerelease>-(alpha|beta|rc)\d*)?"
+    r"$"
+)
+_HTTPS_URL_RE = re.compile(r"^https://\S+$")
 
 
 def validate_slug(value: str, path: str) -> str:
@@ -84,6 +94,36 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36,})"),
     re.compile(r"://[^:/\s]+:[^@/\s]+@"),  # user:pass@ in URI authority
 ]
+
+
+def validate_version(value: str, path: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{path}: version must be a string, got {type(value).__name__}")
+    if not _VERSION_RE.match(value):
+        raise ValueError(
+            f"{path}: invalid version '{value}' — must be PEP 440 compatible "
+            r"(e.g. '1.0.0', '2.0.0-alpha')"
+        )
+    return value
+
+
+def validate_hf_revision(value: str, path: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{path}: revision must be a string, got {type(value).__name__}")
+    if not _HF_REVISION_RE.match(value):
+        raise ValueError(
+            f"{path}: invalid Hugging Face revision '{value}' — "
+            "must be a 40-character lowercase hex commit SHA"
+        )
+    return value
+
+
+def validate_https_url(value: str, path: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{path}: URL must be a string, got {type(value).__name__}")
+    if not _HTTPS_URL_RE.match(value):
+        raise ValueError(f"{path}: invalid URL '{value}' — must be a valid https:// URL")
+    return value
 
 
 def validate_no_secrets(value: str, path: str) -> None:
@@ -249,6 +289,7 @@ class DataSourceSpec:
         version = data.get("version")
         if not isinstance(version, str) or not version:
             raise ValueError(f"{file_path}: version must be a non-empty string")
+        version = validate_version(version, file_path)
 
         display_name = data.get("display_name")
         if not isinstance(display_name, str) or not display_name:
@@ -275,31 +316,51 @@ class DataSourceSpec:
         revision = data.get("revision")
         if not isinstance(revision, str) or not revision:
             raise ValueError(f"{file_path}: revision must be a non-empty string")
-        if kind == SourceKind.HUGGINGFACE and revision in ("main", "master", "latest"):
-            raise ValueError(
-                f"{file_path}: Hugging Face revision must be an immutable commit SHA, "
-                f"got '{revision}'"
-            )
+        if kind == SourceKind.HUGGINGFACE:
+            revision = validate_hf_revision(revision, file_path)
 
         languages = validate_language_tags(data.get("languages", []), file_path)
 
         domains_raw = data.get("domains", [])
         if not isinstance(domains_raw, list) or not domains_raw:
             raise ValueError(f"{file_path}: domains must be a non-empty list")
-        domains = tuple(str(d).lower() for d in domains_raw)
+        _seen_domains: set[str] = set()
+        _domains_list: list[str] = []
+        for d in domains_raw:
+            if not isinstance(d, str):
+                raise TypeError(f"{file_path}: domain must be a string, got {type(d).__name__}")
+            nd = d.lower()
+            if nd in _seen_domains:
+                raise ValueError(f"{file_path}: duplicate domain '{d}'")
+            _seen_domains.add(nd)
+            _domains_list.append(nd)
+        domains = tuple(_domains_list)
 
         splits_raw = data.get("splits", [])
         if not isinstance(splits_raw, list) or not splits_raw:
             raise ValueError(f"{file_path}: splits must be a non-empty list")
-        splits = tuple(str(s) for s in splits_raw)
+        _seen_splits: set[str] = set()
+        _splits_list: list[str] = []
+        for s in splits_raw:
+            if not isinstance(s, str):
+                raise TypeError(f"{file_path}: split must be a string, got {type(s).__name__}")
+            if s in _seen_splits:
+                raise ValueError(f"{file_path}: duplicate split '{s}'")
+            _seen_splits.add(s)
+            _splits_list.append(s)
+        splits = tuple(_splits_list)
 
         purposes_raw = data.get("purposes", [])
         if not isinstance(purposes_raw, list) or not purposes_raw:
             raise ValueError(f"{file_path}: purposes must be a non-empty list")
         purposes_list: list[UsagePurpose] = []
+        _seen_purposes: set[str] = set()
         for p in purposes_raw:
             if not isinstance(p, str):
                 raise TypeError(f"{file_path}: purpose must be a string, got {type(p).__name__}")
+            if p in _seen_purposes:
+                raise ValueError(f"{file_path}: duplicate purpose '{p}'")
+            _seen_purposes.add(p)
             try:
                 purposes_list.append(UsagePurpose(p.lower()))
             except ValueError:
@@ -332,6 +393,26 @@ class DataSourceSpec:
         else:
             integrity = DataIntegrityRecord.from_dict(integrity_data, f"{file_path}.integrity")
 
+        # Integrity manifest_uri and manifest_sha256 must come together
+        if integrity is not None:
+            if integrity.manifest_uri is not None and integrity.manifest_sha256 is None:
+                raise ValueError(
+                    f"{file_path}: integrity.manifest_sha256 required when manifest_uri is present"
+                )
+            if integrity.manifest_sha256 is not None and integrity.manifest_uri is None:
+                raise ValueError(
+                    f"{file_path}: integrity.manifest_uri required when manifest_sha256 is present"
+                )
+            if integrity.manifest_uri is not None:
+                validate_no_secrets(integrity.manifest_uri, f"{file_path}.integrity")
+
+        # Revision must match integrity revision when integrity is present
+        if integrity is not None and integrity.revision != revision:
+            raise ValueError(
+                f"{file_path}: revision '{revision}' does not match "
+                f"integrity.revision '{integrity.revision}'"
+            )
+
         gated = data.get("gated", False)
         if not isinstance(gated, bool):
             raise TypeError(f"{file_path}: gated must be a boolean, got {type(gated).__name__}")
@@ -342,10 +423,10 @@ class DataSourceSpec:
                 raise TypeError(
                     f"{file_path}: credentials_env must be a string, got {type(creds).__name__}"
                 )
-            if re.search(r"[\s:=]", creds):
+            if not _CREDS_ENV_RE.match(creds):
                 raise ValueError(
-                    f"{file_path}: credentials_env must be an environment-variable name "
-                    f"(not a value), got '{creds}'"
+                    f"{file_path}: credentials_env must be a valid environment-variable name "
+                    r"matching ^[A-Z_][A-Z0-9_]*$, got '{creds}'"
                 )
             for pattern in _SECRET_PATTERNS:
                 if pattern.search(creds):
@@ -355,11 +436,14 @@ class DataSourceSpec:
                     )
 
         dataset_card_url = data.get("dataset_card_url")
-        if dataset_card_url is not None and not isinstance(dataset_card_url, str):
-            raise TypeError(
-                f"{file_path}: dataset_card_url must be a string, "
-                f"got {type(dataset_card_url).__name__}"
-            )
+        if dataset_card_url is not None:
+            if not isinstance(dataset_card_url, str):
+                raise TypeError(
+                    f"{file_path}: dataset_card_url must be a string, "
+                    f"got {type(dataset_card_url).__name__}"
+                )
+            validate_https_url(dataset_card_url, f"{file_path}.dataset_card_url")
+            validate_no_secrets(dataset_card_url, f"{file_path}.dataset_card_url")
 
         collection_method = data.get("collection_method")
         if collection_method is not None and not isinstance(collection_method, str):
@@ -373,18 +457,36 @@ class DataSourceSpec:
             raise TypeError(
                 f"{file_path}: upstream_sources must be a list, got {type(upstream).__name__}"
             )
+        _seen_upstream: set[str] = set()
         for u in upstream:
             if not isinstance(u, str):
                 raise TypeError(
                     f"{file_path}: upstream source must be a string, got {type(u).__name__}"
                 )
+            if u in _seen_upstream:
+                raise ValueError(f"{file_path}: duplicate upstream source '{u}'")
+            _seen_upstream.add(u)
 
         supersedes = data.get("supersedes")
+        if supersedes is not None and not isinstance(supersedes, str):
+            raise TypeError(
+                f"{file_path}: supersedes must be a string or null, "
+                f"got {type(supersedes).__name__}"
+            )
 
         created_at = validate_date(data.get("created_at", ""), f"{file_path}.created_at")
         updated_at = validate_date(data.get("updated_at", ""), f"{file_path}.updated_at")
 
+        if updated_at < created_at:
+            raise ValueError(
+                f"{file_path}: updated_at '{updated_at}' is before created_at '{created_at}'"
+            )
+
         notes = data.get("notes")
+        if notes is not None and not isinstance(notes, str):
+            raise TypeError(
+                f"{file_path}: notes must be a string or null, got {type(notes).__name__}"
+            )
 
         return cls(
             schema_version=schema_version,
