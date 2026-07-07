@@ -129,10 +129,21 @@ class BharatModel(nn.Module):
             raise ValueError("One of input_ids or inputs_embeds must be supplied")
 
         if input_ids is not None:
-            batch_size, seq_len = input_ids.shape
-            if seq_len > self.config.max_position_embeddings:
+            if input_ids.dim() != 2:
                 raise ValueError(
-                    f"Sequence length {seq_len} exceeds "
+                    f"input_ids must be 2-D (batch_size, sequence_length), got {input_ids.dim()}-D"
+                )
+            if input_ids.dtype not in (torch.long, torch.int, torch.int32, torch.int64):
+                raise ValueError(f"input_ids must be an integer dtype, got {input_ids.dtype}")
+            batch_size, seq_len = input_ids.shape
+            if seq_len == 0:
+                raise ValueError("input_ids must not be empty")
+            total_len = seq_len
+            if past_key_values is not None:
+                total_len += past_length(past_key_values)
+            if total_len > self.config.max_position_embeddings:
+                raise ValueError(
+                    f"past_length + current sequence length ({total_len}) exceeds "
                     f"max_position_embeddings ({self.config.max_position_embeddings})"
                 )
             if input_ids.min() < 0 or input_ids.max() >= self.config.vocab_size:
@@ -143,10 +154,25 @@ class BharatModel(nn.Module):
             hidden_states = self.embed_tokens(input_ids)
         else:
             assert inputs_embeds is not None
-            batch_size, seq_len = inputs_embeds.shape[:2]
-            if seq_len > self.config.max_position_embeddings:
+            if inputs_embeds.dim() != 3:
                 raise ValueError(
-                    f"Sequence length {seq_len} exceeds "
+                    f"inputs_embeds must be 3-D (batch_size, sequence_length, hidden_size), "
+                    f"got {inputs_embeds.dim()}-D"
+                )
+            if inputs_embeds.shape[-1] != self.config.hidden_size:
+                raise ValueError(
+                    f"inputs_embeds hidden_size ({inputs_embeds.shape[-1]}) must match "
+                    f"config.hidden_size ({self.config.hidden_size})"
+                )
+            batch_size, seq_len = inputs_embeds.shape[:2]
+            if seq_len == 0:
+                raise ValueError("inputs_embeds must not be empty")
+            total_len = seq_len
+            if past_key_values is not None:
+                total_len += past_length(past_key_values)
+            if total_len > self.config.max_position_embeddings:
+                raise ValueError(
+                    f"past_length + current sequence length ({total_len}) exceeds "
                     f"max_position_embeddings ({self.config.max_position_embeddings})"
                 )
             hidden_states = inputs_embeds
@@ -171,6 +197,42 @@ class BharatModel(nn.Module):
                     )
                     .unsqueeze(0)
                     .expand(batch_size, -1)
+                )
+        else:
+            if position_ids.dim() != 2:
+                raise ValueError(f"position_ids must be 2-D, got {position_ids.dim()}-D")
+            if position_ids.shape[0] != batch_size:
+                raise ValueError(
+                    f"position_ids batch size ({position_ids.shape[0]}) must match "
+                    f"input batch size ({batch_size})"
+                )
+            if position_ids.shape[1] != seq_len:
+                raise ValueError(
+                    f"position_ids sequence length ({position_ids.shape[1]}) must match "
+                    f"input sequence length ({seq_len})"
+                )
+            if position_ids.max() >= self.config.max_position_embeddings:
+                raise ValueError(
+                    f"position_ids max ({position_ids.max().item()}) must be less than "
+                    f"max_position_embeddings ({self.config.max_position_embeddings})"
+                )
+
+        if attention_mask is not None:
+            if attention_mask.dim() != 2:
+                raise ValueError(f"attention_mask must be 2-D, got {attention_mask.dim()}-D")
+            mask_batch, mask_seq = attention_mask.shape
+            if mask_batch != batch_size:
+                raise ValueError(
+                    f"attention_mask batch size ({mask_batch}) must match "
+                    f"input batch size ({batch_size})"
+                )
+            expected_key_len = seq_len
+            if past_key_values is not None:
+                expected_key_len += past_length(past_key_values)
+            if mask_seq != expected_key_len:
+                raise ValueError(
+                    f"attention_mask sequence length ({mask_seq}) must match "
+                    f"total key length ({expected_key_len})"
                 )
 
         # Validate cache if provided
@@ -219,14 +281,19 @@ class BharatModel(nn.Module):
         tmp_config = config_path + ".tmp"
         config_dict: dict[str, Any] = self.config.to_dict()
         config_dict["model_format_version"] = _MODEL_FORMAT_VERSION
-        with open(tmp_config, "w") as f:
+        with open(tmp_config, "w", encoding="utf-8") as f:
             json.dump(config_dict, f)
         os.replace(tmp_config, config_path)
 
         model_path = os.path.join(path, "model.pt")
         tmp_model = model_path + ".tmp"
-        torch.save(self.state_dict(), tmp_model)
-        os.replace(tmp_model, model_path)
+        try:
+            torch.save(self.state_dict(), tmp_model)
+            os.replace(tmp_model, model_path)
+        except BaseException:
+            if os.path.exists(tmp_model):
+                os.remove(tmp_model)
+            raise
 
     @classmethod
     def from_pretrained(
@@ -243,7 +310,7 @@ class BharatModel(nn.Module):
         if not os.path.isfile(config_path):
             raise FileNotFoundError(f"Config not found: {config_path}")
 
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             config_dict = json.load(f)
 
         model_format = config_dict.pop("model_format_version", None)
@@ -260,12 +327,11 @@ class BharatModel(nn.Module):
             raise FileNotFoundError(f"Model weights not found: {model_path}")
 
         model = cls(config)
-        state = torch.load(model_path, map_location=map_location, weights_only=True)
-        missing, unexpected = model.load_state_dict(state, strict=False)
-        if missing:
-            raise RuntimeError(f"Missing keys: {missing}")
-        if unexpected:
-            raise RuntimeError(f"Unexpected keys: {unexpected}")
+        try:
+            state = torch.load(model_path, map_location=map_location, weights_only=True)
+            model.load_state_dict(state, strict=True)
+        except RuntimeError as e:
+            raise RuntimeError(f"Failed to load state dict from {model_path}: {e}") from e
         return model
 
 
@@ -329,12 +395,34 @@ class BharatForCausalLM(nn.Module):
 
         loss: torch.Tensor | None = None
         if labels is not None:
-            if input_ids is not None and labels.shape != input_ids.shape:
+            if input_ids is not None:
+                if labels.shape != input_ids.shape:
+                    raise ValueError(
+                        f"labels shape {labels.shape} must match input_ids shape {input_ids.shape}"
+                    )
+            elif inputs_embeds is not None:
+                seq_len = inputs_embeds.shape[1]
+                if labels.dim() != 2 or labels.shape[1] != seq_len:
+                    raise ValueError(
+                        f"labels shape {labels.shape} must match "
+                        f"inputs_embeds sequence length ({seq_len})"
+                    )
+
+            # Clone labels and mask padding positions
+            effective_labels = labels.clone()
+            if attention_mask is not None:
+                effective_labels = effective_labels.masked_fill(attention_mask == 0, -100)
+
+            shift_logits = logits[..., :-1, :].float().contiguous()
+            shift_labels = effective_labels[..., 1:].contiguous()
+
+            total_targets = (shift_labels.view(-1) != -100).sum()
+            if total_targets == 0:
                 raise ValueError(
-                    f"labels shape {labels.shape} must match input_ids shape {input_ids.shape}"
+                    "No active target labels remain after shifting and masking. "
+                    "All labels are -100 (padding) or the sequence is length 1."
                 )
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
+
             loss = nn.functional.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_labels.view(-1),
@@ -351,7 +439,8 @@ class BharatForCausalLM(nn.Module):
         """
         Save model configuration and weights to a local directory.
 
-        Stores ``config.json`` and ``model.pt``.
+        Stores ``config.json`` and ``model.pt`` using an atomic
+        temporary-file-and-rename pattern.
         """
         os.makedirs(path, exist_ok=True)
 
@@ -359,14 +448,19 @@ class BharatForCausalLM(nn.Module):
         tmp_config = config_path + ".tmp"
         config_dict: dict[str, Any] = self.config.to_dict()
         config_dict["model_format_version"] = _MODEL_FORMAT_VERSION
-        with open(tmp_config, "w") as f:
+        with open(tmp_config, "w", encoding="utf-8") as f:
             json.dump(config_dict, f)
         os.replace(tmp_config, config_path)
 
         model_path = os.path.join(path, "model.pt")
         tmp_model = model_path + ".tmp"
-        torch.save(self.state_dict(), tmp_model)
-        os.replace(tmp_model, model_path)
+        try:
+            torch.save(self.state_dict(), tmp_model)
+            os.replace(tmp_model, model_path)
+        except BaseException:
+            if os.path.exists(tmp_model):
+                os.remove(tmp_model)
+            raise
 
     @classmethod
     def from_pretrained(
@@ -383,7 +477,7 @@ class BharatForCausalLM(nn.Module):
         if not os.path.isfile(config_path):
             raise FileNotFoundError(f"Config not found: {config_path}")
 
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             config_dict = json.load(f)
 
         model_format = config_dict.pop("model_format_version", None)
@@ -400,10 +494,9 @@ class BharatForCausalLM(nn.Module):
             raise FileNotFoundError(f"Model weights not found: {model_path}")
 
         model = cls(config)
-        state = torch.load(model_path, map_location=map_location, weights_only=True)
-        missing, unexpected = model.load_state_dict(state, strict=False)
-        if missing:
-            raise RuntimeError(f"Missing keys: {missing}")
-        if unexpected:
-            raise RuntimeError(f"Unexpected keys: {unexpected}")
+        try:
+            state = torch.load(model_path, map_location=map_location, weights_only=True)
+            model.load_state_dict(state, strict=True)
+        except RuntimeError as e:
+            raise RuntimeError(f"Failed to load state dict from {model_path}: {e}") from e
         return model

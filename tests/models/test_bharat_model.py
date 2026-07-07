@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+
 import pytest
 import torch
 
@@ -222,10 +225,8 @@ class TestBharatModel:
         model.eval()
         input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
 
-        # Full forward
         out_full = model(input_ids, use_cache=False)
 
-        # Token-by-token
         past = None
         out_tokens = []
         for pos in range(8):
@@ -236,6 +237,119 @@ class TestBharatModel:
 
         out_cached = torch.cat(out_tokens, dim=1)
         assert torch.allclose(out_full.last_hidden_state, out_cached, atol=1e-4)
+
+    # --- Task 2: Context-length validation ---
+
+    def test_past_len_plus_seq_len_exceeds_context(self):
+        cfg = _small_config(max_position_embeddings=10)
+        model = BharatModel(cfg)
+        model.eval()
+        prefix = torch.randint(0, cfg.vocab_size, (1, 8))
+        out = model(prefix, use_cache=True)
+        cache = out.past_key_values
+        continuation = torch.randint(0, cfg.vocab_size, (1, 3))
+        with pytest.raises(ValueError, match="past_length"):
+            model(continuation, past_key_values=cache)
+
+    def test_past_len_plus_seq_len_at_context_limit(self):
+        cfg = _small_config(max_position_embeddings=10)
+        model = BharatModel(cfg)
+        model.eval()
+        prefix = torch.randint(0, cfg.vocab_size, (1, 7))
+        out = model(prefix, use_cache=True)
+        cache = out.past_key_values
+        continuation = torch.randint(0, cfg.vocab_size, (1, 3))
+        result = model(continuation, past_key_values=cache)
+        assert result.last_hidden_state.shape == (1, 3, cfg.hidden_size)
+
+    def test_past_len_plus_seq_len_over_context_with_input_embeds(self):
+        cfg = _small_config(max_position_embeddings=10)
+        model = BharatModel(cfg)
+        model.eval()
+        prefix = torch.randint(0, cfg.vocab_size, (1, 8))
+        out = model(prefix, use_cache=True)
+        cache = out.past_key_values
+        embeds = torch.randn(1, 3, cfg.hidden_size)
+        with pytest.raises(ValueError, match="past_length"):
+            model(inputs_embeds=embeds, past_key_values=cache)
+
+    def test_position_ids_must_not_exceed_context(self):
+        cfg = _small_config(max_position_embeddings=8)
+        model = BharatModel(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 3))
+        pos_ids = torch.tensor([[0, 1, 8]])
+        with pytest.raises(ValueError, match="position_ids"):
+            model(input_ids, position_ids=pos_ids)
+
+    def test_position_ids_at_context_limit(self):
+        cfg = _small_config(max_position_embeddings=8)
+        model = BharatModel(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 3))
+        pos_ids = torch.tensor([[0, 1, 7]])
+        result = model(input_ids, position_ids=pos_ids)
+        assert result.last_hidden_state.shape == (1, 3, cfg.hidden_size)
+
+    # --- Task 6: Input validation ---
+
+    def test_input_ids_rank_two_required(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="2-D"):
+            model(input_ids=torch.randint(0, cfg.vocab_size, (2, 8, 1)))
+
+    def test_input_ids_must_be_integer(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="integer dtype"):
+            model(input_ids=torch.randn(2, 8))
+
+    def test_input_ids_not_empty(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="not be empty"):
+            model(input_ids=torch.randint(0, cfg.vocab_size, (2, 0)))
+
+    def test_inputs_embeds_rank_three(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="3-D"):
+            model(inputs_embeds=torch.randn(2, 8))
+
+    def test_inputs_embeds_hidden_size_match(self):
+        cfg = _small_config(hidden_size=64)
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="hidden_size"):
+            model(inputs_embeds=torch.randn(2, 8, 32))
+
+    def test_inputs_embeds_not_empty(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        with pytest.raises(ValueError, match="not be empty"):
+            model(inputs_embeds=torch.randn(2, 0, cfg.hidden_size))
+
+    def test_position_ids_batch_mismatch(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        pos_ids = torch.arange(0, 8).unsqueeze(0).expand(2, -1)
+        with pytest.raises(ValueError, match="batch size"):
+            model(input_ids, position_ids=pos_ids)
+
+    def test_position_ids_seq_mismatch(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        pos_ids = torch.arange(0, 5).unsqueeze(0)
+        with pytest.raises(ValueError, match="sequence length"):
+            model(input_ids, position_ids=pos_ids)
+
+    def test_attention_mask_batch_mismatch(self):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
+        mask = torch.ones(1, 8)
+        with pytest.raises(ValueError, match="batch size"):
+            model(input_ids, attention_mask=mask)
 
 
 class TestBharatForCausalLM:
@@ -305,7 +419,6 @@ class TestBharatForCausalLM:
 
         output = model(input_ids, labels=labels)
 
-        # Manual reference loss
         logits = model.model(input_ids).last_hidden_state
         logits = model.lm_head(logits)
         shift_logits = logits[:, :-1, :].contiguous()
@@ -385,7 +498,404 @@ class TestBharatForCausalLM:
         loaded.load_state_dict(state)
         assert loaded.lm_head.weight is loaded.model.embed_tokens.weight
 
-    # ---------- Full vs cached logit parity ----------
+    # --- Task 5: Padded loss ---
+
+    def test_changing_padded_token_ids_does_not_change_loss(self):
+        cfg = _small_config(
+            vocab_size=16,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=32,
+        )
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, 10, (1, 8))
+        labels = input_ids.clone()
+        mask = torch.ones(1, 8, dtype=torch.long)
+        mask[0, -4:] = 0
+        loss_a = model(input_ids, labels=labels, attention_mask=mask).loss
+
+        labels_b = labels.clone()
+        labels_b[0, -4:] = 99  # change padded token IDs
+        loss_b = model(input_ids, labels=labels_b, attention_mask=mask).loss
+        assert torch.equal(loss_a, loss_b), "Padded token ID change altered loss"
+
+    def test_padded_labels_automatically_ignored(self):
+        cfg = _small_config(
+            vocab_size=16,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=32,
+        )
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, 10, (1, 8))
+        mask = torch.ones(1, 8, dtype=torch.long)
+        mask[0, 4:] = 0
+        labels_with_pad = input_ids.clone()
+        loss = model(input_ids, labels=labels_with_pad, attention_mask=mask).loss
+        assert loss is not None
+        assert torch.isfinite(loss)
+
+    def test_labels_not_modified_in_place(self):
+        cfg = _small_config(
+            vocab_size=16,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=32,
+        )
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, 10, (1, 8))
+        labels = input_ids.clone()
+        original = labels.clone()
+        mask = torch.ones(1, 8, dtype=torch.long)
+        mask[0, 4:] = 0
+        _ = model(input_ids, labels=labels, attention_mask=mask)
+        assert torch.equal(labels, original), "Labels tensor was modified in place"
+
+    def test_all_masked_targets_fails_clearly(self):
+        cfg = _small_config(
+            vocab_size=16,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=8,
+        )
+        model = BharatForCausalLM(cfg)
+        input_ids = torch.randint(0, 10, (1, 2))
+        mask = torch.zeros(1, 2, dtype=torch.long)
+        labels = -100 * torch.ones(1, 2, dtype=torch.long)
+        with pytest.raises(ValueError, match="No active target labels"):
+            model(input_ids, labels=labels, attention_mask=mask)
+
+    def test_labels_with_inputs_embeds_shape_validation(self):
+        cfg = _small_config(
+            vocab_size=16,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=32,
+        )
+        model = BharatForCausalLM(cfg)
+        embeds = torch.randn(1, 6, cfg.hidden_size)
+        labels = torch.randint(0, 16, (1, 6))
+        output = model(inputs_embeds=embeds, labels=labels)
+        assert output.loss is not None
+        assert torch.isfinite(output.loss)
+
+    def test_labels_with_inputs_embeds_wrong_seq_shape(self):
+        cfg = _small_config(
+            vocab_size=16,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=32,
+        )
+        model = BharatForCausalLM(cfg)
+        embeds = torch.randn(1, 6, cfg.hidden_size)
+        labels = torch.randint(0, 16, (1, 4))
+        with pytest.raises(ValueError, match="labels shape"):
+            model(inputs_embeds=embeds, labels=labels)
+
+    # --- Task 7: Strict save/load ---
+
+    def test_save_load_equality(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
+
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
+        out1 = model(input_ids)
+        out2 = loaded(input_ids)
+        assert torch.allclose(out1.logits, out2.logits, atol=1e-5)
+
+    def test_save_load_tied_weights_preserved(self, tmp_path):
+        cfg = _small_config(tie_word_embeddings=True)
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert loaded.lm_head.weight is loaded.model.embed_tokens.weight
+
+    def test_config_roundtrip(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert loaded.config == cfg
+
+    def test_load_missing_dir_raises(self):
+        with pytest.raises((FileNotFoundError, RuntimeError)):
+            BharatForCausalLM.from_pretrained("/nonexistent/path")
+
+    def test_load_incompatible_config_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        bad_config = cfg.to_dict()
+        bad_config["model_format_version"] = "gpt2-v1"
+        with open(os.path.join(str(tmp_path), "config.json"), "w") as f:
+            json.dump(bad_config, f)
+        with pytest.raises(ValueError, match="model format"):
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+
+    def test_load_missing_key_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
+        state.pop("model.layers.0.self_attn.q_proj.weight")
+        torch.save(state, os.path.join(str(tmp_path), "model.pt"))
+        with pytest.raises(RuntimeError, match="missing"):
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+
+    def test_load_unexpected_key_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
+        state["extra.key"] = torch.randn(1)
+        torch.save(state, os.path.join(str(tmp_path), "model.pt"))
+        with pytest.raises(RuntimeError, match="unexpected"):
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+
+    def test_load_incompatible_shape_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        state = torch.load(os.path.join(str(tmp_path), "model.pt"), weights_only=True)
+        state["model.layers.0.self_attn.q_proj.weight"] = torch.randn(64, 32)
+        torch.save(state, os.path.join(str(tmp_path), "model.pt"))
+        with pytest.raises(RuntimeError):
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+
+    def test_load_corrupted_state_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        with open(os.path.join(str(tmp_path), "model.pt"), "wb") as f:
+            f.write(b"not a valid state dict")
+        with pytest.raises((RuntimeError, Exception)):
+            BharatForCausalLM.from_pretrained(str(tmp_path))
+
+    def test_tied_after_strict_load(self, tmp_path):
+        cfg = _small_config(tie_word_embeddings=True)
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert loaded.lm_head.weight is loaded.model.embed_tokens.weight
+
+    def test_untied_after_strict_load(self, tmp_path):
+        cfg = _small_config(tie_word_embeddings=False)
+        model = BharatForCausalLM(cfg)
+        model.save_pretrained(str(tmp_path))
+        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
+        assert loaded.lm_head.weight is not loaded.model.embed_tokens.weight
+
+    # --- Task 10: Multi-token cached parity (chunked) ---
+
+    def _check_chunked_parity(self, model, input_ids, attention_mask=None, chunk_sizes=None):
+        if chunk_sizes is None:
+            chunk_sizes = [3, 3, 2]
+        seq_len = input_ids.shape[1]
+        assert sum(chunk_sizes) == seq_len, f"chunks {chunk_sizes} != {seq_len}"
+
+        out_full = model(input_ids, attention_mask=attention_mask, use_cache=False)
+
+        offset = 0
+        past = None
+        chunked_logits = []
+        for chunk_size in chunk_sizes:
+            chunk = input_ids[:, offset : offset + chunk_size]
+            chunk_mask = None
+            if attention_mask is not None:
+                chunk_mask = attention_mask[:, : offset + chunk_size]
+            out_step = model(
+                chunk,
+                attention_mask=chunk_mask,
+                past_key_values=past,
+                use_cache=True,
+            )
+            chunked_logits.append(out_step.logits)
+            past = out_step.past_key_values
+            offset += chunk_size
+
+        cat_logits = torch.cat(chunked_logits, dim=1)
+        assert torch.allclose(out_full.logits, cat_logits, atol=1e-4), (
+            "Chunked cached logits do not match full forward"
+        )
+
+    def test_mha_chunked_parity(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        self._check_chunked_parity(model, input_ids)
+
+    def test_gqa_chunked_parity(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=2, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        self._check_chunked_parity(model, input_ids)
+
+    def test_mqa_chunked_parity(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=1, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        self._check_chunked_parity(model, input_ids)
+
+    def test_chunked_parity_no_mask(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        self._check_chunked_parity(model, input_ids, attention_mask=None)
+
+    def test_chunked_parity_with_padding_mask(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        mask = torch.ones(1, 8, dtype=torch.long)
+        mask[0, -2:] = 0
+        self._check_chunked_parity(model, input_ids, attention_mask=mask)
+
+    def test_chunked_parity_batch(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
+        self._check_chunked_parity(model, input_ids)
+
+    def test_chunked_parity_batch_with_mask(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
+        mask = torch.ones(2, 8, dtype=torch.long)
+        mask[1, 4:] = 0
+        self._check_chunked_parity(model, input_ids, attention_mask=mask)
+
+    # --- Task 1: Cached multi-token continuation causality ---
+
+    def test_multi_token_cached_is_causal_mha(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        out_prefix = model(input_ids[:, :3], use_cache=True)
+        cache = out_prefix.past_key_values
+
+        continuation_3 = input_ids[:, 3:6]
+        out_cont = model(continuation_3, past_key_values=cache, use_cache=True)
+        cont_logits = out_cont.logits
+
+        out_full = model(input_ids).logits[:, 3:6, :]
+        assert torch.allclose(cont_logits, out_full, atol=1e-4), (
+            "Multi-token cached continuation is not causal"
+        )
+
+    def test_multi_token_cached_changed_last_token_no_change_earlier(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        out_prefix = model(input_ids[:, :3], use_cache=True)
+        cache = out_prefix.past_key_values
+
+        cont_a = input_ids[:, 3:6].clone()
+        cont_b = input_ids[:, 3:6].clone()
+        cont_b[0, -1] = (cont_b[0, -1] + 1) % cfg.vocab_size
+
+        out_a = model(cont_a, past_key_values=cache, use_cache=True)
+        out_b = model(cont_b, past_key_values=cache, use_cache=True)
+
+        assert torch.allclose(out_a.logits[:, 0, :], out_b.logits[:, 0, :], atol=1e-5), (
+            "Changing last continuation token altered earlier outputs"
+        )
+        assert torch.allclose(out_a.logits[:, 1, :], out_b.logits[:, 1, :], atol=1e-5), (
+            "Changing last continuation token altered middle outputs"
+        )
+        assert not torch.allclose(out_a.logits[:, 2, :], out_b.logits[:, 2, :], atol=1e-4), (
+            "Changing last continuation token should alter last output"
+        )
+
+    def test_multi_token_cached_is_causal_with_padding(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        mask = torch.ones(1, 8, dtype=torch.long)
+        mask[0, -2:] = 0  # right-padded
+
+        out_prefix = model(input_ids[:, :3], attention_mask=mask[:, :3], use_cache=True)
+        cache = out_prefix.past_key_values
+
+        cont_3 = input_ids[:, 3:6]
+        cont_mask = mask[:, :6]
+        out_cont = model(cont_3, attention_mask=cont_mask, past_key_values=cache, use_cache=True)
+        cont_logits = out_cont.logits
+
+        out_full = model(input_ids, attention_mask=mask).logits[:, 3:6, :]
+        assert torch.allclose(cont_logits, out_full, atol=1e-4), (
+            "Multi-token cached with padding is not causal"
+        )
+
+    def test_multi_token_cached_batch(self):
+        cfg = _small_config(
+            num_attention_heads=4, num_key_value_heads=4, max_position_embeddings=32
+        )
+        model = BharatForCausalLM(cfg)
+        model.eval()
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
+        out_prefix = model(input_ids[:, :3], use_cache=True)
+        cache = out_prefix.past_key_values
+
+        cont_5 = input_ids[:, 3:8]
+        out_cont = model(cont_5, past_key_values=cache, use_cache=True)
+        cont_logits = out_cont.logits
+
+        out_full = model(input_ids).logits[:, 3:8, :]
+        assert torch.allclose(cont_logits, out_full, atol=1e-4), (
+            "Batch multi-token cached is not causal"
+        )
+
+    # --- Existing cache parity tests ---
 
     def test_mha_full_vs_cached_parity(self):
         cfg = _small_config(num_attention_heads=4, num_key_value_heads=4)
@@ -430,16 +940,11 @@ class TestBharatForCausalLM:
         model.eval()
         input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
         mask = torch.ones(2, 8, dtype=torch.long)
-        mask[1, 2:4] = 0  # sample 1 has a shorter effective prompt
+        mask[1, 2:4] = 0
         mask[1, 4:] = 0
         self._check_cache_parity(model, input_ids, attention_mask=mask)
 
-    def _check_cache_parity(
-        self,
-        model: BharatForCausalLM,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None = None,
-    ):
+    def _check_cache_parity(self, model, input_ids, attention_mask=None):
         seq_len = input_ids.shape[1]
         out_full = model(input_ids, attention_mask=attention_mask, use_cache=False)
 
@@ -462,8 +967,6 @@ class TestBharatForCausalLM:
             "Full vs cached logit mismatch"
         )
 
-    # ---------- Cache growth checks ----------
-
     def test_cache_grows_by_one_per_step(self):
         cfg = _small_config()
         model = BharatForCausalLM(cfg)
@@ -475,7 +978,7 @@ class TestBharatForCausalLM:
             token_input = input_ids[:, pos : pos + 1]
             out_step = model(token_input, past_key_values=past, use_cache=True)
             if past is not None:
-                expected_len = pos  # cached length before this step
+                expected_len = pos
                 for k, v in past:
                     assert k.shape[-2] == expected_len, (
                         f"Expected cached length {expected_len}, got {k.shape[-2]}"
@@ -493,7 +996,7 @@ class TestBharatForCausalLM:
             assert k.shape[1] == 2, f"Cache has {k.shape[1]} heads, expected 2"
             assert v.shape[1] == 2
 
-    # ---------- Future-token leakage ----------
+    # --- Future-token leakage ---
 
     def test_cached_attention_is_causal(self):
         cfg = _small_config(num_attention_heads=4, num_key_value_heads=4)
@@ -507,18 +1010,14 @@ class TestBharatForCausalLM:
         past = None
         for pos in range(seq):
             token_input = input_ids[:, pos : pos + 1]
-            output = model(
-                token_input,
-                past_key_values=past,
-                use_cache=True,
-            )
+            output = model(token_input, past_key_values=past, use_cache=True)
             token_logit = output.logits[:, 0, :]
             past = output.past_key_values
 
             expected = out_full[:, pos, :]
             assert torch.allclose(token_logit, expected, atol=1e-4), f"Cached position {pos} leaked"
 
-    # ---------- Weight initialization ----------
+    # --- Weight initialization ---
 
     def test_initialization_deterministic(self):
         cfg = _small_config()
@@ -538,48 +1037,3 @@ class TestBharatForCausalLM:
         assert abs(embed_std - cfg.initializer_range) < 0.02, (
             f"Embed std {embed_std} != {cfg.initializer_range}"
         )
-
-    # ---------- Save/load ----------
-
-    def test_save_load_equality(self, tmp_path):
-        cfg = _small_config()
-        model = BharatForCausalLM(cfg)
-        model.save_pretrained(str(tmp_path))
-        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
-
-        input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
-        out1 = model(input_ids)
-        out2 = loaded(input_ids)
-        assert torch.allclose(out1.logits, out2.logits, atol=1e-5)
-
-    def test_save_load_tied_weights_preserved(self, tmp_path):
-        cfg = _small_config(tie_word_embeddings=True)
-        model = BharatForCausalLM(cfg)
-        model.save_pretrained(str(tmp_path))
-        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
-        assert loaded.lm_head.weight is loaded.model.embed_tokens.weight
-
-    def test_config_roundtrip(self, tmp_path):
-        cfg = _small_config()
-        model = BharatForCausalLM(cfg)
-        model.save_pretrained(str(tmp_path))
-        loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
-        assert loaded.config == cfg
-
-    def test_load_missing_dir_raises(self):
-        with pytest.raises((FileNotFoundError, RuntimeError)):
-            BharatForCausalLM.from_pretrained("/nonexistent/path")
-
-    def test_load_incompatible_config_raises(self, tmp_path):
-        import json
-        import os
-
-        cfg = _small_config()
-        model = BharatForCausalLM(cfg)
-        model.save_pretrained(str(tmp_path))
-        bad_config = cfg.to_dict()
-        bad_config["model_format_version"] = "gpt2-v1"
-        with open(os.path.join(str(tmp_path), "config.json"), "w") as f:
-            json.dump(bad_config, f)
-        with pytest.raises(ValueError, match="model format"):
-            BharatForCausalLM.from_pretrained(str(tmp_path))

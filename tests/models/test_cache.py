@@ -93,6 +93,27 @@ class TestValidateCache:
         with pytest.raises(ValueError, match="non-tensor"):
             validate_cache(tuple(cache), 1, 2, 4, 64, torch.device("cpu"), torch.float32)
 
+    def test_key_value_shape_mismatch_raises(self):
+        cache = [
+            (torch.randn(2, 4, 5, 64), torch.randn(2, 4, 5, 64)),
+            (torch.randn(2, 4, 5, 64), torch.randn(2, 4, 5, 32)),
+        ]
+        with pytest.raises(ValueError, match="value head_dim"):
+            validate_cache(tuple(cache), 2, 2, 4, 64, cache[0][0].device, cache[0][0].dtype)
+
+    def test_key_value_shape_mismatch_length(self):
+        cache = [
+            (torch.randn(2, 4, 5, 64), torch.randn(2, 4, 5, 64)),
+            (torch.randn(2, 4, 5, 64), torch.randn(2, 4, 6, 64)),
+        ]
+        with pytest.raises(ValueError, match="key shape"):
+            validate_cache(tuple(cache), 2, 2, 4, 64, cache[0][0].device, cache[0][0].dtype)
+
+    def test_wrong_dimensions_raises(self):
+        cache = [(torch.randn(2, 4, 5, 64, 1), torch.randn(2, 4, 5, 64, 1))]
+        with pytest.raises(ValueError, match="4"):
+            validate_cache(tuple(cache), 1, 2, 4, 64, torch.device("cpu"), torch.float32)
+
 
 class TestReorderCache:
     def test_reorder_batch(self):
@@ -103,3 +124,38 @@ class TestReorderCache:
         for i in range(2):
             assert torch.equal(reordered[i][0], cache[i][0][indices])
             assert torch.equal(reordered[i][1], cache[i][1][indices])
+
+    def test_reorder_2d_indices_raises(self):
+        cache = _make_cache(batch_size=3)
+        with pytest.raises(ValueError, match="1-D"):
+            reorder_cache(cache, torch.tensor([[0, 1], [2, 0]]))
+
+    def test_reorder_float_indices_raises(self):
+        cache = _make_cache(batch_size=3)
+        with pytest.raises(ValueError, match="integer dtype"):
+            reorder_cache(cache, torch.tensor([0.0, 1.0, 2.0]))
+
+    def test_reorder_out_of_range_raises(self):
+        cache = _make_cache(batch_size=3)
+        with pytest.raises(ValueError, match="range"):
+            reorder_cache(cache, torch.tensor([0, 1, 5]))
+
+    def test_reorder_negative_index_raises(self):
+        cache = _make_cache(batch_size=3)
+        with pytest.raises(ValueError, match="range"):
+            reorder_cache(cache, torch.tensor([0, -1, 1]))
+
+    def test_reorder_empty_indices(self):
+        cache = _make_cache(batch_size=3)
+        indices = torch.tensor([], dtype=torch.long)
+        reordered = reorder_cache(cache, indices)
+        assert len(reordered) == len(cache)
+        for i in range(len(cache)):
+            assert reordered[i][0].shape[0] == 0
+            assert reordered[i][1].shape[0] == 0
+
+    def test_reorder_does_not_mutate_original(self):
+        cache = _make_cache(batch_size=3)
+        original_first = cache[0][0].clone()
+        _ = reorder_cache(cache, torch.tensor([2, 0, 1]))
+        assert torch.equal(cache[0][0], original_first), "Original cache was mutated"

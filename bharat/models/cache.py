@@ -75,7 +75,23 @@ def reorder_cache(
     """
     Reorder the batch dimension of all cache layers according to ``indices``.
 
-    ``indices`` must be a 1-D tensor of length ``batch_size``.
+    ``indices`` must be a 1-D integer tensor of length ``batch_size`` with
+    values in ``[0, batch_size)``.
+
+    When ``indices`` is empty, the cache is returned unchanged (no elements
+    to select).  The original cache is never mutated.
+
     Useful for future beam-search or sorting operations.
     """
+    if indices.dim() != 1:
+        raise ValueError(f"reorder_cache indices must be 1-D, got {indices.dim()}-D")
+    if indices.dtype not in (torch.long, torch.int, torch.int32, torch.int64):
+        raise ValueError(f"reorder_cache indices must be an integer dtype, got {indices.dtype}")
+    if len(indices) > 0:
+        batch_size = cache[0][0].shape[0]
+        if indices.min() < 0 or indices.max() >= batch_size:
+            raise ValueError(
+                f"reorder_cache indices must be in [0, {batch_size - 1}], "
+                f"got range [{indices.min().item()}, {indices.max().item()}]"
+            )
     return tuple((k.index_select(0, indices), v.index_select(0, indices)) for k, v in cache)

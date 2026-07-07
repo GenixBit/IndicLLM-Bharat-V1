@@ -50,6 +50,52 @@ def generate(
     if top_p is not None and not (0 < top_p <= 1.0):
         raise ValueError(f"top_p must be in (0, 1], got {top_p}")
 
+    # ---- Input validation ----
+
+    if input_ids.dim() != 2:
+        raise ValueError(
+            f"input_ids must be 2-D (batch_size, sequence_length), got {input_ids.dim()}-D"
+        )
+    if input_ids.shape[1] == 0:
+        raise ValueError("input_ids must not be empty")
+
+    if input_ids.min() < 0 or input_ids.max() >= model.config.vocab_size:
+        raise ValueError(
+            f"Token IDs must be in [0, {model.config.vocab_size - 1}], "
+            f"got range [{input_ids.min().item()}, {input_ids.max().item()}]"
+        )
+
+    if attention_mask is not None:
+        if attention_mask.dim() != 2:
+            raise ValueError(f"attention_mask must be 2-D, got {attention_mask.dim()}-D")
+        if attention_mask.shape != input_ids.shape:
+            raise ValueError(
+                f"attention_mask shape {attention_mask.shape} must match "
+                f"input_ids shape {input_ids.shape}"
+            )
+        # Validate right-padding: each row's valid tokens must be contiguous
+        # from the left. After the first zero, no non-zero should appear.
+        cumsum = attention_mask.cumsum(dim=-1)
+        valid_counts = attention_mask.sum(dim=-1)
+        for i in range(attention_mask.shape[0]):
+            n_valid = int(valid_counts[i].item())
+            if n_valid > 0 and int(cumsum[i, n_valid - 1].item()) != n_valid:
+                raise ValueError(
+                    f"attention_mask row {i} has non-contiguous padding. "
+                    f"Valid tokens must be left-aligned (right-padding only)."
+                )
+
+    if eos_token_id is not None and not (0 <= eos_token_id < model.config.vocab_size):
+        raise ValueError(
+            f"eos_token_id ({eos_token_id}) must be in [0, {model.config.vocab_size - 1}]"
+        )
+    if pad_token_id is not None and not (0 <= pad_token_id < model.config.vocab_size):
+        raise ValueError(
+            f"pad_token_id ({pad_token_id}) must be in [0, {model.config.vocab_size - 1}]"
+        )
+    if top_k is not None and top_k > model.config.vocab_size:
+        raise ValueError(f"top_k ({top_k}) must not exceed vocab_size ({model.config.vocab_size})")
+
     input_ids = input_ids.clone()
     batch_size, prompt_len = input_ids.shape
     device = input_ids.device
@@ -62,6 +108,12 @@ def generate(
         raise ValueError(
             f"Prompt length {prompt_len} exceeds "
             f"max_position_embeddings ({model.config.max_position_embeddings})"
+        )
+    if prompt_len + max_new_tokens > model.config.max_position_embeddings:
+        raise ValueError(
+            f"Prompt length ({prompt_len}) + max_new_tokens ({max_new_tokens}) exceeds "
+            f"max_position_embeddings ({model.config.max_position_embeddings}). "
+            f"The generated sequence would exceed the configured context window."
         )
 
     if eos_token_id is not None:
@@ -80,7 +132,16 @@ def generate(
                 use_cache=True,
                 past_key_values=None,
             )
-            next_token_logits = model_output.logits[:, -1, :]
+            # Task 3: per-sample valid-token logits for right-padded prompts
+            if attention_mask is not None:
+                valid_lengths = attention_mask.sum(dim=-1)  # (batch,)
+                last_valid_indices = valid_lengths - 1
+                next_token_logits = model_output.logits[
+                    torch.arange(batch_size, device=device),
+                    last_valid_indices,
+                ]
+            else:
+                next_token_logits = model_output.logits[:, -1, :]
             past_key_values = model_output.past_key_values
         else:
             pos_kwargs: dict[str, torch.Tensor] = {}
@@ -120,6 +181,9 @@ def generate(
             sorted_logits[sorted_mask] = float("-inf")
             logits = sorted_logits.scatter(1, sorted_indices, sorted_logits)
 
+        # Task 4: Correct EOS/PAD semantics
+        was_finished = finished.clone()
+
         # Sample or greedy
         if do_sample:
             probs = F.softmax(logits, dim=-1)
@@ -130,12 +194,14 @@ def generate(
         # Check for EOS
         if eos_token_id is not None:
             just_finished = next_token.squeeze(-1) == eos_token_id_tensor
-            finished = finished | just_finished
+            finished = was_finished | just_finished
+        else:
+            just_finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
-        # Replace finished tokens with pad token
+        # Only replace with PAD if was already finished BEFORE this step
         if pad_token_id is not None:
             next_token = next_token.clone()
-            next_token[finished.unsqueeze(-1)] = pad_token_id
+            next_token[was_finished.unsqueeze(-1)] = pad_token_id
 
         # Append to generated sequence
         generated = torch.cat([generated, next_token], dim=-1)
@@ -143,8 +209,9 @@ def generate(
         # Extend attention mask for the next step
         if attention_mask is not None:
             new_col = torch.ones((batch_size, 1), dtype=attention_mask.dtype, device=device)
-            if pad_token_id is not None:
-                new_col[finished.unsqueeze(-1)] = 0
+            # Mark newly finished positions as valid (EOS must remain visible)
+            # Mark previously finished positions as padding
+            new_col[was_finished.unsqueeze(-1)] = 0
             attention_mask = torch.cat([attention_mask, new_col], dim=-1)
 
         # Stop early if all sequences are finished
