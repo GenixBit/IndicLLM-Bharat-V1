@@ -101,7 +101,7 @@ IndicLLM-Bharat-V1/
 
 **Goal:** RoPE, RMSNorm, SwiGLU, GQA, FlashAttention, modern configs.
 
-**Progress:** PR 7 (components) ✅, PR 8 (full model + generation) ✅.
+**Progress:** PR 7 (components) ✅, PR 8 (full model + generation) ✅, PR 9 (configs + calculator) ✅.
 
 #### PR 7: Model components ✅ COMPLETED
 - **Files:** `bharat/models/config.py`, `bharat/models/rotary.py`, `bharat/models/normalization.py`, `bharat/models/mlp.py`, `bharat/models/attention.py`
@@ -119,13 +119,13 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete `bharat/models/bharat_model.py`, `generation.py`, `outputs.py`, `cache.py`; legacy `train/pretrain.py` unaffected
 - **Acceptance:** Full and incremental cached logits match; cache length grows; generation is deterministic; save/load produces identical outputs; all tests pass
 
-#### PR 9: Model configurations + parameter calculator
-- **Files:** `configs/bharat-350m.yaml`, `configs/bharat-1b.yaml`, `configs/bharat-3b.yaml`, `configs/bharat-7b.yaml`, `scripts/calculate_params.py`
-- **Content:** Realistic validated configs; exact parameter count script
-- **Tests:** Parameter counts match expected; config loading
+#### PR 9: Model configurations + parameter calculator ✅ COMPLETED
+- **Files:** `configs/models/bharat-350m.yaml`, `configs/models/bharat-1b.yaml`, `configs/models/bharat-3b.yaml`, `configs/models/bharat-7b.yaml`, `bharat/models/spec.py`, `bharat/models/sizing.py`, `scripts/calculate_params.py`, `docs/MODEL_CONFIGURATIONS.md`, `tests/models/test_model_specs.py`, `tests/models/test_sizing.py`, `tests/scripts/test_calculate_params.py`
+- **Content:** Realistic validated configs within 1% of nominal tier; typed `BharatModelSpec`/`load_model_spec` loader; `ParameterCount`/`StaticMemoryReport`/`KVCacheMemoryReport` calculators; CLI script; comprehensive tests
+- **Tests:** Parameter counts match expected within 1%; config loading; memory calculations; CLI output formats; edge cases (empty batch, invalid config, bound conditions)
 - **Depends on:** PR 8
-- **Rollback:** Delete config files
-- **Acceptance:** Parameter calculator matches config estimates within 1%
+- **Rollback:** Delete config files, spec/sizing modules, and associated tests
+- **Acceptance:** Parameter calculator matches config estimates within 1%; all new tests pass; no regressions
 
 ### Milestone 3 — Data Engine (PRs 10–12)
 
@@ -265,7 +265,7 @@ IndicLLM-Bharat-V1/
 | 6 | docs: Rebrand as Bharat AI | `README.md`, `docs/VISION.md`, `docs/ROADMAP.md`, etc. | PR 1 | 1 day | ✅ |
 | 7 | feat: Model components (RoPE, RMSNorm, SwiGLU, GQA) | `bharat/models/config.py`, `rotary.py`, `normalization.py`, `mlp.py`, `attention.py` | PR 1 | 3-4 days | ✅ |
 | 8 | feat: Bharat model + generation with KV cache | `bharat/models/bharat_model.py`, `generation.py`, `outputs.py`, `cache.py` | PR 7 | 2-3 days | ✅ |
-| 9 | feat: Model configs + parameter calculator | `configs/bharat-*.yaml`, `scripts/calculate_params.py` | PR 8 | 1 day |
+| 9 | feat: Model configs + parameter calculator | `configs/models/bharat-*.yaml`, `bharat/models/spec.py`, `sizing.py`, `scripts/calculate_params.py`, `docs/MODEL_CONFIGURATIONS.md` | PR 8 | 1 day | ✅ |
 | 10 | feat: Data source registry and licensing | `bharat/data/registry.py`, `sources.py`, `licensing.py`, `data_registry/` | PR 1 | 2 days |
 | 11 | feat: Data quality filters and deduplication | `bharat/data/*_dedup.py`, `pii.py`, `quality.py`, `safety_filter.py` | PR 10 | 2-3 days |
 | 12 | feat: Data manifests and contamination checks | `bharat/data/contamination.py`, `manifests.py`, `sharding.py` | PR 11 | 2 days |

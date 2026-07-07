@@ -29,6 +29,23 @@ pytest tests/
 
 ---
 
+## Bharat Model Configurations
+
+Four validated configurations are available in `configs/models/`:
+**Bharat-350M**, **Bharat-1B**, **Bharat-3B**, and **Bharat-7B** — all using
+RoPE, RMSNorm, SwiGLU, and GQA with analytical parameter counts within 1 %
+of their nominal tier.
+
+```bash
+# View parameter breakdown for all configurations
+python scripts/calculate_params.py --all --weight-dtype bf16
+```
+
+See [docs/MODEL_CONFIGURATIONS.md](docs/MODEL_CONFIGURATIONS.md) for full
+architecture tables, parameter counts, and memory calculations.
+
+---
+
 ## Verified Results — GPT-2 10M (Training Complete)
 
 | Metric | Iter 2000 |
@@ -73,7 +90,7 @@ pytest tests/
 | Run tests | `pytest tests/` |
 | Lint | `ruff check .` |
 | Type check | `mypy bharat/` |
-| Sanity check | `python scripts/sanity_check.py` |
+| Calculate params | `python scripts/calculate_params.py --all --weight-dtype bf16` |
 
 ---
 

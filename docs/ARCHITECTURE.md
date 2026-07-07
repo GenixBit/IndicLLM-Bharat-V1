@@ -129,6 +129,8 @@ Standard causal LM loss: `shift_logits = logits[:, :-1]`, `shift_labels = labels
 
 ## Public API (`bharat/models/__init__.py`)
 
+### Model components
+
 ```
 BharatModelConfig
 BharatDecoderLayer
@@ -149,13 +151,40 @@ reorder_cache
 validate_cache
 ```
 
+### Model specs and sizing
+
+```
+BharatModelSpec
+ModelSpecResolver
+load_model_spec
+load_model_config
+ParameterCount
+StaticMemoryReport
+KVCacheMemoryReport
+calculate_parameter_count
+calculate_static_memory
+calculate_kv_cache_memory
+```
+
+## Config YAML files
+
+Four validated configurations live in `configs/models/`:
+
+| File | Nominal | Analytical params | Difference |
+|------|---------|-------------------|------------|
+| `configs/models/bharat-350m.yaml` | 350M | 347,393,024 | −0.74% |
+| `configs/models/bharat-1b.yaml` | 1B | 999,368,704 | −0.06% |
+| `configs/models/bharat-3b.yaml` | 3B | 3,009,039,360 | +0.30% |
+| `configs/models/bharat-7b.yaml` | 7B | 7,040,405,504 | +0.58% |
+
+All configurations use RoPE, RMSNorm, SwiGLU, GQA, tied embeddings, bias-free projections, and a 64K vocabulary — see [MODEL_CONFIGURATIONS.md](MODEL_CONFIGURATIONS.md) for full architecture tables.
+
 ## Legacy GPT-2
 
 The legacy GPT-2 model (`train/pretrain.py`, `GPT`, `GPTConfig`) remains fully supported. No legacy code has been deleted or modified.
 
 ## Remaining limitations
 
-- Production-size model configs (Bharat-350M, Bharat-1B, etc.) are not yet validated.
 - No Bharat model has been pretrained or benchmarked.
 - No performance or quality claims are established.
 - FlashAttention is not explicitly integrated (PyTorch SDPA selects it automatically when CUDA is available).
