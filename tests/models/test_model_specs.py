@@ -44,7 +44,7 @@ class TestLoadProductionConfigs:
         assert spec.schema_version == 1
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def exact_parameter_total(self, filename: str) -> None:
+    def test_exact_parameter_total(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         from bharat.models.sizing import calculate_parameter_count
 
@@ -53,7 +53,7 @@ class TestLoadProductionConfigs:
         assert params.total == expected, f"{filename}: expected {expected}, got {params.total}"
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def within_one_percent_of_target(self, filename: str) -> None:
+    def test_within_one_percent_of_target(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         from bharat.models.sizing import calculate_parameter_count
 
@@ -63,7 +63,7 @@ class TestLoadProductionConfigs:
         assert diff_pct < 1.0, f"{filename}: {diff_pct:.4f}% from target, expected < 1%"
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def head_dimension_valid(self, filename: str) -> None:
+    def test_head_dimension_valid(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         arch = spec.architecture
         assert arch.hidden_size % arch.num_attention_heads == 0
@@ -71,30 +71,62 @@ class TestLoadProductionConfigs:
         assert head_dim > 0
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def gqa_divisible(self, filename: str) -> None:
+    def test_gqa_divisible(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         arch = spec.architecture
         assert arch.num_attention_heads % arch.num_key_value_heads == 0
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def tied_embeddings(self, filename: str) -> None:
+    def test_tied_embeddings(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         assert spec.architecture.tie_word_embeddings is True
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def no_attention_bias(self, filename: str) -> None:
+    def test_no_attention_bias(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         assert spec.architecture.attention_bias is False
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def no_mlp_bias(self, filename: str) -> None:
+    def test_no_mlp_bias(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         assert spec.architecture.mlp_bias is False
 
     @pytest.mark.parametrize("filename", PRODUCTION_FILES)
-    def expected_in_spec(self, filename: str) -> None:
+    def test_expected_in_spec(self, filename: str) -> None:
         spec = load_model_spec(CONFIGS_DIR / filename)
         assert spec.expected_parameter_count == EXPECTED_TOTALS[filename]
+
+
+def test_all_production_configs_collected():
+    """Guard: every production file runs every architecture assertion."""
+    import yaml
+
+    for fname in PRODUCTION_FILES:
+        with open(CONFIGS_DIR / fname) as f:
+            data = yaml.safe_load(f)
+            expected = data.get("expected_parameter_count", 0)
+            assert expected > 0, f"{fname}: missing expected_parameter_count"
+            target = data.get("target_parameter_count", 0)
+            assert target > 0, f"{fname}: missing target_parameter_count"
+    assert len(PRODUCTION_FILES) == 4, "Production file count changed"
+
+    methods_to_check = [
+        "test_exact_parameter_total",
+        "test_within_one_percent_of_target",
+        "test_head_dimension_valid",
+        "test_gqa_divisible",
+        "test_tied_embeddings",
+        "test_no_attention_bias",
+        "test_no_mlp_bias",
+        "test_expected_in_spec",
+    ]
+    from tests.models.test_model_specs import TestLoadProductionConfigs
+
+    for m in methods_to_check:
+        assert hasattr(TestLoadProductionConfigs, m), f"Missing test method: {m}"
+    assert len(PRODUCTION_FILES) * len(methods_to_check) == 32, (
+        f"Expected 32 parametrized tests, got {len(PRODUCTION_FILES) * len(methods_to_check)}"
+    )
 
 
 class TestSpecValidation:

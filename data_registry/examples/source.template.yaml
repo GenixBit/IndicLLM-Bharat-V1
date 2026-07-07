@@ -1,0 +1,36 @@
+# Bharat AI Data Source Template
+#
+# Copy this file to data_registry/sources/ and fill in the details.
+# See docs/DATA_GOVERNANCE.md for field descriptions.
+#
+# IMPORTANT: This registry is an engineering control, not legal advice.
+
+schema_version: 1
+source_id: my_dataset              # lowercase slug (a-z, 0-9, _)
+version: "1.0.0"                   # immutable version string
+display_name: "My Dataset"
+provider: "Provider Name"
+kind: huggingface                  # huggingface, http, s3, gcs, azure_blob, local, other
+uri: "https://huggingface.co/datasets/org/my-dataset"
+revision: "abc123def456..."        # immutable commit SHA (not "main")
+languages: ["en", "hi"]            # ISO language tags
+domains: ["general"]
+splits: ["train", "validation"]
+purposes: ["pretraining"]
+status: proposed                   # proposed, approved, rejected, deprecated
+license: "mit"                     # must match a key in license_policy.yaml
+
+# Integrity:
+# - HuggingFace: revision is an immutable commit SHA
+# - HTTP: sha256 checksum required
+# - Cloud/local: sha256, manifest_uri + manifest_sha256, or immutable version ID
+
+# integrity:
+#   revision: "abc123def456..."
+#   sha256: "ab12cd34ef56..."
+
+gated: false
+# credentials_env: "HF_TOKEN"
+
+created_at: "2025-07-07"
+updated_at: "2025-07-07"

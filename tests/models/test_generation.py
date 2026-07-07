@@ -205,6 +205,23 @@ class TestGenerationHelpers:
         _ = _apply_top_k(logits, 2)
         assert torch.equal(logits, original), "Input tensor was mutated"
 
+    def test_apply_top_k_ties_still_exact_k(self):
+        logits = torch.tensor([[5.0, 5.0, 3.0, 2.0, 1.0]])
+        result = _apply_top_k(logits, 2)
+        finite = torch.isfinite(result).sum(dim=-1)
+        assert finite.item() == 2, f"Expected exactly 2 finite with ties, got {finite.item()}"
+        assert torch.isfinite(result[0, 0]) or torch.isfinite(result[0, 1])
+
+    def test_apply_top_k_exact_k_vocab_size(self):
+        logits = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+        result = _apply_top_k(logits, 4)
+        assert torch.equal(result, logits), "top_k=vocab_size must be identity"
+
+    def test_apply_top_k_exact_k_larger_than_vocab(self):
+        logits = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+        result = _apply_top_k(logits, 100)
+        assert torch.equal(result, logits), "top_k > vocab_size must be identity"
+
     def test_apply_top_p_all_kept_when_p_one(self):
         logits = torch.randn(2, 16)
         result = _apply_top_p(logits, 1.0)

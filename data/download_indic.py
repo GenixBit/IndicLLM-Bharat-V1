@@ -268,10 +268,7 @@ def main():
             continue
 
         # Try HF/Sangraha first if token available, else Wikipedia API
-        if args.use_sangraha:
-            texts = fetch_via_hf(lang, args.max_articles)
-        else:
-            texts = []
+        texts = fetch_via_hf(lang, args.max_articles) if args.use_sangraha else []
 
         if not texts:
             texts = fetch_wiki_articles(lang, args.max_articles, cache_dir)

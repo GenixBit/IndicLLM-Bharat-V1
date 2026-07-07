@@ -6,7 +6,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 
 ## Milestones
 
-### Milestone 1 — Stabilisation (Current)
+### Milestone 1 — Stabilisation ✅
 
 - [x] Repository audit and implementation plan
 - [x] Test suite (pytest) and CI (GitHub Actions)
@@ -15,21 +15,20 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 - [x] SFT: assistant-only loss masking
 - [x] DPO: per-sample response masking
 - [x] Checkpoint metadata (tokenizer hash, git SHA, data version)
-- [ ] README rebrand and new docs ← **you are here**
-- [ ] Legacy tokenizer references migrated to `bharat/tokenizer/`
+- [x] README rebrand and new docs
+- [x] Legacy tokenizer references migrated to `bharat/tokenizer/`
 
-### Milestone 2 — Modern Architecture (Next)
+### Milestone 2 — Modern Architecture ✅
 
-- [ ] RoPE, RMSNorm, SwiGLU, GQA components
-- [ ] Full Bharat decoder model
-- [ ] Model configurations (350M, 1B, 3B, 7B)
-- [ ] Legacy GPT-2 moved to `bharat/models/legacy_gpt2.py`
+- [x] RoPE, RMSNorm, SwiGLU, GQA components
+- [x] Full Bharat decoder model with KV-cache generation
+- [x] Model configurations and sizing calculator (350M, 1B, 3B, 7B)
 
-### Milestone 3 — Data Engine
+### Milestone 3 — Data Engine (In Progress)
 
-- [ ] Source registry with licence validation
-- [ ] Quality filters, deduplication, PII detection
-- [ ] Data manifests and contamination checks
+- [x] Source registry infrastructure with licence validation (Milestone 3.1)
+- [ ] Quality filters, deduplication, PII detection (Milestone 3.2)
+- [ ] Data manifests and contamination checks (Milestone 3.3)
 - [ ] Indic data pipeline unification
 
 ### Milestone 4 — Evaluation (BharatBench)

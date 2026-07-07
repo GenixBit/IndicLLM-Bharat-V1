@@ -155,7 +155,7 @@ def convert_to_hf(ckpt_path: Path, tok_path: Path | None) -> tuple:
             v = v.t()
         mapped[hf_key] = v
 
-    missing, unexpected = hf_model.load_state_dict(mapped, strict=False)
+    missing, _unexpected = hf_model.load_state_dict(mapped, strict=False)
     if missing:
         print(f"  Warning: {len(missing)} missing keys (may be OK for tied weights)")
 
@@ -210,7 +210,7 @@ def main():
         print("  Set HF_TOKEN env var or run: huggingface-cli login")
 
     # Convert
-    hf_model, hf_cfg, model_cfg, params = convert_to_hf(args.checkpoint, args.tokenizer)
+    hf_model, _hf_cfg, model_cfg, params = convert_to_hf(args.checkpoint, args.tokenizer)
     tokenizer = get_tokenizer_for_hub(args.tokenizer, model_cfg.get("vocab_size", 50257))
 
     with tempfile.TemporaryDirectory() as tmp:

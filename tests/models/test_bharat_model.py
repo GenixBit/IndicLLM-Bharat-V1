@@ -825,6 +825,76 @@ class TestBharatForCausalLM:
         loaded = BharatForCausalLM.from_pretrained(str(tmp_path))
         assert loaded.lm_head.weight is not loaded.model.embed_tokens.weight
 
+    # --- BharatModel.from_pretrained corrupted checkpoint tests ---
+
+    def test_bharat_model_corrupted_truncated_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        model.save_pretrained(str(tmp_path))
+        model_path = os.path.join(str(tmp_path), "model.pt")
+        with open(model_path, "wb") as f:
+            f.write(b"short")
+        with pytest.raises(RuntimeError) as exc:
+            BharatModel.from_pretrained(str(tmp_path))
+        assert str(model_path) in str(exc.value)
+
+    def test_bharat_model_corrupted_arbitrary_bytes_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        model.save_pretrained(str(tmp_path))
+        model_path = os.path.join(str(tmp_path), "model.pt")
+        with open(model_path, "wb") as f:
+            f.write(b"\x00\x01\x02\x03\xff" * 1000)
+        with pytest.raises(RuntimeError) as exc:
+            BharatModel.from_pretrained(str(tmp_path))
+        assert str(model_path) in str(exc.value)
+
+    def test_bharat_model_missing_key_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        model.save_pretrained(str(tmp_path))
+        model_path = os.path.join(str(tmp_path), "model.pt")
+        state = torch.load(model_path, weights_only=True)
+        state.pop("layers.0.self_attn.q_proj.weight")
+        torch.save(state, model_path)
+        with pytest.raises(RuntimeError) as exc:
+            BharatModel.from_pretrained(str(tmp_path))
+        assert "incompatible" in str(exc.value).lower()
+
+    def test_bharat_model_unexpected_key_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        model.save_pretrained(str(tmp_path))
+        model_path = os.path.join(str(tmp_path), "model.pt")
+        state = torch.load(model_path, weights_only=True)
+        state["extra.key"] = torch.randn(1)
+        torch.save(state, model_path)
+        with pytest.raises(RuntimeError) as exc:
+            BharatModel.from_pretrained(str(tmp_path))
+        assert "incompatible" in str(exc.value).lower()
+
+    def test_bharat_model_incompatible_shape_raises(self, tmp_path):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        model.save_pretrained(str(tmp_path))
+        model_path = os.path.join(str(tmp_path), "model.pt")
+        state = torch.load(model_path, weights_only=True)
+        state["layers.0.self_attn.q_proj.weight"] = torch.randn(64, 32)
+        torch.save(state, model_path)
+        with pytest.raises(RuntimeError) as exc:
+            BharatModel.from_pretrained(str(tmp_path))
+        assert "incompatible" in str(exc.value).lower()
+
+    def test_bharat_model_save_load_equality(self, tmp_path):
+        cfg = _small_config()
+        model = BharatModel(cfg)
+        model.save_pretrained(str(tmp_path))
+        loaded = BharatModel.from_pretrained(str(tmp_path))
+        input_ids = torch.randint(0, cfg.vocab_size, (2, 8))
+        out1 = model(input_ids)
+        out2 = loaded(input_ids)
+        assert torch.allclose(out1.last_hidden_state, out2.last_hidden_state, atol=1e-5)
+
     # --- Task 10: Multi-token cached parity (chunked) ---
 
     def _check_chunked_parity(self, model, input_ids, attention_mask=None, chunk_sizes=None):

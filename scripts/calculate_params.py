@@ -35,6 +35,8 @@ PRODUCTION_CONFIGS: list[str] = [
     "bharat-7b.yaml",
 ]
 
+ONE_PERCENT = 0.01
+
 
 def _gib(bytes_val: int) -> str:
     return f"{bytes_val / (1024**3):.4f} GiB"
@@ -42,6 +44,11 @@ def _gib(bytes_val: int) -> str:
 
 def _mib(bytes_val: int) -> str:
     return f"{bytes_val / (1024**2):.4f} MiB"
+
+
+def _fail(msg: str) -> None:
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
 
 
 def human_report(
@@ -172,6 +179,27 @@ def json_report(spec, params, memory, kv) -> dict:
     return data
 
 
+def _validate_config(spec) -> None:
+    """Validate analytical parameters against the spec's expected and target values."""
+    params = calculate_parameter_count(spec.architecture)
+
+    if params.total != spec.expected_parameter_count:
+        _fail(
+            f"{spec.model_name}: analytical parameter count {params.total} "
+            f"differs from expected_parameter_count {spec.expected_parameter_count}"
+        )
+
+    diff_pct = abs(params.total - spec.target_parameter_count) / spec.target_parameter_count
+    if diff_pct >= ONE_PERCENT:
+        _fail(
+            f"{spec.model_name}: analytical parameter count {params.total} "
+            f"is {diff_pct * 100:.4f}% from target {spec.target_parameter_count}, "
+            "exceeding the 1% threshold"
+        )
+
+    return params
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bharat model parameter calculator")
     parser.add_argument("config", nargs="?", help="Path to model YAML config")
@@ -198,14 +226,30 @@ def main() -> None:
         sys.exit(1)
 
     if args.config and args.all:
-        print("error: specify either a config file or --all, not both", file=sys.stderr)
-        sys.exit(1)
+        parser.print_help()
+        _fail("specify either a config file or --all, not both")
+
+    if (
+        args.gradient_dtype is not None or args.optimizer is not None or args.fp32_master_weights
+    ) and args.weight_dtype is None:
+        _fail("--gradient-dtype, --optimizer, and --fp32-master-weights require --weight-dtype")
+
+    if args.optimizer is not None and args.optimizer not in ("none", "adamw_fp32"):
+        _fail(f"unsupported optimizer '{args.optimizer}'; supported: none, adamw_fp32")
+
+    if args.optimizer == "none":
+        args.optimizer = None
+
+    if (args.batch_size is not None) != (args.sequence_length is not None):
+        _fail("--batch-size and --sequence-length must be supplied together")
+
+    if args.kv_dtype is not None and (args.batch_size is None or args.sequence_length is None):
+        _fail("--kv-dtype requires --batch-size and --sequence-length")
 
     if args.config:
         config_path = Path(args.config)
         if not config_path.exists():
-            print(f"error: file not found: {config_path}", file=sys.stderr)
-            sys.exit(1)
+            _fail(f"file not found: {config_path}")
         configs_to_run = [config_path]
     else:
         configs_to_run = [CONFIGS_DIR / name for name in PRODUCTION_CONFIGS]
@@ -215,30 +259,35 @@ def main() -> None:
         try:
             spec = load_model_spec(config_path)
         except Exception as e:
-            print(f"error loading {config_path}: {e}", file=sys.stderr)
-            sys.exit(1)
+            _fail(str(e))
 
-        params = calculate_parameter_count(spec.architecture)
+        params = _validate_config(spec)
 
         memory: StaticMemoryReport | None = None
         if args.weight_dtype is not None:
-            memory = calculate_static_memory(
-                parameter_count=params.total,
-                weight_dtype=args.weight_dtype,
-                gradient_dtype=args.gradient_dtype,
-                optimizer=args.optimizer,
-                use_fp32_master_weights=args.fp32_master_weights,
-            )
+            try:
+                memory = calculate_static_memory(
+                    parameter_count=params.total,
+                    weight_dtype=args.weight_dtype,
+                    gradient_dtype=args.gradient_dtype,
+                    optimizer=args.optimizer,
+                    use_fp32_master_weights=args.fp32_master_weights,
+                )
+            except (TypeError, ValueError) as e:
+                _fail(str(e))
 
         kv: KVCacheMemoryReport | None = None
         if args.batch_size is not None and args.sequence_length is not None:
             kv_dtype = args.kv_dtype or args.weight_dtype or "bf16"
-            kv = calculate_kv_cache_memory(
-                config=spec.architecture,
-                batch_size=args.batch_size,
-                sequence_length=args.sequence_length,
-                dtype=kv_dtype,
-            )
+            try:
+                kv = calculate_kv_cache_memory(
+                    config=spec.architecture,
+                    batch_size=args.batch_size,
+                    sequence_length=args.sequence_length,
+                    dtype=kv_dtype,
+                )
+            except (TypeError, ValueError) as e:
+                _fail(str(e))
 
         if args.json:
             results.append(json_report(spec, params, memory, kv))

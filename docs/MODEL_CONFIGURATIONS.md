@@ -9,6 +9,13 @@ and are within 1 % of their nominal parameter tier.
 **Important**: No model has been pretrained.  No accuracy, quality or
 performance claims exist for any of these configurations.
 
+### Truthful statements
+
+* The 64 000 vocabulary size is an **architecture assumption**; the final Bharat tokenizer has not yet been trained.
+* The current supported model context is **4 096 tokens** — no RoPE interpolation, NTK scaling, YaRN or LongRoPE has been implemented.
+* GQA reduces analytical KV-cache size, but **model-quality impact has not been measured**.
+* No Bharat model has been pretrained or benchmarked.
+
 ---
 
 ## Architecture tables
@@ -165,8 +172,12 @@ architecture and is therefore excluded from exact analytical reports.
 - [x] Bias calculations are verified
 - [x] Memory calculators are implemented and tested
 - [x] CLI calculator is implemented
+- [x] Milestone 2.3 verification tests pass
 
 - [ ] No model has been pretrained
 - [ ] No model weights exist
 - [ ] No accuracy, quality or performance claims are made
 - [ ] No benchmark results are reported
+- [ ] Final Bharat tokenizer has not yet been trained
+- [ ] RoPE interpolation, NTK scaling, YaRN or LongRoPE is not implemented
+- [ ] Model-quality impact of GQA has not been measured

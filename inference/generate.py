@@ -228,7 +228,7 @@ def main():
 
     torch.manual_seed(args.seed)
 
-    model, model_cfg, tokenizer = load_checkpoint(args.checkpoint, device)
+    model, _model_cfg, tokenizer = load_checkpoint(args.checkpoint, device)
 
     if args.prompt:
         # Single-shot mode

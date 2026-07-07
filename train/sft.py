@@ -194,7 +194,7 @@ def main():
     model.train()
     step = 0
     best_loss = float("inf")
-    for epoch in range(100):
+    for _epoch in range(100):
         for x, y in loader:
             if step >= args.max_iters:
                 break

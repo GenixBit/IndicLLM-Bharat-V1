@@ -52,10 +52,7 @@ def calculate_parameter_count(config: BharatModelConfig) -> ParameterCount:
 
     final_norm = H
 
-    if config.tie_word_embeddings:
-        lm_head = 0
-    else:
-        lm_head = V * H
+    lm_head = 0 if config.tie_word_embeddings else V * H
 
     total = token_embeddings + transformer_layers + final_norm + lm_head
 
@@ -107,6 +104,16 @@ def calculate_static_memory(
     optimizer: str | None = None,
     use_fp32_master_weights: bool = False,
 ) -> StaticMemoryReport:
+    if not isinstance(parameter_count, int) or isinstance(parameter_count, bool):
+        raise TypeError(
+            f"parameter_count must be a positive integer, got {type(parameter_count).__name__}"
+        )
+    if parameter_count <= 0:
+        raise ValueError(f"parameter_count must be positive, got {parameter_count}")
+
+    if not isinstance(weight_dtype, str):
+        raise TypeError(f"weight_dtype must be a string, got {type(weight_dtype).__name__}")
+
     weight_dtype = weight_dtype.lower()
     if weight_dtype not in _SUPPORTED_DTYPES:
         raise ValueError(
@@ -136,10 +143,7 @@ def calculate_static_memory(
     else:
         gradient_bytes = 0
 
-    if use_fp32_master_weights:
-        master_weight_bytes = _float_to_int(parameter_count * 4.0)
-    else:
-        master_weight_bytes = 0
+    master_weight_bytes = _float_to_int(parameter_count * 4.0) if use_fp32_master_weights else 0
 
     if optimizer == "adamw_fp32":
         optimizer_state_bytes = _float_to_int(parameter_count * 4.0 * 2)
