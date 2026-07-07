@@ -159,7 +159,7 @@ def main():
 
     policy.train()
     step = 0
-    for epoch in range(100):
+    for _epoch in range(100):
         for chosen, rejected, prompt_len in loader:
             if step >= args.max_iters:
                 break

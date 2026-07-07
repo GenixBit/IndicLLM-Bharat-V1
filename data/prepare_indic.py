@@ -97,9 +97,7 @@ def is_quality_indic(
             return False
     # Skip docs with too many URLs or special chars
     url_count = text.count("http")
-    if url_count > 5:
-        return False
-    return True
+    return not url_count > 5
 
 
 # ── Data sources ──────────────────────────────────────────────

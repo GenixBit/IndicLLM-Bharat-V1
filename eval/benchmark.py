@@ -75,7 +75,7 @@ def eval_perplexity(
     correct = 0
     total = 0
 
-    for k in range(eval_iters):
+    for _k in range(eval_iters):
         ix = torch.randint(len(data_arr) - block_size, (batch_size,))
         x = torch.stack(
             [torch.from_numpy(data_arr[i : i + block_size].astype(np.int64)) for i in ix]
@@ -148,7 +148,7 @@ def generate_samples(
 
         # Detect Indic scripts in output
         script_counts = {}
-        for name, (lo, hi, script) in INDIC_UNICODE_RANGES.items():
+        for _name, (lo, hi, script) in INDIC_UNICODE_RANGES.items():
             count = sum(1 for c in text if lo <= ord(c) <= hi)
             if count > 0:
                 script_counts[script] = script_counts.get(script, 0) + count
@@ -196,7 +196,7 @@ def main():
     model, cfg, params = load_model(args.checkpoint, device)
     model_cfg = cfg.get("model", {})
     data_cfg = cfg.get("data", {})
-    train_cfg = cfg.get("training", {})
+    cfg.get("training", {})
     block_size = model_cfg.get("block_size", 1024)
     iter_num = torch.load(args.checkpoint, map_location="cpu", weights_only=False).get(
         "iter_num", "?"

@@ -8,8 +8,8 @@ See `docs/CURRENT_STATE_AUDIT.md` for the full audit. Key findings (post-Milesto
 - **Verified working:** GPT-2 pretraining, DDP training, SFT (with loss masking), DPO (with per-sample masks), evaluation, inference, export, data pipelines
 - **Critical defects fixed:** SFT loss masking (C1), DPO batch-level prompt length (C2-C3), tokenizer-embedding size mismatch (C4)
 - **High-severity issues fixed:** Hardcoded GPT-2 tokenizer (H5-H9), no checkpoint metadata (H10-H12), wildcard CORS (H13)
-- **Still open:** Hardcoded `uint16` storage (H1-H3), test implementations are stubs, no streaming API, no authentication, no data engine, no modern architecture
-- **Not yet started:** Milestone 2 (Modern Architecture), Milestone 3 (Data Engine), Milestone 4 (BharatBench), Milestone 5 (Production Serving)
+- **Still open:** Hardcoded `uint16` storage (H1-H3), test implementations are stubs, no streaming API, no authentication, no quality filtering/dedup, no data engine (Milestone 3.2+)
+- **Not yet started:** Milestone 3.2 (Quality Filters + Dedup), Milestone 4 (BharatBench), Milestone 5 (Production Serving)
 
 ---
 
@@ -131,13 +131,15 @@ IndicLLM-Bharat-V1/
 
 **Goal:** Versioned, deduplicated, filtered, manifest-tracked data pipeline.
 
-#### PR 10: Source registry + licensing
-- **Files:** `bharat/data/registry.py`, `bharat/data/sources.py`, `bharat/data/licensing.py`, `data_registry/`
-- **Content:** Data source registration, licence validation, excluded sources, version tracking
-- **Tests:** Licence classification, source lookup
+**Progress:** PR 10 (source registry + licensing) ✅.
+
+#### PR 10: Source registry + licensing ✅ COMPLETED
+- **Files:** `bharat/data/schema.py`, `bharat/data/licensing.py`, `bharat/data/sources.py`, `bharat/data/registry.py`, `bharat/data/__init__.py`, `data_registry/`, `scripts/validate_data_registry.py`, `docs/DATA_GOVERNANCE.md`
+- **Content:** Frozen dataclass schemas, licence policy with default-deny, source lifecycle (proposed/approved/rejected/deprecated), immutable revision enforcement, SHA-256 integrity pins, registry digest, offline validation CLI
+- **Tests:** Licence decision rules, source schema validation, registry integrity, CLI output formats
 - **Depends on:** PR 1
 - **Rollback:** Delete files; keep existing data pipelines
-- **Acceptance:** Sources with unknown licences are rejected
+- **Acceptance:** Unknown and missing licences cannot be approved; approved records require evidence and immutable provenance; registry ordering and digest are deterministic; offline validation succeeds
 
 #### PR 11: Quality filters + deduplication
 - **Files:** `bharat/data/language_id.py`, `bharat/data/normalization.py`, `bharat/data/exact_dedup.py`, `bharat/data/fuzzy_dedup.py`, `bharat/data/pii.py`, `bharat/data/quality.py`, `bharat/data/safety_filter.py`
@@ -266,7 +268,7 @@ IndicLLM-Bharat-V1/
 | 7 | feat: Model components (RoPE, RMSNorm, SwiGLU, GQA) | `bharat/models/config.py`, `rotary.py`, `normalization.py`, `mlp.py`, `attention.py` | PR 1 | 3-4 days | ✅ |
 | 8 | feat: Bharat model + generation with KV cache | `bharat/models/bharat_model.py`, `generation.py`, `outputs.py`, `cache.py` | PR 7 | 2-3 days | ✅ |
 | 9 | feat: Model configs + parameter calculator | `configs/models/bharat-*.yaml`, `bharat/models/spec.py`, `sizing.py`, `scripts/calculate_params.py`, `docs/MODEL_CONFIGURATIONS.md` | PR 8 | 1 day | ✅ |
-| 10 | feat: Data source registry and licensing | `bharat/data/registry.py`, `sources.py`, `licensing.py`, `data_registry/` | PR 1 | 2 days |
+| 10 | feat: Governed data source registry and licensing | `bharat/data/`, `data_registry/`, `scripts/validate_data_registry.py`, `docs/DATA_GOVERNANCE.md` | PR 1 | 3 days | ✅ |
 | 11 | feat: Data quality filters and deduplication | `bharat/data/*_dedup.py`, `pii.py`, `quality.py`, `safety_filter.py` | PR 10 | 2-3 days |
 | 12 | feat: Data manifests and contamination checks | `bharat/data/contamination.py`, `manifests.py`, `sharding.py` | PR 11 | 2 days |
 | 13 | feat: Evaluation runner and reporting | `bharat/evaluation/runner.py`, `registry.py`, `reporting.py` | PR 1 | 2 days |

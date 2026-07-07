@@ -44,6 +44,30 @@ python scripts/calculate_params.py --all --weight-dtype bf16
 See [docs/MODEL_CONFIGURATIONS.md](docs/MODEL_CONFIGURATIONS.md) for full
 architecture tables, parameter counts, and memory calculations.
 
+### Truthful statements
+
+- The 64 000 vocabulary size is an **architecture assumption**; the final Bharat tokenizer has not yet been trained.
+- No RoPE interpolation, NTK scaling, YaRN or LongRoPE has been implemented.
+- Model-quality impact of GQA has not been measured.
+- No Bharat model has been pretrained or benchmarked.
+
+## Data Source Registry
+
+A versioned, governed data-source registry exists at `data_registry/`.
+It enforces default-deny licensing, immutable revisions, SHA-256 integrity
+pins, and deterministic ordering/digest — see
+[docs/DATA_GOVERNANCE.md](docs/DATA_GOVERNANCE.md).
+
+**Important:** The registry infrastructure is in place, but no dataset is
+automatically legally approved. No data has been downloaded or processed.
+Quality filtering, deduplication and sharding remain future work. The legacy
+`data/` pipelines are unchanged.
+
+```bash
+# Validate the registry
+python scripts/validate_data_registry.py
+```
+
 ---
 
 ## Verified Results — GPT-2 10M (Training Complete)

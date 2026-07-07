@@ -5,8 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = ROOT / "scripts" / "calculate_params.py"
 CONFIGS = ROOT / "configs" / "models"
@@ -86,3 +84,54 @@ class TestCLI:
     def test_both_config_and_all_rejected(self):
         result = _run("--all", str(CONFIGS / "bharat-350m.yaml"))
         assert result.returncode != 0
+
+    def test_optimizer_none_ok(self):
+        result = _run(
+            "--json",
+            "--weight-dtype",
+            "bf16",
+            "--optimizer",
+            "none",
+            str(CONFIGS / "bharat-350m.yaml"),
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["weight_memory"]["optimizer_state_bytes"] == 0
+
+    def test_optimizer_unknown_rejected(self):
+        result = _run(
+            "--weight-dtype", "bf16", "--optimizer", "sgd", str(CONFIGS / "bharat-350m.yaml")
+        )
+        assert result.returncode != 0
+
+    def test_gradient_without_weight_dtype_rejected(self):
+        result = _run("--gradient-dtype", "bf16", str(CONFIGS / "bharat-350m.yaml"))
+        assert result.returncode != 0
+
+    def test_optimizer_without_weight_dtype_rejected(self):
+        result = _run("--optimizer", "adamw_fp32", str(CONFIGS / "bharat-350m.yaml"))
+        assert result.returncode != 0
+
+    def test_batch_without_seq_rejected(self):
+        result = _run(
+            "--batch-size", "1", "--weight-dtype", "bf16", str(CONFIGS / "bharat-350m.yaml")
+        )
+        assert result.returncode != 0
+
+    def test_seq_without_batch_rejected(self):
+        result = _run(
+            "--sequence-length", "4096", "--weight-dtype", "bf16", str(CONFIGS / "bharat-350m.yaml")
+        )
+        assert result.returncode != 0
+
+    def test_kv_dtype_without_batch_seq_rejected(self):
+        result = _run(
+            "--kv-dtype", "bf16", "--weight-dtype", "bf16", str(CONFIGS / "bharat-350m.yaml")
+        )
+        assert result.returncode != 0
+
+    def test_error_stderr_no_traceback(self):
+        result = _run("--weight-dtype", "invalid", str(CONFIGS / "bharat-350m.yaml"))
+        assert result.returncode != 0
+        assert "error:" in result.stderr
+        assert "Traceback" not in result.stderr

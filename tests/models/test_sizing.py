@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import pytest
@@ -10,8 +9,6 @@ from bharat.models.bharat_model import BharatForCausalLM
 from bharat.models.config import BharatModelConfig
 from bharat.models.sizing import (
     KVCacheMemoryReport,
-    ParameterCount,
-    StaticMemoryReport,
     calculate_kv_cache_memory,
     calculate_parameter_count,
     calculate_static_memory,

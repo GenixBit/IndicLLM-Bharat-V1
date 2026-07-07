@@ -109,7 +109,7 @@ def convert_to_hf(ckpt_path: Path, output_dir: Path) -> dict:
         mapped[hf_key] = v
 
     # Load with strict=False (lm_head may be tied to wte)
-    missing, unexpected = hf_model.load_state_dict(mapped, strict=False)
+    missing, _unexpected = hf_model.load_state_dict(mapped, strict=False)
     if missing:
         print(f"        Warning: {len(missing)} missing keys (may be OK for tied weights)")
 
