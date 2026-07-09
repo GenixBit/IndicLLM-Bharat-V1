@@ -18,6 +18,7 @@ from pathlib import Path
 
 from bharat.models.sizing import (
     KVCacheMemoryReport,
+    ParameterCount,
     StaticMemoryReport,
     calculate_kv_cache_memory,
     calculate_parameter_count,

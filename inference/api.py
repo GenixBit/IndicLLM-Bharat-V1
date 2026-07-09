@@ -30,8 +30,8 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer
-from train.pretrain import GPT, GPTConfig
+from bharat.tokenizer import load_tokenizer as load_bharat_tokenizer  # noqa: E402
+from train.pretrain import GPT, GPTConfig  # noqa: E402
 
 try:
     import uvicorn

@@ -22,16 +22,16 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DistributedDataParallel
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from bharat.tokenizer import load_tokenizer
-from bharat.tokenizer.metadata import tokenizer_hash
-from bharat.training.checkpointing import get_git_sha, get_package_versions
-from train.pretrain import GPT, GPTConfig, get_lr
-from train.utils import ensure_dir, load_config
+from bharat.tokenizer import load_tokenizer  # noqa: E402
+from bharat.tokenizer.metadata import tokenizer_hash  # noqa: E402
+from bharat.training.checkpointing import get_git_sha, get_package_versions  # noqa: E402
+from train.pretrain import GPT, GPTConfig, get_lr  # noqa: E402
+from train.utils import ensure_dir, load_config  # noqa: E402
 
 # Force line-buffered stdout
 sys.stdout.reconfigure(line_buffering=True)
@@ -55,7 +55,7 @@ def load_bin(path: Path) -> np.ndarray:
 
 
 @torch.no_grad()
-def estimate_loss(model, data, block_size, batch_size, eval_iters, device, ctx, rank):
+def estimate_loss(model, data, block_size, batch_size, eval_iters, device, ctx, _rank):
     raw = model.module if hasattr(model, "module") else model
     raw.eval()
     out = {}
@@ -157,7 +157,7 @@ def main():
     model = GPT(GPTConfig(**model_cfg)).to(device)
     if train_cfg.get("compile"):
         model = torch.compile(model)
-    model = DDP(model, device_ids=[local_rank])
+    model = DistributedDataParallel(model, device_ids=[local_rank])
 
     # Optimizer (on raw model)
     raw_model = model.module
@@ -166,7 +166,7 @@ def main():
         for pn, _p in m.named_parameters(recurse=False):
             fpn = f"{mn}.{pn}" if mn else pn
             if pn.endswith("bias") or (
-                pn.endswith("weight") and isinstance(m, (nn.LayerNorm, nn.Embedding))
+                pn.endswith("weight") and isinstance(m, nn.LayerNorm | nn.Embedding)
             ):
                 no_decay.add(fpn)
             else:

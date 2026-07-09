@@ -306,12 +306,12 @@ class TestGeneration:
         batch_gen_long = out_batch[1, max_len:]
         expected_short_gen = out_short[0, prompt_short.shape[1] :]
         expected_long_gen = out_long[0, prompt_long.shape[1] :]
-        assert torch.equal(batch_gen_short, expected_short_gen), (
-            f"Short gen tokens differ: {batch_gen_short} vs {expected_short_gen}"
-        )
-        assert torch.equal(batch_gen_long, expected_long_gen), (
-            f"Long gen tokens differ: {batch_gen_long} vs {expected_long_gen}"
-        )
+        assert torch.equal(
+            batch_gen_short, expected_short_gen
+        ), f"Short gen tokens differ: {batch_gen_short} vs {expected_short_gen}"
+        assert torch.equal(
+            batch_gen_long, expected_long_gen
+        ), f"Long gen tokens differ: {batch_gen_long} vs {expected_long_gen}"
 
     def test_right_padded_logit_selection(self):
         """Prove we select the per-sample last valid logit, not batch-last."""
@@ -687,9 +687,9 @@ class TestGeneration:
 
         # Active row (row 1) tokens must match independent generation
         common_len = min(batch_out.shape[1], single_out.shape[1])
-        assert torch.equal(batch_out[1, 3:common_len], single_out[0, 3:common_len]), (
-            "Active row tokens differ between batch and single-row generation"
-        )
+        assert torch.equal(
+            batch_out[1, 3:common_len], single_out[0, 3:common_len]
+        ), "Active row tokens differ between batch and single-row generation"
 
     # ---- Task 4: Attention-mask additional validation ----
 

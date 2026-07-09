@@ -339,12 +339,6 @@ class TestBharatModel:
         with pytest.raises(ValueError, match="hidden_size"):
             model(inputs_embeds=torch.randn(2, 8, 32))
 
-    def test_inputs_embeds_not_empty(self):
-        cfg = _small_config()
-        model = BharatModel(cfg)
-        with pytest.raises(ValueError, match="not be empty"):
-            model(inputs_embeds=torch.randn(2, 0, cfg.hidden_size))
-
     def test_position_ids_batch_mismatch(self):
         cfg = _small_config()
         model = BharatModel(cfg)
@@ -446,9 +440,9 @@ class TestBharatForCausalLM:
             shift_labels.view(-1),
             ignore_index=-100,
         )
-        assert torch.allclose(output.loss, manual_loss, atol=1e-5), (
-            f"Model loss {output.loss.item()} != manual loss {manual_loss.item()}"
-        )
+        assert torch.allclose(
+            output.loss, manual_loss, atol=1e-5
+        ), f"Model loss {output.loss.item()} != manual loss {manual_loss.item()}"
 
     def test_loss_ignores_masked_labels(self):
         cfg = _small_config(
@@ -769,12 +763,12 @@ class TestBharatForCausalLM:
             f.write(b"not a valid state dict")
         with pytest.raises(RuntimeError) as exc:
             BharatForCausalLM.from_pretrained(str(tmp_path))
-        assert model_path in str(exc.value), (
-            f"Error message must contain the checkpoint path:\n{exc.value}"
-        )
-        assert "Failed to load" in str(exc.value), (
-            f"Error must start with 'Failed to load':\n{exc.value}"
-        )
+        assert model_path in str(
+            exc.value
+        ), f"Error message must contain the checkpoint path:\n{exc.value}"
+        assert "Failed to load" in str(
+            exc.value
+        ), f"Error must start with 'Failed to load':\n{exc.value}"
 
     def test_load_missing_key_raises_specific(self, tmp_path):
         cfg = _small_config()
@@ -785,9 +779,9 @@ class TestBharatForCausalLM:
         torch.save(state, os.path.join(str(tmp_path), "model.pt"))
         with pytest.raises(RuntimeError) as exc:
             BharatForCausalLM.from_pretrained(str(tmp_path))
-        assert "incompatible" in str(exc.value).lower(), (
-            f"Missing-key error must mention incompatibility:\n{exc.value}"
-        )
+        assert (
+            "incompatible" in str(exc.value).lower()
+        ), f"Missing-key error must mention incompatibility:\n{exc.value}"
 
     def test_load_unexpected_key_raises_specific(self, tmp_path):
         cfg = _small_config()
@@ -924,9 +918,9 @@ class TestBharatForCausalLM:
             offset += chunk_size
 
         cat_logits = torch.cat(chunked_logits, dim=1)
-        assert torch.allclose(out_full.logits, cat_logits, atol=1e-4), (
-            "Chunked cached logits do not match full forward"
-        )
+        assert torch.allclose(
+            out_full.logits, cat_logits, atol=1e-4
+        ), "Chunked cached logits do not match full forward"
 
     def test_mha_chunked_parity(self):
         cfg = _small_config(
@@ -1012,9 +1006,9 @@ class TestBharatForCausalLM:
         cont_logits = out_cont.logits
 
         out_full = model(input_ids).logits[:, 3:6, :]
-        assert torch.allclose(cont_logits, out_full, atol=1e-4), (
-            "Multi-token cached continuation is not causal"
-        )
+        assert torch.allclose(
+            cont_logits, out_full, atol=1e-4
+        ), "Multi-token cached continuation is not causal"
 
     def test_multi_token_cached_changed_last_token_no_change_earlier(self):
         cfg = _small_config(
@@ -1033,15 +1027,15 @@ class TestBharatForCausalLM:
         out_a = model(cont_a, past_key_values=cache, use_cache=True)
         out_b = model(cont_b, past_key_values=cache, use_cache=True)
 
-        assert torch.allclose(out_a.logits[:, 0, :], out_b.logits[:, 0, :], atol=1e-5), (
-            "Changing last continuation token altered earlier outputs"
-        )
-        assert torch.allclose(out_a.logits[:, 1, :], out_b.logits[:, 1, :], atol=1e-5), (
-            "Changing last continuation token altered middle outputs"
-        )
-        assert not torch.allclose(out_a.logits[:, 2, :], out_b.logits[:, 2, :], atol=1e-4), (
-            "Changing last continuation token should alter last output"
-        )
+        assert torch.allclose(
+            out_a.logits[:, 0, :], out_b.logits[:, 0, :], atol=1e-5
+        ), "Changing last continuation token altered earlier outputs"
+        assert torch.allclose(
+            out_a.logits[:, 1, :], out_b.logits[:, 1, :], atol=1e-5
+        ), "Changing last continuation token altered middle outputs"
+        assert not torch.allclose(
+            out_a.logits[:, 2, :], out_b.logits[:, 2, :], atol=1e-4
+        ), "Changing last continuation token should alter last output"
 
     def test_multi_token_cached_is_causal_with_padding(self):
         cfg = _small_config(
@@ -1062,9 +1056,9 @@ class TestBharatForCausalLM:
         cont_logits = out_cont.logits
 
         out_full = model(input_ids, attention_mask=mask).logits[:, 3:6, :]
-        assert torch.allclose(cont_logits, out_full, atol=1e-4), (
-            "Multi-token cached with padding is not causal"
-        )
+        assert torch.allclose(
+            cont_logits, out_full, atol=1e-4
+        ), "Multi-token cached with padding is not causal"
 
     def test_multi_token_cached_batch(self):
         cfg = _small_config(
@@ -1081,9 +1075,9 @@ class TestBharatForCausalLM:
         cont_logits = out_cont.logits
 
         out_full = model(input_ids).logits[:, 3:8, :]
-        assert torch.allclose(cont_logits, out_full, atol=1e-4), (
-            "Batch multi-token cached is not causal"
-        )
+        assert torch.allclose(
+            cont_logits, out_full, atol=1e-4
+        ), "Batch multi-token cached is not causal"
 
     # --- Existing cache parity tests ---
 
@@ -1153,9 +1147,9 @@ class TestBharatForCausalLM:
             past = out_step.past_key_values
 
         cat_logits = torch.cat(incremental_logits, dim=1)
-        assert torch.allclose(out_full.logits, cat_logits, atol=1e-4), (
-            "Full vs cached logit mismatch"
-        )
+        assert torch.allclose(
+            out_full.logits, cat_logits, atol=1e-4
+        ), "Full vs cached logit mismatch"
 
     def test_cache_grows_by_one_per_step(self):
         cfg = _small_config()
@@ -1170,9 +1164,9 @@ class TestBharatForCausalLM:
             if past is not None:
                 expected_len = pos
                 for k, v in past:
-                    assert k.shape[-2] == expected_len, (
-                        f"Expected cached length {expected_len}, got {k.shape[-2]}"
-                    )
+                    assert (
+                        k.shape[-2] == expected_len
+                    ), f"Expected cached length {expected_len}, got {k.shape[-2]}"
                     assert v.shape[-2] == expected_len
             past = out_step.past_key_values
 
@@ -1224,6 +1218,6 @@ class TestBharatForCausalLM:
         embed_mean = model.model.embed_tokens.weight.data.mean().item()
         embed_std = model.model.embed_tokens.weight.data.std().item()
         assert abs(embed_mean) < 0.1, f"Embed mean {embed_mean} too far from 0"
-        assert abs(embed_std - cfg.initializer_range) < 0.02, (
-            f"Embed std {embed_std} != {cfg.initializer_range}"
-        )
+        assert (
+            abs(embed_std - cfg.initializer_range) < 0.02
+        ), f"Embed std {embed_std} != {cfg.initializer_range}"

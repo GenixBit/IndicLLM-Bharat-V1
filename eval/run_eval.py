@@ -34,7 +34,7 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from train.pretrain import GPT, GPTConfig
+from train.pretrain import GPT, GPTConfig  # noqa: E402
 
 BENCHMARK_TASKS = ["hellaswag", "piqa", "winogrande", "lambada_openai"]
 
@@ -112,10 +112,10 @@ def export_hf_stub(ckpt_path: Path, model_cfg: dict, export_dir: Path) -> Path:
     for k, v in state.items():
         k2 = k.replace("transformer.", "")
         hf_state[k2] = v
-    try:
+    from contextlib import suppress
+
+    with suppress(Exception):
         hf_model.load_state_dict(hf_state, strict=False)
-    except Exception:
-        pass  # partial load is OK for eval
     hf_model.save_pretrained(str(export_dir))
     print(f"  Exported HF stub → {export_dir}")
     return export_dir
@@ -124,7 +124,6 @@ def export_hf_stub(ckpt_path: Path, model_cfg: dict, export_dir: Path) -> Path:
 # ── Run lm-eval benchmarks ───────────────────────────────────
 def run_benchmarks(export_dir: Path, tasks: list[str]) -> dict:
     try:
-        import lm_eval
         from lm_eval import evaluator
         from lm_eval.models.huggingface import HFLM
     except ImportError:

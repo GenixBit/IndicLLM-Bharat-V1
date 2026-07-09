@@ -103,7 +103,8 @@ def fetch_wiki_articles(lang: str, max_articles: int, cache_dir: Path) -> list[s
     """
     cache_file = cache_dir / f"wiki_{lang}_{max_articles}.jsonl"
     if cache_file.exists():
-        texts = [json.loads(l)["text"] for l in open(cache_file, encoding="utf-8") if l.strip()]
+        with open(cache_file, encoding="utf-8") as f:
+            texts = [json.loads(line)["text"] for line in f if line.strip()]
         if texts:
             print(f"  [{lang}] Cached: {len(texts)} articles")
             return texts
@@ -243,7 +244,7 @@ def main():
     )
     args = parser.parse_args()
 
-    langs = [l.strip() for l in args.langs.split(",") if l.strip()]
+    langs = [lang.strip() for lang in args.langs.split(",") if lang.strip()]
     if args.langs == "all":
         langs = list(INDIC_LANGS.keys())
 
@@ -254,7 +255,7 @@ def main():
 
     print(f"\n{'=' * 60}")
     print("  IndicLLM-Bharat — Indic Data Downloader")
-    print(f"  Languages : {', '.join(INDIC_LANGS.get(l, l) for l in langs)}")
+    print(f"  Languages : {', '.join(INDIC_LANGS.get(lang, lang) for lang in langs)}")
     print(f"  Articles  : up to {args.max_articles:,} per language")
     print(f"  Output    : {out_dir}")
     print(f"{'=' * 60}\n")
@@ -308,7 +309,7 @@ def main():
 
     # Dataset card
     card = "# IndicLLM-Bharat Indic Dataset\n\n"
-    card += f"- **Languages**: {', '.join(INDIC_LANGS.get(l, l) for l in langs)}\n"
+    card += f"- **Languages**: {', '.join(INDIC_LANGS.get(lang, lang) for lang in langs)}\n"
     card += f"- **Train tokens**: {train_tokens:,}\n"
     card += f"- **Val tokens**: {val_tokens:,}\n"
     card += "- **Source**: Wikimedia Wikipedia API\n\n"

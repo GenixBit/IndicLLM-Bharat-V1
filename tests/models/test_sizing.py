@@ -165,8 +165,8 @@ def test_attention_bias_adds_correct_params():
     )
     nobias_report = calculate_parameter_count(nobias_cfg)
     bias_report = calculate_parameter_count(bias_cfg)
-    H, K, D = 32, 4, 8
-    expected_bias = H + (K * D) + (K * D) + H  # Q, K, V, O
+    h, k, d = 32, 4, 8
+    expected_bias = h + (k * d) + (k * d) + h  # Q, K, V, O
     assert bias_report.attention_per_layer - nobias_report.attention_per_layer == expected_bias
 
 
@@ -191,9 +191,9 @@ def test_mlp_bias_adds_correct_params():
     )
     nobias_report = calculate_parameter_count(nobias_cfg)
     bias_report = calculate_parameter_count(bias_cfg)
-    I = 64
-    H = 32
-    expected_bias = I + I + H
+    i = 64
+    h = 32
+    expected_bias = i + i + h
     assert bias_report.mlp_per_layer - nobias_report.mlp_per_layer == expected_bias
 
 
@@ -212,9 +212,9 @@ class TestProductionSpecTotals:
 
         spec = load_model_spec(ROOT / "configs" / "models" / filename)
         params = calculate_parameter_count(spec.architecture)
-        assert params.total == expected, (
-            f"{filename}: analytical {params.total} != expected {expected}"
-        )
+        assert (
+            params.total == expected
+        ), f"{filename}: analytical {params.total} != expected {expected}"
 
 
 class TestStaticMemory:
@@ -325,9 +325,9 @@ class TestKVCacheMemory:
             num_attention_heads=8, num_key_value_heads=2, max_position_embeddings=256
         )
         report = calculate_kv_cache_memory(cfg, batch_size=1, sequence_length=1, dtype="fp32")
-        H = cfg.hidden_size
-        D = H // cfg.num_attention_heads
-        expected = 1 * 1 * cfg.num_hidden_layers * 2 * cfg.num_key_value_heads * D * 4
+        h = cfg.hidden_size
+        d = h // cfg.num_attention_heads
+        expected = 1 * 1 * cfg.num_hidden_layers * 2 * cfg.num_key_value_heads * d * 4
         assert report.total_bytes == expected
 
     def test_invalid_batch_size_raises(self):
@@ -381,6 +381,6 @@ class TestProductionMemory:
             spec.architecture, batch_size=1, sequence_length=4096, dtype="bf16"
         )
         actual_mib = report.total_bytes / (1024**2)
-        assert actual_mib == pytest.approx(expected_mib, rel=1e-4), (
-            f"{filename}: expected {expected_mib} MiB, got {actual_mib} MiB"
-        )
+        assert actual_mib == pytest.approx(
+            expected_mib, rel=1e-4
+        ), f"{filename}: expected {expected_mib} MiB, got {actual_mib} MiB"

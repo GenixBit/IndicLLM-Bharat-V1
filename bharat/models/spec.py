@@ -51,7 +51,7 @@ def _validate_int(value: Any, field: str, path: str) -> int:
 def _validate_float(value: Any, field: str, path: str) -> float:
     if isinstance(value, bool):
         raise TypeError(f"{path}: {field} must be a number, got bool")
-    if not isinstance(value, (int, float)):
+    if not isinstance(value, int | float):
         raise TypeError(f"{path}: {field} must be a number, got {type(value).__name__}")
     return float(value)
 

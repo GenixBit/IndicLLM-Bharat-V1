@@ -1,36 +1,89 @@
-# Bharat AI Data Source Template
+# Bharat AI Data Source Entry
 #
-# Copy this file to data_registry/sources/ and fill in the details.
-# See docs/DATA_GOVERNANCE.md for field descriptions.
-#
-# IMPORTANT: This registry is an engineering control, not legal advice.
+# IMPORTANT:
+# - No dataset is automatically legally approved.
+# - Approval is an engineering gate, not legal advice.
+# - Unknown or missing licences are always denied.
+# - default_decision cannot be changed through a policy file.
 
 schema_version: 1
-source_id: my_dataset              # lowercase slug (a-z, 0-9, _)
-version: "1.0.0"                   # immutable version string
-display_name: "My Dataset"
-provider: "Provider Name"
-kind: huggingface                  # huggingface, http, s3, gcs, azure_blob, local, other
-uri: "https://huggingface.co/datasets/org/my-dataset"
-revision: "abc123def456..."        # immutable commit SHA (not "main")
-languages: ["en", "hi"]            # ISO language tags
-domains: ["general"]
-splits: ["train", "validation"]
-purposes: ["pretraining"]
-status: proposed                   # proposed, approved, rejected, deprecated
-license: "mit"                     # must match a key in license_policy.yaml
 
-# Integrity:
-# - HuggingFace: revision is an immutable commit SHA
-# - HTTP: sha256 checksum required
-# - Cloud/local: sha256, manifest_uri + manifest_sha256, or immutable version ID
+# Unique lowercase slug (e.g. 'fineweb_edu', 'wiki_2025')
+source_id: "example_source"
 
-# integrity:
-#   revision: "abc123def456..."
-#   sha256: "ab12cd34ef56..."
+# PEP 440-compatible version (e.g. 1.0.0, 2.0.0, 1.0.0-alpha)
+version: "1.0.0"
 
+# Human-readable name
+display_name: "Example Dataset"
+
+# Provider or organization name
+provider: "example_org"
+
+# Source kind: huggingface, http, s3, gcs, azure_blob, local, other
+kind: "http"
+
+# Download URI
+uri: "https://example.com/dataset.tar.gz"
+
+# Revision: for HuggingFace sources, must be a 40-char lowercase hex commit SHA.
+# For other sources, use an immutable identifier (commit SHA, version tag, etc.)
+revision: "abc123def456abc123def456abc123def456abc1"
+
+# ISO 639-1/2 language tags
+languages:
+  - "en"
+  - "hi"
+
+# Content domains
+domains:
+  - "general"
+
+# Dataset splits
+splits:
+  - "train"
+  - "validation"
+
+# Training purposes: pretraining, sft, dpo, evaluation
+purposes:
+  - "pretraining"
+
+# Status: proposed, approved, rejected, deprecated
+status: "proposed"
+
+# License identifier (must exist in license_policy.yaml for approval)
+license: "cc-by-4.0"
+
+# Integrity record - required for approved sources
+integrity:
+  revision: "abc123def456abc123def456abc123def456abc1"
+  sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  # manifest_uri and manifest_sha256 must be specified together
+  # manifest_uri: "https://example.com/manifest.json"
+  # manifest_sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+# Gated access flag
 gated: false
-# credentials_env: "HF_TOKEN"
 
-created_at: "2025-07-07"
-updated_at: "2025-07-07"
+# Credentials: only environment-variable names allowed (^[A-Z_][A-Z0-9_]*$)
+# credentials_env: "HUGGINGFACE_TOKEN"
+
+# Dataset card URL (must be https://)
+# dataset_card_url: "https://huggingface.co/datasets/example"
+
+# Collection method description
+# collection_method: "web_crawl"
+
+# Upstream source references
+# upstream_sources:
+#   - "common_crawl"
+
+# Supersession reference (source_id@version format)
+# supersedes: "previous_version@0.9.0"
+
+# ISO-8601 dates
+created_at: "2025-01-01"
+updated_at: "2025-06-01"
+
+# Notes: reason for rejection, deprecation info, etc.
+# notes: "Requires legal review - non-commercial terms"

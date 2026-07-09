@@ -42,18 +42,18 @@ class TestCheckpointResume:
 
         # Verify model weights restored
         for k in saved_state:
-            assert torch.equal(new_model.state_dict()[k], saved_state[k]), (
-                f"Model parameter {k} should match saved state"
-            )
+            assert torch.equal(
+                new_model.state_dict()[k], saved_state[k]
+            ), f"Model parameter {k} should match saved state"
 
         # Verify optimizer state restored
         new_state = new_optimizer.state_dict()
         for k in saved_opt_state:
             if k == "state":
                 for param_id in saved_opt_state["state"]:
-                    assert param_id in new_state["state"], (
-                        f"Optimizer state for param {param_id} should be restored"
-                    )
+                    assert (
+                        param_id in new_state["state"]
+                    ), f"Optimizer state for param {param_id} should be restored"
                     for sk in saved_opt_state["state"][param_id]:
                         if isinstance(saved_opt_state["state"][param_id][sk], torch.Tensor):
                             assert torch.equal(
@@ -90,9 +90,9 @@ class TestCheckpointResume:
         )
 
         resumed_step = result["step"]
-        assert resumed_step == final_iter, (
-            f"Resumed step should be {final_iter}, got {resumed_step}"
-        )
+        assert (
+            resumed_step == final_iter
+        ), f"Resumed step should be {final_iter}, got {resumed_step}"
 
         # Verify model weights were restored correctly
         for k in saved_params:
@@ -100,9 +100,9 @@ class TestCheckpointResume:
 
         # Verify optimizer state was restored (AdamW has momentum/velocity per param)
         opt_state = fresh_optimizer.state_dict()
-        assert len(opt_state["state"]) > 0, (
-            "Optimizer state dict should contain per-parameter state after loading"
-        )
+        assert (
+            len(opt_state["state"]) > 0
+        ), "Optimizer state dict should contain per-parameter state after loading"
 
         # Train one more step on the resumed model
         x = torch.randn(5, 10)
@@ -113,6 +113,6 @@ class TestCheckpointResume:
 
         # Verify the model continued training (weights changed from saved state)
         for k in saved_params:
-            assert not torch.equal(fresh_model.state_dict()[k], saved_params[k]), (
-                f"Parameter {k} should have changed after training one more step"
-            )
+            assert not torch.equal(
+                fresh_model.state_dict()[k], saved_params[k]
+            ), f"Parameter {k} should have changed after training one more step"

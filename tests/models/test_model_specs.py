@@ -124,9 +124,9 @@ def test_all_production_configs_collected():
 
     for m in methods_to_check:
         assert hasattr(TestLoadProductionConfigs, m), f"Missing test method: {m}"
-    assert len(PRODUCTION_FILES) * len(methods_to_check) == 32, (
-        f"Expected 32 parametrized tests, got {len(PRODUCTION_FILES) * len(methods_to_check)}"
-    )
+    assert (
+        len(PRODUCTION_FILES) * len(methods_to_check) == 32
+    ), f"Expected 32 parametrized tests, got {len(PRODUCTION_FILES) * len(methods_to_check)}"
 
 
 class TestSpecValidation:
@@ -229,7 +229,7 @@ class TestSpecValidation:
         p = tmp_path / "bad.yaml"
         with p.open("w") as f:
             f.write(": broken yaml\n")
-        with pytest.raises(Exception):
+        with pytest.raises(yaml.YAMLError):
             load_model_spec(p)
 
     def test_missing_file(self) -> None:
