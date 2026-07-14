@@ -148,9 +148,9 @@ def main() -> None:
                     f"strict mode: source '{s.source_id}' v{s.version} has REVIEW licence "
                     f"'{s.license}'"
                 )
-            if dec == LicenseDecision.DENY and s.status == SourceStatus.APPROVED:
+            if dec == LicenseDecision.DENY:
                 errors.append(
-                    f"strict mode: source '{s.source_id}' v{s.version} is approved with DENY licence"
+                    f"strict mode: source '{s.source_id}' v{s.version} has DENY licence '{s.license}'"
                 )
         for s in approved:
             lic = registry.policy.resolve(s.license)
