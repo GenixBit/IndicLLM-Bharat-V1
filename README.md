@@ -60,7 +60,8 @@ pins, and deterministic ordering/digest — see
 
 **Important:** The registry infrastructure is in place, but no dataset is
 automatically legally approved. No data has been downloaded or processed.
-Sharding, manifests, and contamination detection remain future work. The legacy
+Sharding, manifests, dataset statistics, mixture planning, and contanimation
+checks are now implemented as offline utilities (Milestone 3.3). The legacy
 `data/` pipelines are unchanged.
 
 ### Data Processing Pipeline
@@ -81,6 +82,11 @@ print(decision.accepted, decision.reasons)
 ```bash
 # Validate the registry
 python scripts/validate_data_registry.py
+
+# Work with dataset manifests
+python scripts/validate_data_manifest.py --manifest manifest.json
+python scripts/plan_data_shards.py --manifest manifest.json
+python scripts/compute_data_stats.py --input data.txt
 ```
 
 ---

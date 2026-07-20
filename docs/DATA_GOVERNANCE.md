@@ -200,8 +200,14 @@ When a source is superseded by a newer version:
 We provide an offline `DataProcessor` pipeline (`bharat/data/processing.py`)
 that composes Normalizer, LanguageIdentifier, QualityScorer,
 ExactDeduplicator, FuzzyDeduplicator, PIIDetector, and SafetyFilter into a
-single deterministic call.  **No data is downloaded; no shards are written;
-no manifests are created yet.**  Integration with the approved-source
+single deterministic call.  **No data is downloaded; no data is
+automatically approved for training.**
+
+Manifests (`bharat/data/manifest.py`), statistics (`bharat/data/stats.py`),
+shard plans (`bharat/data/sharding.py`), mixture plans
+(`bharat/data/mixture.py`), and contamination checks
+(`bharat/data/contamination.py`) are implemented as offline utilities,
+operating only on local text records. Integration with the approved-source
 registry is future work.
 
 Future pipeline stages will consume only sources returned by
@@ -221,5 +227,7 @@ Future pipeline stages will consume only sources returned by
 - [ ] No dataset has been automatically legally approved.
 - [ ] No data has been downloaded or processed.
 - [x] Quality filtering and deduplication exist as heuristic offline filters.
+- [x] Dataset manifests, statistics, shard planning, and mixture planning are implemented as offline utilities.
+- [x] Contamination checks are implemented as offline utilities (exact, normalized, n-gram).
 - [ ] No data has been automatically filtered, deduplicated, or approved for training.
 - [ ] The legacy `data/` pipelines remain unchanged.

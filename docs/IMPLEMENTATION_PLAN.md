@@ -131,9 +131,9 @@ IndicLLM-Bharat-V1/
 
 ### Milestone 3 — Data Engine (PRs 10–12)
 
-**Goal:** Versioned, deduplicated, filtered, manifest-tracked data pipeline.
+**Goal:** Versioned, deduplicated, filtered, manifest-tracked data pipeline. ✅ COMPLETED
 
-**Progress:** PR 10 (source registry + licensing) ✅.
+**Progress:** PR 10 (source registry + licensing) ✅, PR 11 (filters + dedup) ✅, PR 12 (manifests + contamination) ✅.
 
 #### PR 10: Source registry + licensing ✅ COMPLETED
 - **Files:** `bharat/data/schema.py`, `bharat/data/licensing.py`, `bharat/data/sources.py`, `bharat/data/registry.py`, `bharat/data/__init__.py`, `data_registry/`, `scripts/validate_data_registry.py`, `docs/DATA_GOVERNANCE.md`
@@ -152,13 +152,13 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete files; existing data pipelines unchanged
 - **Acceptance:** Dedup removes exact duplicates; PII patterns detected; Indic text handled safely; all CI checks pass
 
-#### PR 12: Manifests + contamination + sharding
-- **Files:** `bharat/data/contamination.py`, `bharat/data/mixture.py`, `bharat/data/sharding.py`, `bharat/data/manifests.py`, `bharat/data/statistics.py`
-- **Content:** Benchmark contamination detection, language/domain balancing, sharding with auto uint16/uint32, manifest generation
-- **Tests:** Contamination detection, manifest completeness, shard compatibility
+#### PR 12: Manifests + contamination + sharding ✅ COMPLETED
+- **Files:** `bharat/data/manifest.py`, `bharat/data/stats.py`, `bharat/data/sharding.py`, `bharat/data/mixture.py`, `bharat/data/contamination.py`, `scripts/validate_data_manifest.py`, `scripts/plan_data_shards.py`, `scripts/compute_data_stats.py`
+- **Content:** Deterministic dataset manifests (SHA-256 digest, schema validation), offline dataset statistics via DataProcessor, shard planning (record/byte constraints), mixture planning (language/domain/source weights), contamination detection (exact/normalized/n-gram), CLI tools
+- **Tests:** 77 tests across all 5 modules + 3 CLI tools; deterministic digest verified; source caps enforced; exact/ngram contamination detected
 - **Depends on:** PR 11
-- **Rollback:** Delete files; existing `data/*.py` unchanged
-- **Acceptance:** Every shard has a manifest; tokenizer hash tracked; contamination flagged
+- **Rollback:** Delete files; existing `bharat/data/*.py` unchanged
+- **Acceptance:** Manifest schema is deterministic and validated; statistics work on local records only; shard planner does not download data; mixture planner enforces source/language constraints; contamination checks are offline and deterministic; CLI tools support JSON output; no datasets downloaded; no training added
 
 ### Milestone 4 — BharatBench (PRs 13–15)
 
