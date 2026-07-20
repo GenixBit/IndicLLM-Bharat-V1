@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from bharat.data.exact_dedup import ExactDedupConfig, ExactDeduplicator
 from bharat.data.fuzzy_dedup import FuzzyDedupConfig, FuzzyDeduplicator
-from bharat.data.fuzzy_dedup import FuzzyDedupConfig, FuzzyDeduplicator
 from bharat.data.language_id import LanguageIDConfig, LanguageIdentifier, LanguageIDResult
 from bharat.data.licensing import (
     LicenseDecision,

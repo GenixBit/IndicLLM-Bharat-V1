@@ -21,6 +21,8 @@ _GLOBAL_NORMALIZER = Normalizer()
 def _unicode_words(text: str) -> list[str]:
     if not text:
         return []
+    if not any(c.isalnum() for c in text):
+        return []
     return text.split()
 
 

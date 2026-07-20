@@ -122,9 +122,7 @@ class SafetyFilter:
         score = max(0.0, 1.0 - total_confidence / len(categories_hit)) if categories_hit else 1.0
         is_safe = score >= self.config.threshold
         spans.sort(key=lambda s: s.start)
-        reasons = tuple(
-            f"{cat}:{s.text}" for s in spans if s.category in categories_hit
-        )
+        reasons = tuple(f"{s.category}:{s.text}" for s in spans if s.category in categories_hit)
         return SafetyResult(
             is_safe=is_safe,
             categories_violated=tuple(sorted(categories_hit)),

@@ -150,7 +150,7 @@ class QualityScorer:
             is_quality=is_quality, score=qs.overall, reasons=tuple(reasons), features=f
         )
 
-    def is_quality(self, text: str, min_score: float = 0.5) -> bool:
+    def is_quality(self, text: str) -> bool:
         return self.evaluate(text).is_quality
 
     def _extract_features(self, text: str) -> dict[str, float]:

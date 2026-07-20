@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-
 import pytest
 
 from bharat.data.exact_dedup import ExactDedupConfig, ExactDeduplicator
@@ -122,49 +120,37 @@ class TestLanguageIdentifier:
 
     def test_script_fallback_devanagari(self):
         li = LanguageIdentifier()
-        result = li.identify(
-            "यह एक परीक्षण है जो देवनागरी लिपि में है और यह काफी लंबा है"
-        )
+        result = li.identify("यह एक परीक्षण है जो देवनागरी लिपि में है और यह काफी लंबा है")
         assert result.script == "DEVANAGARI"
         assert result.language == "hi"
 
     def test_bengali_text(self):
         li = LanguageIdentifier()
-        result = li.identify(
-            "এটি একটি পরীক্ষা যা বাংলা লিপিতে লেখা এবং এটি বেশ দীর্ঘ"
-        )
+        result = li.identify("এটি একটি পরীক্ষা যা বাংলা লিপিতে লেখা এবং এটি বেশ দীর্ঘ")
         assert result.script == "BENGALI"
         assert result.language == "bn"
 
     def test_tamil_text(self):
         li = LanguageIdentifier()
-        result = li.identify(
-            "இது ஒரு சோதனை தமிழ் மொழியில் எழுதப்பட்ட உரை"
-        )
+        result = li.identify("இது ஒரு சோதனை தமிழ் மொழியில் எழுதப்பட்ட உரை")
         assert result.script == "TAMIL"
         assert result.language == "ta"
 
     def test_telugu_text(self):
         li = LanguageIdentifier()
-        result = li.identify(
-            "ఇది తెలుగు భాషలో రాసిన ఒక పరీక్ష వచనం"
-        )
+        result = li.identify("ఇది తెలుగు భాషలో రాసిన ఒక పరీక్ష వచనం")
         assert result.script == "TELUGU"
         assert result.language == "te"
 
     def test_arabic_text(self):
         li = LanguageIdentifier()
-        result = li.identify(
-            "هذا اختبار للغة العربية وهو طويل بما فيه الكفاية"
-        )
+        result = li.identify("هذا اختبار للغة العربية وهو طويل بما فيه الكفاية")
         assert result.script == "ARABIC"
         assert result.language == "ar"
 
     def test_mixed_script_weighted(self):
         li = LanguageIdentifier()
-        result = li.identify(
-            "यह देवनागरी है and some english words भी हैं"
-        )
+        result = li.identify("यह देवनागरी है and some english words भी हैं")
         assert result.script == "DEVANAGARI"
 
     def test_identify_batch(self):
@@ -404,24 +390,18 @@ class TestFuzzyDeduplicator:
     def test_hindi_near_duplicate(self):
         dedup = FuzzyDeduplicator(FuzzyDedupConfig(threshold=0.5))
         text_a = (
-            "भारत एक महान देश है जहां विभिन्न संस्कृतियों का समावेश है "
-            "और यहां की विविधता इसे विशेष बनाती है"
+            "भारत एक महान देश है जहां विभिन्न संस्कृतियों का समावेश है " "और यहां की विविधता इसे विशेष बनाती है"
         )
         text_b = (
-            "भारत एक महान देश है जहां विभिन्न संस्कृतियों का समावेश है "
-            "और यहां की विविधता इसे खास बनाती है"
+            "भारत एक महान देश है जहां विभिन्न संस्कृतियों का समावेश है " "और यहां की विविधता इसे खास बनाती है"
         )
         assert dedup.add_document(text_a)
         assert not dedup.add_document(text_b)
 
     def test_unrelated_hindi_not_duplicate(self):
         dedup = FuzzyDeduplicator()
-        text_a = (
-            "भारत एक महान देश है जहां विभिन्न संस्कृतियों का समावेश है"
-        )
-        text_b = (
-            "तकनीकी विकास ने जीवन को सरल और सुविधाजनक बना दिया है"
-        )
+        text_a = "भारत एक महान देश है जहां विभिन्न संस्कृतियों का समावेश है"
+        text_b = "तकनीकी विकास ने जीवन को सरल और सुविधाजनक बना दिया है"
         assert dedup.add_document(text_a)
         assert dedup.add_document(text_b)
         assert dedup.seen_count == 2

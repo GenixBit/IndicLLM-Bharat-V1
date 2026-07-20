@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass
 from typing import ClassVar
 
-
 _PII_PRIORITY: dict[str, int] = {
     "url_credentials": 1,
     "email": 2,
