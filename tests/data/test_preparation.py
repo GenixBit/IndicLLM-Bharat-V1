@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from bharat.data.preparation import LocalPreparer, PreparationConfig
 
 REAL_TEXT = (

@@ -24,11 +24,13 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 - [x] Full Bharat decoder model with KV-cache generation
 - [x] Model configurations and sizing calculator (350M, 1B, 3B, 7B)
 
-### Milestone 3 — Data Engine (In Progress)
+### Milestone 3 — Data Engine ✅
 
 - [x] Source registry infrastructure with licence validation (Milestone 3.1)
 - [x] Quality filters, deduplication, PII detection, pipeline wrapper (Milestone 3.2)
 - [x] Data manifests, statistics, shard planning, mixture planning, and contamination checks (Milestone 3.3)
+- [x] Manifest/scoring hardening, source-cap redistribution fixes, water-filling algorithm (Milestone 3.3.1–3.3.3)
+- [x] Local governed data preparation: file reader, records, shard writer, prepare pipeline, CLI (Milestone 3.4)
 - [ ] Indic data pipeline unification
 
 ### Milestone 4 — Evaluation (BharatBench)

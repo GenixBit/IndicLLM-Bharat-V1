@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from bharat.data.records import ProcessedRecord, RawRecord
 
 
@@ -27,9 +25,7 @@ class TestRawRecord:
         assert d["line_number"] == 10
 
     def test_to_dict_with_metadata(self):
-        r = RawRecord(
-            source_path="/f.txt", line_number=1, text="x", metadata={"key": "val"}
-        )
+        r = RawRecord(source_path="/f.txt", line_number=1, text="x", metadata={"key": "val"})
         d = r.to_dict()
         assert d["metadata"] == {"key": "val"}
 

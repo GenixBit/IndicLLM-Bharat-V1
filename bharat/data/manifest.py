@@ -60,9 +60,7 @@ def _validate_shards(shards: tuple[ShardManifest, ...]) -> None:
     expected_indices = list(range(len(shards)))
     actual_indices = [s.index for s in sorted_shards]
     if actual_indices != expected_indices:
-        raise ValueError(
-            f"Shard indexes must be sequential from 0; got {actual_indices}"
-        )
+        raise ValueError(f"Shard indexes must be sequential from 0; got {actual_indices}")
     for i in range(1, len(sorted_shards)):
         prev = sorted_shards[i - 1]
         curr = sorted_shards[i]

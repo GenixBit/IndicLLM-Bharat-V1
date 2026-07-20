@@ -129,11 +129,13 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete config files, spec/sizing modules, and associated tests
 - **Acceptance:** Parameter calculator matches config estimates within 1%; all new tests pass; no regressions
 
-### Milestone 3 — Data Engine (PRs 10–12)
+### Milestone 3 — Data Engine (PRs 10–12, hardening PRs 8–10, 3.4 PR 11)
 
 **Goal:** Versioned, deduplicated, filtered, manifest-tracked data pipeline. ✅ COMPLETED
 
 **Progress:** PR 10 (source registry + licensing) ✅, PR 11 (filters + dedup) ✅, PR 12 (manifests + contamination) ✅.
+**3.3 Hardening (manifests, contamination, mixture, source caps):** 3 PRs merged — 934→955 tests.
+**3.4 Local governed preparation:** `local_reader.py`, `records.py`, `shard_writer.py`, `preparation.py`, `scripts/prepare_local_data.py` — 989 tests pass.
 
 #### PR 10: Source registry + licensing ✅ COMPLETED
 - **Files:** `bharat/data/schema.py`, `bharat/data/licensing.py`, `bharat/data/sources.py`, `bharat/data/registry.py`, `bharat/data/__init__.py`, `data_registry/`, `scripts/validate_data_registry.py`, `docs/DATA_GOVERNANCE.md`

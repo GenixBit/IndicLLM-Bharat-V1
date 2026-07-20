@@ -66,8 +66,7 @@ class MixturePlanner:
             total_domain_weight = sum(constraint.domain_weights.values())
             if abs(total_domain_weight - 1.0) > 1e-9:
                 raise ValueError(
-                    f"domain_weights must sum to 1.0 when provided, "
-                    f"got {total_domain_weight}"
+                    f"domain_weights must sum to 1.0 when provided, " f"got {total_domain_weight}"
                 )
         for w in constraint.domain_weights.values():
             if w < 0:
@@ -104,7 +103,12 @@ class MixturePlanner:
             domain_weight = constraint.domain_weights.get(domain, 0.0)
             raw = lang_weight * domain_weight
             infos.append(
-                {"manifest": m, "domain": domain, "lang_weight": lang_weight, "domain_weight": domain_weight}
+                {
+                    "manifest": m,
+                    "domain": domain,
+                    "lang_weight": lang_weight,
+                    "domain_weight": domain_weight,
+                }
             )
             raw_weights.append(raw)
 
@@ -157,8 +161,7 @@ class MixturePlanner:
                 uncapped.discard(sid)
             if not uncapped:
                 raise ValueError(
-                    "All sources exceed the per-source cap "
-                    f"({max_pct:.0%}); cannot redistribute"
+                    "All sources exceed the per-source cap " f"({max_pct:.0%}); cannot redistribute"
                 )
             capped_total = sum(source_final[sid] for sid in capped_sources)
             remaining = 1.0 - capped_total
@@ -170,8 +173,7 @@ class MixturePlanner:
         notes_builder: list[str] = []
         if capped_sources:
             notes_builder.append(
-                f"Capped {', '.join(sorted(capped_sources))} "
-                f"to {max_pct:.0%} of total weight"
+                f"Capped {', '.join(sorted(capped_sources))} " f"to {max_pct:.0%} of total weight"
             )
 
         plans: list[MixturePlan] = []

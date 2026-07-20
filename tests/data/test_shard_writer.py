@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import hashlib
-
-import pytest
+import json
 
 from bharat.data.records import ProcessedRecord
 from bharat.data.shard_writer import ShardWriter, ShardWriterConfig
@@ -42,16 +40,12 @@ class TestShardWriter:
 
     def test_shard_sha256_matches(self, tmp_path):
         out = str(tmp_path)
-        config = ShardWriterConfig(
-            output_dir=out, source_id="src", split="train"
-        )
+        config = ShardWriterConfig(output_dir=out, source_id="src", split="train")
         writer = ShardWriter(config)
         records = [_make_record("hello")]
         manifest = writer.write_shard(records)
         shard_path = tmp_path / "shards" / manifest.shard_id
-        actual_sha = hashlib.sha256(
-            shard_path.read_bytes()
-        ).hexdigest()
+        actual_sha = hashlib.sha256(shard_path.read_bytes()).hexdigest()
         assert manifest.sha256 == actual_sha
 
     def test_deterministic_shard_names(self, tmp_path):
@@ -71,9 +65,7 @@ class TestShardWriter:
 
     def test_only_accepted_records_written(self, tmp_path):
         out = str(tmp_path)
-        config = ShardWriterConfig(
-            output_dir=out, source_id="src", split="train"
-        )
+        config = ShardWriterConfig(output_dir=out, source_id="src", split="train")
         writer = ShardWriter(config)
         records = [
             _make_record("good", accepted=True),
@@ -88,9 +80,7 @@ class TestShardWriter:
 
     def test_all_rejected_returns_none(self, tmp_path):
         out = str(tmp_path)
-        config = ShardWriterConfig(
-            output_dir=out, source_id="src", split="train"
-        )
+        config = ShardWriterConfig(output_dir=out, source_id="src", split="train")
         writer = ShardWriter(config)
         records = [_make_record("bad", accepted=False)]
         result = writer.write_shard(records)

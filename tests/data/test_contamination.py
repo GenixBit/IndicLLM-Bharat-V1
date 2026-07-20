@@ -135,13 +135,9 @@ class TestContaminationCheckerHardening:
 
         blocklist = tmp_path / "blocklist.txt"
         blocklist.write_text("the quick brown fox jumps over the lazy dog\n")
-        checker = ContaminationChecker(
-            config=ContaminationConfig(ngram_threshold=0.9)
-        )
+        checker = ContaminationChecker(config=ContaminationConfig(ngram_threshold=0.9))
         checker.load_blocklist(str(blocklist))
-        result = checker.check_ngram(
-            "the quick brown fox leaps over the lazy dog", n=3
-        )
+        result = checker.check_ngram("the quick brown fox leaps over the lazy dog", n=3)
         assert not result.is_contaminated
 
     def test_custom_threshold_lower(self, tmp_path):
@@ -149,13 +145,9 @@ class TestContaminationCheckerHardening:
 
         blocklist = tmp_path / "blocklist.txt"
         blocklist.write_text("the quick brown fox jumps over the lazy dog\n")
-        checker = ContaminationChecker(
-            config=ContaminationConfig(ngram_threshold=0.1)
-        )
+        checker = ContaminationChecker(config=ContaminationConfig(ngram_threshold=0.1))
         checker.load_blocklist(str(blocklist))
-        result = checker.check_ngram(
-            "the quick brown fox leaps over the lazy dog", n=3
-        )
+        result = checker.check_ngram("the quick brown fox leaps over the lazy dog", n=3)
         assert result.is_contaminated
 
     def test_deterministic_matched_source_ids(self, tmp_path):

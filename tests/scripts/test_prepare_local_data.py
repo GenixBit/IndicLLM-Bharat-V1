@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 import sys
 
-import pytest
-
 from scripts.prepare_local_data import main
 
 REAL_TEXT = (
@@ -24,7 +22,7 @@ def _run(args: list[str]) -> tuple[int, str]:
     old_stderr = sys.stderr
     sys.argv = args
     sys.stdout = out = StringIO()
-    sys.stderr = err = StringIO()
+    sys.stderr = StringIO()
     try:
         try:
             main()

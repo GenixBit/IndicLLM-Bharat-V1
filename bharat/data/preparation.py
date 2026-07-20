@@ -8,9 +8,13 @@ from typing import Any
 
 from bharat.data.contamination import ContaminationChecker
 from bharat.data.local_reader import read_local_text
-from bharat.data.manifest import DatasetManifest, ShardManifest, create_manifest, digest_processing_config
+from bharat.data.manifest import (
+    DatasetManifest,
+    create_manifest,
+    digest_processing_config,
+)
 from bharat.data.processing import DataProcessor, ProcessingConfig
-from bharat.data.records import ProcessedRecord, RawRecord
+from bharat.data.records import ProcessedRecord
 from bharat.data.shard_writer import ShardWriter, ShardWriterConfig
 
 
@@ -165,9 +169,7 @@ class LocalPreparer:
             )
 
             manifest_path = out_dir / "manifest.json"
-            manifest_path.write_text(
-                json.dumps(manifest.to_dict(), indent=2), encoding="utf-8"
-            )
+            manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2), encoding="utf-8")
 
         report = PreparationReport(
             total_records=total,
@@ -181,8 +183,6 @@ class LocalPreparer:
 
         if not self._config.dry_run:
             report_path = out_dir / "preparation_report.json"
-            report_path.write_text(
-                json.dumps(report.to_dict(), indent=2), encoding="utf-8"
-            )
+            report_path.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
 
         return manifest, report

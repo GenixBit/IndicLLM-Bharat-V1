@@ -42,10 +42,7 @@ def _read_jsonl(path: Path) -> list[RawRecord]:
                 obj = json_lib.loads(stripped)
             except json_lib.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSONL at line {lineno}: {e}") from e
-            if isinstance(obj, dict) and "text" in obj:
-                text = obj["text"]
-            else:
-                text = stripped
+            text = obj["text"] if isinstance(obj, dict) and "text" in obj else stripped
             records.append(
                 RawRecord(
                     source_path=str(path),
