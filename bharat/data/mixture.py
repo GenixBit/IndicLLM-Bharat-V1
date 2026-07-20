@@ -125,46 +125,46 @@ class MixturePlanner:
             sid: w / total_source_raw for sid, w in source_raw.items()
         }
 
-        # --- Fix 2: iterative capping ---
+        # --- Source cap via water-filling ---
         max_pct = constraint.max_pct_per_source
+        nonzero_sources = [sid for sid in source_candidate if source_candidate[sid] > 0]
+
+        if max_pct * len(nonzero_sources) < 1.0 - 1e-9:
+            raise ValueError(
+                f"Per-source cap {max_pct:.0%} cannot accommodate "
+                f"{len(nonzero_sources)} sources "
+                f"(max total {max_pct * len(nonzero_sources):.0%} < 100%)"
+            )
+
         source_final: dict[str, float] = {}
         capped_sources: set[str] = set()
-        uncapped_sources = set(source_candidate.keys())
-        remaining_excess = 0.0
+
+        for sid in source_candidate:
+            if source_candidate[sid] == 0.0:
+                source_final[sid] = 0.0
+
+        uncapped = set(nonzero_sources)
 
         while True:
-            newly_capped = set()
-            for sid in list(uncapped_sources):
-                if source_candidate[sid] > max_pct:
-                    newly_capped.add(sid)
-            if not newly_capped:
+            over_cap = {sid for sid in uncapped if source_candidate[sid] > max_pct + 1e-12}
+            if not over_cap:
+                for sid in uncapped:
+                    source_final[sid] = source_candidate[sid]
                 break
-            capped_sources |= newly_capped
-            uncapped_sources -= newly_capped
-            if not uncapped_sources:
+            for sid in over_cap:
+                source_final[sid] = max_pct
+                capped_sources.add(sid)
+                uncapped.discard(sid)
+            if not uncapped:
                 raise ValueError(
                     "All sources exceed the per-source cap "
                     f"({max_pct:.0%}); cannot redistribute"
                 )
-            for sid in newly_capped:
-                excess = source_candidate[sid] - max_pct
-                remaining_excess += excess
-                source_final[sid] = max_pct
-            uncapped_raw = sum(source_candidate[sid] for sid in uncapped_sources)
-            if uncapped_raw > 0:
-                available = remaining_excess
-                for sid in uncapped_sources:
-                    share = source_candidate[sid] / uncapped_raw
-                    source_candidate[sid] += available * share
-
-        for sid in uncapped_sources:
-            source_final[sid] = source_candidate[sid]
-
-        # Renormalize source_final to sum 1.0
-        src_sum = sum(source_final.values())
-        if src_sum > 0 and abs(src_sum - 1.0) > 1e-9:
-            for sid in source_final:
-                source_final[sid] /= src_sum
+            capped_total = sum(source_final[sid] for sid in capped_sources)
+            remaining = 1.0 - capped_total
+            uncapped_raw = sum(source_candidate[sid] for sid in uncapped)
+            for sid in uncapped:
+                source_candidate[sid] = remaining * (source_candidate[sid] / uncapped_raw)
 
         # --- Per-manifest final weights ---
         notes_builder: list[str] = []
