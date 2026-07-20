@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bharat.data.contamination import ContaminationChecker, ContaminationResult
 from bharat.data.exact_dedup import ExactDedupConfig, ExactDeduplicator
 from bharat.data.fuzzy_dedup import FuzzyDedupConfig, FuzzyDeduplicator
 from bharat.data.language_id import LanguageIDConfig, LanguageIdentifier, LanguageIDResult
@@ -9,6 +10,13 @@ from bharat.data.licensing import (
     LicenseRecord,
     load_license_policy,
 )
+from bharat.data.manifest import (
+    DatasetManifest,
+    ShardManifest,
+    create_manifest,
+    digest_processing_config,
+)
+from bharat.data.mixture import MixtureConstraint, MixturePlan, MixturePlanner
 from bharat.data.normalization import NormalizationConfig, NormalizationResult, Normalizer
 from bharat.data.pii import PIIConfig, PIIDetector, PIISpan
 from bharat.data.processing import DataProcessor, ProcessingConfig, ProcessingDecision
@@ -22,13 +30,23 @@ from bharat.data.schema import (
     SourceStatus,
     UsagePurpose,
 )
+from bharat.data.sharding import ShardPlan, ShardPlanner
 from bharat.data.sources import load_source_spec
+from bharat.data.stats import DatasetStatistics, compute_statistics
 
 __all__ = [
+    "ContaminationChecker",
+    "ContaminationResult",
     "DataIntegrityRecord",
     "DataProcessor",
     "DataRegistry",
     "DataSourceSpec",
+    "DatasetManifest",
+    "DatasetStatistics",
+    "ExactDedupConfig",
+    "ExactDeduplicator",
+    "FuzzyDedupConfig",
+    "FuzzyDeduplicator",
     "ExactDedupConfig",
     "ExactDeduplicator",
     "FuzzyDedupConfig",
@@ -57,6 +75,27 @@ __all__ = [
     "SourceKind",
     "SourceStatus",
     "UsagePurpose",
+    "MixtureConstraint",
+    "MixturePlan",
+    "MixturePlanner",
+    "ProcessingConfig",
+    "ProcessingDecision",
+    "QualityConfig",
+    "QualityScore",
+    "QualityScorer",
+    "SafetyFilter",
+    "SafetyFilterConfig",
+    "SafetyResult",
+    "SafetySpan",
+    "ShardManifest",
+    "ShardPlan",
+    "ShardPlanner",
+    "SourceKind",
+    "SourceStatus",
+    "UsagePurpose",
+    "compute_statistics",
+    "create_manifest",
+    "digest_processing_config",
     "load_license_policy",
     "load_source_spec",
 ]
