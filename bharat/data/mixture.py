@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -22,12 +23,33 @@ class MixturePlan:
     note: str = ""
 
 
+def _resolve_domain(
+    manifest: Any,
+    domain_mapping: dict[str, str] | None,
+    allow_split_fallback: bool,
+) -> str:
+    m = manifest
+    if hasattr(m, "domain") and m.domain:
+        return str(m.domain)
+    if domain_mapping is not None:
+        source_id = getattr(m, "source_id", None)
+        if source_id is not None and source_id in domain_mapping:
+            return domain_mapping[source_id]
+    if allow_split_fallback:
+        split = getattr(m, "split", "")
+        if split:
+            return str(split)
+    return ""
+
+
 class MixturePlanner:
     def plan(
         self,
         manifests: Sequence,  # type: ignore[type-arg]
         constraint: MixtureConstraint,
         domain_mapping: dict[str, str] | None = None,
+        allow_split_fallback: bool = False,
+        target_records: int | None = None,
     ) -> tuple[MixturePlan, ...]:
         if not manifests:
             raise ValueError("At least one manifest is required")
@@ -57,83 +79,134 @@ class MixturePlanner:
             raise ValueError("min_record_threshold must be >= 0")
 
         total_records = sum(m.records for m in manifests)
+        target = total_records if target_records is None else target_records
+        if target < 0:
+            raise ValueError(f"target_records must be non-negative, got {target}")
         if total_records < constraint.min_record_threshold:
             raise ValueError(
                 f"Total records ({total_records}) below min threshold "
                 f"({constraint.min_record_threshold})"
             )
 
-        source_record_map: dict[str, int] = {}
+        # --- Resolve domains and compute raw weights ---
+        infos: list[dict[str, Any]] = []
+        raw_weights: list[float] = []
         for m in manifests:
-            source_record_map[m.source_id] = source_record_map.get(m.source_id, 0) + m.records
+            domain = _resolve_domain(m, domain_mapping, allow_split_fallback)
+            if not domain:
+                raise ValueError(
+                    f"Cannot determine domain for source '{m.source_id}' "
+                    f"(language='{m.language}', split='{m.split}'). "
+                    "Provide a manifest-level domain, use domain_mapping, "
+                    "or enable allow_split_fallback."
+                )
+            lang_weight = constraint.language_weights.get(m.language, 0.0)
+            domain_weight = constraint.domain_weights.get(domain, 0.0)
+            raw = lang_weight * domain_weight
+            infos.append(
+                {"manifest": m, "domain": domain, "lang_weight": lang_weight, "domain_weight": domain_weight}
+            )
+            raw_weights.append(raw)
 
-        max_records_per_source = total_records * constraint.max_pct_per_source
-        capped_sources: set[str] = set()
-        uncapped_sources: set[str] = set()
-        total_capped_records = 0
-        for sid, recs in sorted(source_record_map.items()):
-            if recs > max_records_per_source:
-                capped_sources.add(sid)
-                total_capped_records += max_records_per_source
-            else:
-                uncapped_sources.add(sid)
-
-        if capped_sources and not uncapped_sources:
+        # --- Fix 4: check all-zero before proceeding ---
+        if all(w == 0.0 for w in raw_weights):
             raise ValueError(
-                "All sources exceed the per-source cap "
-                f"({constraint.max_pct_per_source:.0%}); "
-                "cannot redistribute"
+                "All source weights are zero. Check language_weights and domain_weights "
+                "configurations."
             )
 
-        notes: list[str] = []
-        excess = total_records - total_capped_records
+        # --- Fix 2: source-level candidate weights ---
+        source_raw: dict[str, float] = {}
+        for i, m in enumerate(manifests):
+            source_raw[m.source_id] = source_raw.get(m.source_id, 0.0) + raw_weights[i]
+
+        total_source_raw = sum(source_raw.values())
+        source_candidate: dict[str, float] = {
+            sid: w / total_source_raw for sid, w in source_raw.items()
+        }
+
+        # --- Fix 2: iterative capping ---
+        max_pct = constraint.max_pct_per_source
+        source_final: dict[str, float] = {}
+        capped_sources: set[str] = set()
+        uncapped_sources = set(source_candidate.keys())
+        remaining_excess = 0.0
+
+        while True:
+            newly_capped = set()
+            for sid in list(uncapped_sources):
+                if source_candidate[sid] > max_pct:
+                    newly_capped.add(sid)
+            if not newly_capped:
+                break
+            capped_sources |= newly_capped
+            uncapped_sources -= newly_capped
+            if not uncapped_sources:
+                raise ValueError(
+                    "All sources exceed the per-source cap "
+                    f"({max_pct:.0%}); cannot redistribute"
+                )
+            for sid in newly_capped:
+                excess = source_candidate[sid] - max_pct
+                remaining_excess += excess
+                source_final[sid] = max_pct
+            uncapped_raw = sum(source_candidate[sid] for sid in uncapped_sources)
+            if uncapped_raw > 0:
+                available = remaining_excess
+                for sid in uncapped_sources:
+                    share = source_candidate[sid] / uncapped_raw
+                    source_candidate[sid] += available * share
+
+        for sid in uncapped_sources:
+            source_final[sid] = source_candidate[sid]
+
+        # Renormalize source_final to sum 1.0
+        src_sum = sum(source_final.values())
+        if src_sum > 0 and abs(src_sum - 1.0) > 1e-9:
+            for sid in source_final:
+                source_final[sid] /= src_sum
+
+        # --- Per-manifest final weights ---
+        notes_builder: list[str] = []
         if capped_sources:
-            notes.append(
+            notes_builder.append(
                 f"Capped {', '.join(sorted(capped_sources))} "
-                f"to {constraint.max_pct_per_source:.0%} each; "
-                f"redistributing {excess} records to uncapped sources"
+                f"to {max_pct:.0%} of total weight"
             )
-
-        uncapped_total_records = sum(
-            source_record_map[sid] for sid in uncapped_sources
-        ) or 1
 
         plans: list[MixturePlan] = []
-        for m in manifests:
-            lang = m.language
-            lang_weight = constraint.language_weights.get(lang, 0.0)
-
-            if domain_mapping is not None:
-                domain = domain_mapping.get(m.source_id, "general")
+        for i, m in enumerate(manifests):
+            sid = m.source_id
+            src_weight = source_final[sid]
+            if source_raw[sid] > 0 and raw_weights[i] > 0:
+                manifest_fraction = raw_weights[i] / source_raw[sid]
             else:
-                domain = m.split
-            domain_weight = constraint.domain_weights.get(
-                domain, 1.0 / max(len(constraint.domain_weights), 1)
-            )
+                manifest_fraction = 0.0
+            final_weight = src_weight * manifest_fraction
 
-            weight = lang_weight * domain_weight
             note = ""
-            raw_recs = m.records
-            if m.source_id in capped_sources:
-                capped = max_records_per_source
-                effective_recs = int(capped * weight)
-                note = f"capped at {constraint.max_pct_per_source:.0%} of total ({capped:.0f} records)"
-            else:
-                boost = 1.0 + excess / uncapped_total_records
-                effective_recs = int(raw_recs * weight * boost)
-                weight = weight * boost
+            if sid in capped_sources:
+                note = f"capped at {max_pct:.0%} of total weight"
+            elif raw_weights[i] == 0.0:
+                reasons = []
+                if infos[i]["lang_weight"] == 0.0:
+                    reasons.append(f"no language weight for '{m.language}'")
+                if infos[i]["domain_weight"] == 0.0:
+                    reasons.append(f"no domain weight for '{infos[i]['domain']}'")
+                note = f"excluded: {', '.join(reasons)}"
 
             plans.append(
                 MixturePlan(
-                    source_id=m.source_id,
-                    weight=weight,
-                    estimated_records=effective_recs,
-                    language=lang,
-                    domain=domain,
+                    source_id=sid,
+                    weight=final_weight,
+                    estimated_records=0,
+                    language=m.language,
+                    domain=infos[i]["domain"],
                     note=note,
                 )
             )
 
+        # --- Normalize final plan weights to 1.0 ---
         total_weight = sum(p.weight for p in plans)
         if total_weight > 0:
             plans = [
@@ -150,5 +223,31 @@ class MixturePlanner:
 
         if not plans:
             raise ValueError("Empty mixture plan")
+
+        # --- Fix 3: estimated_records via largest remainder ---
+        raw_alloc = [p.weight * target for p in plans]
+        floors = [int(r) for r in raw_alloc]
+        remainders = [r - int(r) for r in raw_alloc]
+        allocated = sum(floors)
+        remainder = target - allocated
+
+        plan_indices = sorted(
+            range(len(plans)),
+            key=lambda i: (-remainders[i], plans[i].source_id),
+        )
+        for i in range(remainder):
+            floors[plan_indices[i]] += 1
+
+        plans = [
+            MixturePlan(
+                source_id=p.source_id,
+                weight=p.weight,
+                estimated_records=floors[i],
+                language=p.language,
+                domain=p.domain,
+                note=p.note,
+            )
+            for i, p in enumerate(plans)
+        ]
 
         return tuple(sorted(plans, key=lambda p: (-p.weight, p.source_id)))
