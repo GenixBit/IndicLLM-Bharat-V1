@@ -554,10 +554,14 @@ class TestPretrainSlow:
         model = GPT(
             GPTConfig(n_layer=1, n_head=2, n_embd=16, block_size=8, vocab_size=128, bias=False)
         )
+        from train.pretrain import _build_optimizer
+
+        cfg = _config_for(out_dir, shards, tiny_tokenizer_path, init_from="resume")
+        optim = _build_optimizer(model, cfg["training"])
         torch.save(
             {
                 "model": model.state_dict(),
-                "optimizer": {},
+                "optimizer": optim.state_dict(),
                 "iter_num": 3,
                 "config": _config_for(out_dir, shards, tiny_tokenizer_path, init_from="resume"),
                 "metadata": {
