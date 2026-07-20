@@ -472,6 +472,28 @@ class TestFuzzyDeduplicator:
         assert dedup.seen_count == 0
         assert dedup.add_document(text)
 
+    def test_char_ngram_fallback_tamil_near_duplicate(self):
+        dedup = FuzzyDeduplicator(FuzzyDedupConfig(threshold=0.5, n_gram_size=5))
+        text_a = "தமிழ்மொழிமிகவும்பழமையானமொழிகளில்ஒன்றாகும்இதுஉலகம்முழுவதும்பலமில்லியன்மக்களால்பேசப்படுகிறது"
+        text_b = "தமிழ்மொழிமிகவும்பழமையானமொழிகளில்ஒன்றாகும்இதுஉலகம்முழுவதும்பலமில்லியன்மக்களால்பேசப்படுகிறது"
+        assert dedup.add_document(text_a)
+        assert not dedup.add_document(text_b)
+
+    def test_char_ngram_fallback_tamil_unrelated_not_duplicate(self):
+        dedup = FuzzyDeduplicator(FuzzyDedupConfig(threshold=0.5, n_gram_size=5))
+        text_a = "தமிழ்மொழிமிகவும்பழமையானமொழிகளில்ஒன்றாகும்"
+        text_b = "தொழில்நுட்பவளர்ச்சிவாழ்க்கையைஎளிமையாக்கியுள்ளது"
+        assert dedup.add_document(text_a)
+        assert dedup.add_document(text_b)
+        assert dedup.seen_count == 2
+
+    def test_char_ngram_fallback_hindi_no_spaces(self):
+        dedup = FuzzyDeduplicator(FuzzyDedupConfig(threshold=0.5, n_gram_size=5))
+        text_a = "भारतएकमहानदेशहैजहांविभिन्नसंस्कृतियोंकासमावेशहै"
+        text_b = "भारतएकमहानदेशहैजहांविभिन्नसंस्कृतियोंकाराष्ट्रहै"
+        assert dedup.add_document(text_a)
+        assert not dedup.add_document(text_b)
+
 
 # ---------------------------------------------------------------------------
 # PII Detection
@@ -741,3 +763,24 @@ class TestDataProcessor:
         processor = DataProcessor(config)
         decision = processor.process("test")
         assert isinstance(decision, ProcessingDecision)
+
+    def test_rejected_record_does_not_pollute_exact_dedup(self):
+        processor = DataProcessor()
+        decision = processor.process("hi")
+        assert not decision.accepted
+        assert processor.exact_dedup.seen_count == 0
+        assert processor.fuzzy_dedup.seen_count == 0
+
+    def test_duplicate_accepted_record_is_still_rejected(self):
+        qconfig = QualityConfig(min_chars=1, min_words=1)
+        config = ProcessingConfig(quality=qconfig)
+        processor = DataProcessor(config)
+        text = (
+            "This is a high quality clean document for processing.\n"
+            "It contains multiple lines so it passes all quality checks."
+        )
+        first = processor.process(text)
+        assert first.accepted, f"First should be accepted: {first.reasons}"
+        second = processor.process(text)
+        assert not second.accepted
+        assert "exact_duplicate" in second.reasons
