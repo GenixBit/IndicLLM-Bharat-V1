@@ -1,0 +1,14 @@
+name: Test Runner
+
+on:
+  push:
+    branches: ["*"]
+
+jobs:
+  test-basic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1
+        run: echo "Runner works!"
+      - name: Step 2
+        run: uname -a
