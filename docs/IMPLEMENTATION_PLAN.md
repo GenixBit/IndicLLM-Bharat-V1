@@ -143,13 +143,14 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete files; keep existing data pipelines
 - **Acceptance:** Unknown and missing licences cannot be approved; approved records require evidence and immutable provenance; registry ordering and digest are deterministic; offline validation succeeds
 
-#### PR 11: Quality filters + deduplication
-- **Files:** `bharat/data/language_id.py`, `bharat/data/normalization.py`, `bharat/data/exact_dedup.py`, `bharat/data/fuzzy_dedup.py`, `bharat/data/pii.py`, `bharat/data/quality.py`, `bharat/data/safety_filter.py`
-- **Content:** Language identification, Unicode normalization, exact/fuzzy dedup, PII detection, quality scoring, safety filtering
-- **Tests:** Dedup correctness, PII detection, quality scoring
+#### PR 11: Quality filters + deduplication ✅ COMPLETED
+- **Files:** `bharat/data/language_id.py`, `bharat/data/normalization.py`, `bharat/data/exact_dedup.py`, `bharat/data/fuzzy_dedup.py`, `bharat/data/pii.py`, `bharat/data/quality.py`, `bharat/data/safety_filter.py`, `bharat/data/processing.py`
+- **Content:** Language identification, Unicode normalization, exact/fuzzy dedup, PII detection, quality scoring, safety filtering, offline pipeline wrapper
+- **2025-07 Hardening:** Unicode-safe fuzzy dedup, config-respecting exact dedup, short-Indic script fallback in language ID, Luhn-validated credit cards + overlap resolution in PII, QualityDecision with reason codes in quality scorer, heuristic-only disclaimer + reason codes in safety filter, deterministic DataProcessor pipeline wrapper
+- **Tests:** 111 tests covering Indic scripts, edge cases, config validation, overlap resolution, Luhn validation, reason codes, pipeline composition
 - **Depends on:** PR 10
 - **Rollback:** Delete files; existing data pipelines unchanged
-- **Acceptance:** Dedup removes exact duplicates; PII patterns detected
+- **Acceptance:** Dedup removes exact duplicates; PII patterns detected; Indic text handled safely; all CI checks pass
 
 #### PR 12: Manifests + contamination + sharding
 - **Files:** `bharat/data/contamination.py`, `bharat/data/mixture.py`, `bharat/data/sharding.py`, `bharat/data/manifests.py`, `bharat/data/statistics.py`
@@ -271,7 +272,7 @@ IndicLLM-Bharat-V1/
 | 8 | feat: Bharat model + generation with KV cache | `bharat/models/bharat_model.py`, `generation.py`, `outputs.py`, `cache.py` | PR 7 | 2-3 days | ✅ |
 | 9 | feat: Model configs + parameter calculator | `configs/models/bharat-*.yaml`, `bharat/models/spec.py`, `sizing.py`, `scripts/calculate_params.py`, `docs/MODEL_CONFIGURATIONS.md` | PR 8 | 1 day | ✅ |
 | 10 | feat: Governed data source registry and licensing | `bharat/data/`, `data_registry/`, `scripts/validate_data_registry.py`, `docs/DATA_GOVERNANCE.md` | PR 1 | 3 days | ✅ |
-| 11 | feat: Data quality filters and deduplication | `bharat/data/*_dedup.py`, `pii.py`, `quality.py`, `safety_filter.py` | PR 10 | 2-3 days |
+| 11 | feat: Data quality filters and deduplication | `bharat/data/*_dedup.py`, `pii.py`, `quality.py`, `safety_filter.py`, `processing.py` | PR 10 | 2-3 days | ✅ |
 | 12 | feat: Data manifests and contamination checks | `bharat/data/contamination.py`, `manifests.py`, `sharding.py` | PR 11 | 2 days |
 | 13 | feat: Evaluation runner and reporting | `bharat/evaluation/runner.py`, `registry.py`, `reporting.py` | PR 1 | 2 days |
 | 14 | feat: Evaluation modules | `bharat/evaluation/*.py` (12 modules) | PR 13 | 3-4 days |
