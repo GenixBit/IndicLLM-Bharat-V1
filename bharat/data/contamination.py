@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -26,6 +25,7 @@ class ContaminationChecker:
             raise FileNotFoundError(f"Blocklist not found: {path}")
         if path.suffix == ".json":
             import json
+
             with path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list):

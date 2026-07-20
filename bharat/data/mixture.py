@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -23,7 +24,7 @@ class MixturePlan:
 class MixturePlanner:
     def plan(
         self,
-        manifests: list,
+        manifests: Sequence,  # type: ignore[type-arg]
         constraint: MixtureConstraint,
     ) -> tuple[MixturePlan, ...]:
         if not manifests:
@@ -32,27 +33,17 @@ class MixturePlanner:
             raise ValueError("language_weights must be non-empty")
         total_lang_weight = sum(constraint.language_weights.values())
         if abs(total_lang_weight - 1.0) > 1e-9:
-            raise ValueError(
-                f"language_weights must sum to 1.0, got {total_lang_weight}"
-            )
+            raise ValueError(f"language_weights must sum to 1.0, got {total_lang_weight}")
         for w in constraint.language_weights.values():
             if w < 0:
-                raise ValueError(
-                    f"language weight must be non-negative, got {w}"
-                )
+                raise ValueError(f"language weight must be non-negative, got {w}")
         for w in constraint.domain_weights.values():
             if w < 0:
-                raise ValueError(
-                    f"domain weight must be non-negative, got {w}"
-                )
+                raise ValueError(f"domain weight must be non-negative, got {w}")
         if not 0.0 < constraint.max_pct_per_source <= 1.0:
-            raise ValueError(
-                "max_pct_per_source must be in (0.0, 1.0]"
-            )
+            raise ValueError("max_pct_per_source must be in (0.0, 1.0]")
         if constraint.min_record_threshold < 0:
-            raise ValueError(
-                "min_record_threshold must be >= 0"
-            )
+            raise ValueError("min_record_threshold must be >= 0")
 
         total_records = sum(m.records for m in manifests)
         if total_records < constraint.min_record_threshold:
@@ -63,9 +54,7 @@ class MixturePlanner:
 
         source_record_map: dict[str, int] = {}
         for m in manifests:
-            source_record_map[m.source_id] = (
-                source_record_map.get(m.source_id, 0) + m.records
-            )
+            source_record_map[m.source_id] = source_record_map.get(m.source_id, 0) + m.records
 
         max_records_per_source = total_records * constraint.max_pct_per_source
         for sid, recs in source_record_map.items():

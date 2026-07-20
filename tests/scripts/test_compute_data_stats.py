@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess:
@@ -49,9 +48,7 @@ class TestComputeStatsCLI:
 
     def test_jsonl_input(self, tmp_path):
         jsonl_file = tmp_path / "data.jsonl"
-        jsonl_file.write_text(
-            "First document with enough text for quality scoring.\n"
-        )
+        jsonl_file.write_text("First document with enough text for quality scoring.\n")
         result = run_cli(["--input", str(jsonl_file), "--json"])
         assert result.returncode == 0
         data = json.loads(result.stdout)

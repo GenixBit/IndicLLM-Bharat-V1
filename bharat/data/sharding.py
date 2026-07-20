@@ -23,8 +23,8 @@ class ShardPlanner:
     ) -> None:
         if max_records_per_shard < 1:
             raise ValueError("max_records_per_shard must be >= 1")
-        if max_bytes_per_shard < 1:
-            raise ValueError("max_bytes_per_shard must be >= 1")
+        if max_bytes_per_shard < 0:
+            raise ValueError("max_bytes_per_shard must be >= 0")
         self._dataset_id = dataset_id
         self._split = split
         self._max_records = max_records_per_shard
@@ -65,7 +65,7 @@ class ShardPlanner:
         num_shards_by_records = (total_records + records_per_shard - 1) // records_per_shard
 
         num_shards_by_bytes = 1
-        if total_bytes > 0:
+        if total_bytes > 0 and self._max_bytes > 0:
             num_shards_by_bytes = (total_bytes + self._max_bytes - 1) // self._max_bytes
 
         num_shards = max(num_shards_by_records, num_shards_by_bytes)
@@ -84,7 +84,7 @@ class ShardPlanner:
             shard_bytes = base_bytes + (1 if idx < extra_bytes else 0)
             shard_id = self._shard_name(idx)
             planned_digest = hashlib.sha256(
-                f"{shard_id}:{shard_records}:{shard_bytes}".encode("utf-8")
+                f"{shard_id}:{shard_records}:{shard_bytes}".encode()
             ).hexdigest()[:16]
             plans.append(
                 ShardPlan(

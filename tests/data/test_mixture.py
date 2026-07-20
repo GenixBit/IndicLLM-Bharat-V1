@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from bharat.data.manifest import DatasetManifest
-from bharat.data.mixture import MixtureConstraint, MixturePlan, MixturePlanner
+from bharat.data.mixture import MixtureConstraint, MixturePlanner
 
 
 def _make_manifest(

@@ -39,7 +39,9 @@ def _read_texts(path: Path) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compute dataset statistics from local text files")
-    parser.add_argument("--input", required=True, help="Path to text file, JSONL file, or directory")
+    parser.add_argument(
+        "--input", required=True, help="Path to text file, JSONL file, or directory"
+    )
     parser.add_argument("--json", action="store_true", help="Output JSON")
 
     args = parser.parse_args()
@@ -78,7 +80,7 @@ def main() -> None:
             )
         )
     else:
-        print(f"Dataset Statistics")
+        print("Dataset Statistics")
         print(f"  Records:              {stats.record_count}")
         print(f"  Total chars:          {stats.total_chars}")
         print(f"  Total UTF-8 bytes:    {stats.total_utf8_bytes}")

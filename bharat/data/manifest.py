@@ -3,36 +3,40 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 _MANIFEST_SCHEMA_VERSION = "1.0"
-_ALLOWED_MANIFEST_ROOT_KEYS = frozenset({
-    "manifest_version",
-    "dataset_id",
-    "source_id",
-    "source_version",
-    "created_at",
-    "license",
-    "language",
-    "split",
-    "records",
-    "bytes_utf8",
-    "sha256",
-    "processing_config_digest",
-    "registry_digest",
-    "policy_digest",
-    "shards",
-})
-_ALLOWED_SHARD_KEYS = frozenset({
-    "shard_id",
-    "index",
-    "record_start",
-    "record_end",
-    "bytes_utf8",
-    "sha256",
-    "created_at",
-})
+_ALLOWED_MANIFEST_ROOT_KEYS = frozenset(
+    {
+        "manifest_version",
+        "dataset_id",
+        "source_id",
+        "source_version",
+        "created_at",
+        "license",
+        "language",
+        "split",
+        "records",
+        "bytes_utf8",
+        "sha256",
+        "processing_config_digest",
+        "registry_digest",
+        "policy_digest",
+        "shards",
+    }
+)
+_ALLOWED_SHARD_KEYS = frozenset(
+    {
+        "shard_id",
+        "index",
+        "record_start",
+        "record_end",
+        "bytes_utf8",
+        "sha256",
+        "created_at",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -78,9 +82,7 @@ class ShardManifest:
         if not isinstance(record_end, int) or record_end < 0:
             raise ValueError("record_end must be a non-negative integer")
         if record_end < record_start:
-            raise ValueError(
-                f"record_end ({record_end}) must be >= record_start ({record_start})"
-            )
+            raise ValueError(f"record_end ({record_end}) must be >= record_start ({record_start})")
         return cls(
             shard_id=shard_id,
             index=index,
@@ -200,9 +202,7 @@ class DatasetManifest:
             raise ValueError("shards must be a list")
         shards = tuple(ShardManifest.from_dict(s) for s in shards_raw)
 
-        total_shard_records = sum(
-            s.record_end - s.record_start for s in shards
-        )
+        total_shard_records = sum(s.record_end - s.record_start for s in shards)
         if shards and total_shard_records != records:
             raise ValueError(
                 f"Shard record sum ({total_shard_records}) does not match "
@@ -248,9 +248,7 @@ class DatasetManifest:
         if not self.policy_digest:
             errors.append("policy_digest must be non-empty")
         if self.shards:
-            total_shard_records = sum(
-                s.record_end - s.record_start for s in self.shards
-            )
+            total_shard_records = sum(s.record_end - s.record_start for s in self.shards)
             if total_shard_records != self.records:
                 errors.append(
                     f"Shard record sum ({total_shard_records}) != "
@@ -262,9 +260,7 @@ class DatasetManifest:
                     errors.append(f"Duplicate shard index: {s.index}")
                 seen_indices.add(s.index)
                 if s.record_end < s.record_start:
-                    errors.append(
-                        f"Shard '{s.shard_id}': record_end < record_start"
-                    )
+                    errors.append(f"Shard '{s.shard_id}': record_end < record_start")
         return errors
 
     def is_valid(self) -> bool:
@@ -276,8 +272,9 @@ def digest_processing_config(config: object) -> str:
     if hasattr(cfg, "to_dict"):
         cfg = cfg.to_dict()
     elif hasattr(cfg, "__dataclass_fields__"):
-        from dataclasses import fields, asdict
-        cfg = asdict(cfg)
+        from dataclasses import asdict
+
+        cfg = asdict(cfg)  # type: ignore[call-overload]
     if not isinstance(cfg, dict):
         cfg = {"value": str(cfg)}
     canonical = json.dumps(cfg, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -299,11 +296,9 @@ def create_manifest(
     policy_digest: str,
     shards: tuple[ShardManifest, ...] = (),
 ) -> DatasetManifest:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     if shards:
-        total_shard_records = sum(
-            s.record_end - s.record_start for s in shards
-        )
+        total_shard_records = sum(s.record_end - s.record_start for s in shards)
         if total_shard_records != records:
             raise ValueError(
                 f"Shard record sum ({total_shard_records}) does not match "

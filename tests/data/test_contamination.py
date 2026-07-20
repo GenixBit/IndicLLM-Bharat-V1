@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from bharat.data.contamination import ContaminationChecker, ContaminationResult
+from bharat.data.contamination import ContaminationChecker
 
 
 class TestContaminationChecker:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from bharat.data.processing import DataProcessor, ProcessingConfig
+from bharat.data.processing import DataProcessor
 
 
 @dataclass(frozen=True)

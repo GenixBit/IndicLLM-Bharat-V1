@@ -78,7 +78,12 @@ class TestValidateManifestCLI:
 
     def test_digest_mismatch_warning(self, tmp_path):
         manifest_path = tmp_path / "manifest.json"
-        _write_manifest(manifest_path, overrides={"sha256": "0000000000000000000000000000000000000000000000000000000000000000"})
+        _write_manifest(
+            manifest_path,
+            overrides={
+                "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+        )
         result = run_cli(["--manifest", str(manifest_path)])
         assert result.returncode == 0
         assert "digest mismatch" in result.stdout

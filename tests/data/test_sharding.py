@@ -50,7 +50,7 @@ class TestShardPlanner:
 
     def test_invalid_max_bytes(self):
         with pytest.raises(ValueError, match="max_bytes_per_shard"):
-            ShardPlanner(max_bytes_per_shard=0)
+            ShardPlanner(max_bytes_per_shard=-1)
 
     def test_byte_split_creates_more_shards(self):
         planner = ShardPlanner(
