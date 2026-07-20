@@ -1,12 +1,11 @@
 # AGENTS.md — Session Log
 
-## Session: Milestone 3.2.2 — Pipeline Correctness Final Gate
+## Session: Milestone 3.3 — Dataset Manifests & Planning Infrastructure
 
 **Date:** 2026-07-20
-**Branch:** `fix/milestone-3-processing-final-gate`
-**HEAD:** `c5f074b` — "fix: pipeline correctness final gate"
-**Upstream:** PR #6 (https://github.com/GenixBit/IndicLLM-Bharat-V1/pull/6)
-**CI:** All 6 jobs green ✅
+**Branch:** `feat/milestone-3-dataset-manifests`
+**HEAD:** `ac8452a` — "fix: address ruff and mypy warnings across new modules"
+**Upstream:** Not yet pushed. All acceptance criteria met.
 
 ---
 
@@ -14,34 +13,44 @@
 
 | Time | Action |
 |------|--------|
-| Start | Loaded repository. Branch `main` at `a239c2b` (Milestone 3.2.1 merged). |
-| Planned | Designed 3 fixes: char n-gram fallback, pipeline reorder, CI verification. |
-| Fixed | `bharat/data/fuzzy_dedup.py` — added char n-gram fallback when word count < n_gram_size. |
-| Fixed | `bharat/data/processing.py` — reordered pipeline: quality/PII/safety checks before dedup insertion. |
-| Tested | Added 5 new tests (3 for char n-gram, 2 for dedup pollution). |
-| Verified | 826 tests pass, ruff/mypy clean. |
-| Released | Branch `fix/milestone-3-processing-final-gate` pushed, PR #6 created. |
-| Verified | All 6 CI jobs (format, lint, typecheck, diff-check, test 3.11, test 3.12) green. |
+| Start | Loaded repository. Branch `main` at `af2f541` (Milestone 3.2.2 merged). |
+| Planned | Designed 7 scope items: manifest, stats, sharding, mixture, contamination, CLI, docs. |
+| Implemented | `bharat/data/manifest.py` — `DatasetManifest` + `ShardManifest` with deterministic JSON, SHA-256 digest, schema validation. |
+| Implemented | `bharat/data/stats.py` — `DatasetStatistics` computed offline via `DataProcessor.process_batch()`. |
+| Implemented | `bharat/data/sharding.py` — `ShardPlanner` for deterministic shard planning (record + byte constraints). |
+| Implemented | `bharat/data/mixture.py` — `MixturePlanner` with language/source/domain weight constraints. |
+| Implemented | `bharat/data/contamination.py` — `ContaminationChecker` with exact, normalized, and n-gram overlap modes. |
+| Implemented | `scripts/validate_data_manifest.py`, `scripts/plan_data_shards.py`, `scripts/compute_data_stats.py`. |
+| Updated | `bharat/data/__init__.py`, `pyproject.toml` (entry points). |
+| Updated | `README.md`, `docs/DATA_GOVERNANCE.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/ROADMAP.md`. |
+| Verified | 903 tests pass (77 new), ruff/mypy clean, registry validation passes. |
 
 ---
 
-### Milestone 3.2.2 Changes
+### Milestone 3.3 Changes
 
 | File | Change |
 |------|--------|
-| `bharat/data/fuzzy_dedup.py` | Char n-gram fallback for whitespace-less Indic text (Tamil, Devanagari, etc.) |
-| `bharat/data/processing.py` | Quality/PII/safety gates before dedup; only accepted records enter dedup |
-| `tests/data/test_filters.py` | 5 new tests covering both fixes |
+| `bharat/data/manifest.py` | Dataset manifest (SHA-256 digest, schema validation, shard manifests) |
+| `bharat/data/stats.py` | Dataset statistics computed via DataProcessor |
+| `bharat/data/sharding.py` | Deterministic shard planning (record/byte constraints) |
+| `bharat/data/mixture.py` | Language/domain/source weight mixture planning |
+| `bharat/data/contamination.py` | Offline contamination checker (exact/normalized/n-gram) |
+| `scripts/validate_data_manifest.py` | CLI to validate manifest JSON files |
+| `scripts/plan_data_shards.py` | CLI to generate shard plans |
+| `scripts/compute_data_stats.py` | CLI to compute stats from local text files |
+| `tests/` (6 new files) | 77 new tests across all modules + CLI tools |
 
 ### Test Stats
 
-- **Total:** 826 passed, 7 skipped, 6 deselected
-- **Filter tests (`tests/data/test_filters.py`):** 116 tests (was 111)
+- **Total:** 903 passed, 7 skipped, 6 deselected
+- **New data tests:** 59 (manifest, stats, sharding, mixture, contamination)
+- **New CLI tests:** 18 (validate_data_manifest, plan_data_shards, compute_data_stats)
+
+### Milestone 3 Complete ✅
 
 ### Still Open / Not Yet Started
 
-- Milestone 3.3: Data manifests, sharding, source registry integration, contamination checking
-- Milestone 2: Modern model architecture (RoPE, RMSNorm, SwiGLU, GQA, FlashAttention)
 - Milestone 4: BharatBench evaluation framework
 - Milestone 5: Production serving (streaming, auth, metrics)
 - Milestone 6-7: Bharat-350M and Bharat-1B training
