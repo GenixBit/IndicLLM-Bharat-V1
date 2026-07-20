@@ -163,3 +163,115 @@ class TestPreparation:
         _, report = preparer.prepare(str(f))
         assert report.total_records >= 1
         assert report.rejected_records + report.accepted_records == report.total_records
+
+    def test_contamination_exact_rejected(self, tmp_path):
+        f = tmp_path / "input.txt"
+        f.write_text(REAL_TEXT, encoding="utf-8")
+        blocklist = tmp_path / "block.json"
+        import json
+
+        blocklist.write_text(json.dumps([REAL_TEXT]), encoding="utf-8")
+        config = PreparationConfig(
+            source_id="test",
+            source_version="v1",
+            license="cc-by-4.0",
+            language="en",
+            split="train",
+            domain="web",
+            output_dir=str(tmp_path / "out"),
+            dry_run=True,
+            blocklist_path=str(blocklist),
+        )
+        _, report = LocalPreparer(config).prepare(str(f))
+        assert "contamination:exact" in report.rejection_reasons
+
+    def test_contamination_normalized_rejected(self, tmp_path):
+        f = tmp_path / "input.txt"
+        content = "  THE INDIAN EDUCATION SYSTEM  "
+        f.write_text(content, encoding="utf-8")
+        blocklist = tmp_path / "block.txt"
+        blocklist.write_text("the indian education system", encoding="utf-8")
+        config = PreparationConfig(
+            source_id="test",
+            source_version="v1",
+            license="cc-by-4.0",
+            language="en",
+            split="train",
+            domain="web",
+            output_dir=str(tmp_path / "out"),
+            dry_run=True,
+            blocklist_path=str(blocklist),
+        )
+        _, report = LocalPreparer(config).prepare(str(f))
+        assert "contamination:normalized" in report.rejection_reasons
+
+    def test_contamination_ngram_rejected(self, tmp_path):
+        f = tmp_path / "input.txt"
+        block_text = REAL_TEXT
+        # Change one word so exact/normalized don't match but ngrams mostly overlap
+        input_text = REAL_TEXT.replace("numeracy", "literacy")
+        f.write_text(input_text, encoding="utf-8")
+        blocklist = tmp_path / "block.json"
+        import json
+
+        blocklist.write_text(json.dumps([block_text]), encoding="utf-8")
+        config = PreparationConfig(
+            source_id="test",
+            source_version="v1",
+            license="cc-by-4.0",
+            language="en",
+            split="train",
+            domain="web",
+            output_dir=str(tmp_path / "out"),
+            dry_run=True,
+            blocklist_path=str(blocklist),
+        )
+        _, report = LocalPreparer(config).prepare(str(f))
+        reasons = report.rejection_reasons
+        any_ngram = any(k.startswith("contamination:ngram") for k in reasons)
+        assert any_ngram, f"No ngram key found in {reasons}"
+
+    def test_clean_text_accepted_with_blocklist(self, tmp_path):
+        f = tmp_path / "input.txt"
+        f.write_text(REAL_TEXT, encoding="utf-8")
+        blocklist = tmp_path / "block.txt"
+        blocklist.write_text("completely unrelated content", encoding="utf-8")
+        config = PreparationConfig(
+            source_id="test",
+            source_version="v1",
+            license="cc-by-4.0",
+            language="en",
+            split="train",
+            domain="web",
+            output_dir=str(tmp_path / "out"),
+            dry_run=True,
+            blocklist_path=str(blocklist),
+        )
+        _, report = LocalPreparer(config).prepare(str(f))
+        assert "contamination:exact" not in report.rejection_reasons
+
+    def test_contaminated_not_written_to_shards(self, tmp_path):
+        import json
+
+        f = tmp_path / "input.txt"
+        f.write_text(REAL_TEXT, encoding="utf-8")
+        blocklist = tmp_path / "block.json"
+        blocklist.write_text(json.dumps([REAL_TEXT]), encoding="utf-8")
+        out = str(tmp_path / "out")
+        config = PreparationConfig(
+            source_id="test",
+            source_version="v1",
+            license="cc-by-4.0",
+            language="en",
+            split="train",
+            domain="web",
+            output_dir=out,
+            dry_run=False,
+            blocklist_path=str(blocklist),
+        )
+        manifest, report = LocalPreparer(config).prepare(str(f))
+        assert report.accepted_records == 0
+        assert manifest.records == 0
+        shard_dir = tmp_path / "out" / "shards"
+        shard_files = list(shard_dir.glob("*.jsonl"))
+        assert len(shard_files) == 0

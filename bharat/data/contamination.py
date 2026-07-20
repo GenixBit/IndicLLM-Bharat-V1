@@ -87,7 +87,7 @@ class ContaminationChecker:
 
     def _get_ngrams_for(self, n: int) -> list[set[int]]:
         if n not in self._ngram_cache:
-            self._ngram_cache[n] = [self._text_ngrams(e, n) for e in self._entries]
+            self._ngram_cache[n] = [self._text_ngrams(self._normalize(e), n) for e in self._entries]
         return self._ngram_cache[n]
 
     def check_exact(self, text: str) -> ContaminationResult:

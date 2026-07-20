@@ -17,6 +17,13 @@ from bharat.data.processing import DataProcessor, ProcessingConfig
 from bharat.data.records import ProcessedRecord
 from bharat.data.shard_writer import ShardWriter, ShardWriterConfig
 
+_CONTAMINATION_REASONS = {
+    "exact": "contamination:exact",
+    "normalized": "contamination:normalized",
+}
+
+_CONTAMINATION_NGRAM_PREFIX = "contamination:ngram_"
+
 
 @dataclass(frozen=True)
 class PreparationConfig:
@@ -93,6 +100,36 @@ class LocalPreparer:
                 )
             )
 
+        if self._contamination is not None:
+            updated: list[ProcessedRecord] = []
+            for r in processed:
+                text = r.text
+                result = self._contamination.check_all(text)
+                if result.is_contaminated:
+                    if result.method in _CONTAMINATION_REASONS:
+                        reason = _CONTAMINATION_REASONS[result.method]
+                    elif result.method.startswith("ngram_"):
+                        n = result.method.removeprefix("ngram_")
+                        reason = f"{_CONTAMINATION_NGRAM_PREFIX}{n}"
+                    else:
+                        reason = f"contamination:{result.method}"
+                    rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
+                    updated.append(
+                        ProcessedRecord(
+                            record_id=r.record_id,
+                            text=r.text,
+                            language=r.language,
+                            quality_score=r.quality_score,
+                            source_path=r.source_path,
+                            line_number=r.line_number,
+                            processing_reasons=(*r.processing_reasons, reason),
+                            accepted=False,
+                        )
+                    )
+                else:
+                    updated.append(r)
+            processed = updated
+
         total = len(processed)
         accepted_records = [r for r in processed if r.accepted]
         rejected_count = total - len(accepted_records)
@@ -133,11 +170,7 @@ class LocalPreparer:
                 max_bytes_per_shard=self._config.max_bytes_per_shard,
             )
             writer = ShardWriter(writer_config)
-
-            batch_size = self._config.max_records_per_shard
-            for i in range(0, len(accepted_records), batch_size):
-                batch = accepted_records[i : i + batch_size]
-                writer.write_shard(batch)
+            writer.write_shard(accepted_records)
 
             shards = writer.manifests
             shard_count = len(shards)

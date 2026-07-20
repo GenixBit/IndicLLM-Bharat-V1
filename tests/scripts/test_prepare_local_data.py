@@ -189,3 +189,103 @@ class TestPrepareLocalDataCLI:
             ]
         )
         assert code == 0
+
+    def test_created_at_reproducible(self, tmp_path):
+        f = tmp_path / "input.txt"
+        f.write_text(REAL_TEXT, encoding="utf-8")
+        out1 = str(tmp_path / "out1")
+        out2 = str(tmp_path / "out2")
+        ts = "2026-07-20T12:00:00Z"
+        code1, out1_out = _run(
+            [
+                "prepare_local_data",
+                "--input",
+                str(f),
+                "--source-id",
+                "test_repro",
+                "--source-version",
+                "1.0",
+                "--license",
+                "cc-by-4.0",
+                "--language",
+                "en",
+                "--output-dir",
+                out1,
+                "--created-at",
+                ts,
+            ]
+        )
+        assert code1 == 0
+        report1_path = tmp_path / "out1" / "preparation_report.json"
+        d1 = json.loads(report1_path.read_text(encoding="utf-8"))
+
+        code2, out2_out = _run(
+            [
+                "prepare_local_data",
+                "--input",
+                str(f),
+                "--source-id",
+                "test_repro",
+                "--source-version",
+                "1.0",
+                "--license",
+                "cc-by-4.0",
+                "--language",
+                "en",
+                "--output-dir",
+                out2,
+                "--created-at",
+                ts,
+            ]
+        )
+        assert code2 == 0
+        report2_path = tmp_path / "out2" / "preparation_report.json"
+        d2 = json.loads(report2_path.read_text(encoding="utf-8"))
+
+        assert d1["manifest_digest"] == d2["manifest_digest"]
+
+    def test_created_at_invalid_format(self, tmp_path):
+        f = tmp_path / "input.txt"
+        f.write_text(REAL_TEXT, encoding="utf-8")
+        code, _ = _run(
+            [
+                "prepare_local_data",
+                "--input",
+                str(f),
+                "--source-id",
+                "test",
+                "--source-version",
+                "1.0",
+                "--license",
+                "cc-by-4.0",
+                "--language",
+                "en",
+                "--dry-run",
+                "--created-at",
+                "not-a-valid-timestamp",
+            ]
+        )
+        assert code != 0
+
+    def test_json_output_is_valid_json(self, tmp_path):
+        f = tmp_path / "input.txt"
+        f.write_text(REAL_TEXT, encoding="utf-8")
+        code, out = _run(
+            [
+                "prepare_local_data",
+                "--input",
+                str(f),
+                "--source-id",
+                "test",
+                "--source-version",
+                "1.0",
+                "--license",
+                "cc-by-4.0",
+                "--language",
+                "en",
+                "--dry-run",
+                "--json",
+            ]
+        )
+        assert code == 0
+        json.loads(out)
