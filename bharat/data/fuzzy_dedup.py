@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass, field
 
 from bharat.data.normalization import NormalizationConfig, Normalizer
@@ -16,12 +15,17 @@ class FuzzyDedupConfig:
     normalization_config: NormalizationConfig = field(default_factory=NormalizationConfig)
 
 
-_NORMALIZER = Normalizer()
-_NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9\s]")
+_GLOBAL_NORMALIZER = Normalizer()
 
 
-def _default_minhash_signature(text: str, n_gram_size: int, num_perm: int) -> list[int]:
-    words = _NON_ALNUM_RE.sub("", text).lower().split()
+def _unicode_words(text: str) -> list[str]:
+    if not text:
+        return []
+    return text.split()
+
+
+def _default_minhash_signature(text: str, n_gram_size: int, num_perm: int) -> list[int] | None:
+    words = _unicode_words(text)
     if len(words) < n_gram_size:
         n_gram_size = max(1, len(words))
     n_grams: set[int] = set()
@@ -30,7 +34,7 @@ def _default_minhash_signature(text: str, n_gram_size: int, num_perm: int) -> li
         h = int(hashlib.md5(ng.encode("utf-8")).hexdigest()[:8], 16)
         n_grams.add(h)
     if not n_grams:
-        return [0] * num_perm
+        return None
     a_coeffs = [2 * i + 1 for i in range(num_perm)]
     b_coeffs = [3 * i + 7 for i in range(num_perm)]
     max_hash = 2**32 - 1
@@ -55,12 +59,20 @@ def _jaccard_similarity(sig_a: list[int], sig_b: list[int]) -> float:
 class FuzzyDeduplicator:
     def __init__(self, config: FuzzyDedupConfig | None = None) -> None:
         self.config = config or FuzzyDedupConfig()
+        if self.config.n_gram_size < 1:
+            raise ValueError("n_gram_size must be >= 1")
+        if self.config.num_permutations < 1:
+            raise ValueError("num_permutations must be >= 1")
+        if not 0.0 <= self.config.threshold <= 1.0:
+            raise ValueError("threshold must be in [0.0, 1.0]")
         self._signatures: list[tuple[str, list[int]]] = []
 
     def add_document(self, text: str) -> bool:
         if not text:
             return False
         sig = self._compute_signature(text)
+        if sig is None:
+            return False
         for _, existing in self._signatures:
             if _jaccard_similarity(sig, existing) >= self.config.threshold:
                 return False
@@ -71,6 +83,8 @@ class FuzzyDeduplicator:
         if not text:
             return False
         sig = self._compute_signature(text)
+        if sig is None:
+            return False
         for _, existing in self._signatures:
             if _jaccard_similarity(sig, existing) >= self.config.threshold:
                 return True
@@ -90,9 +104,13 @@ class FuzzyDeduplicator:
     def seen_count(self) -> int:
         return len(self._signatures)
 
-    def _compute_signature(self, text: str) -> list[int]:
+    def _compute_signature(self, text: str) -> list[int] | None:
         if self.config.normalize:
-            text = _NORMALIZER.normalize(text)
+            if self.config.normalization_config != FuzzyDedupConfig().normalization_config:
+                normalizer = Normalizer(self.config.normalization_config)
+            else:
+                normalizer = _GLOBAL_NORMALIZER
+            text = normalizer.normalize(text)
         return _default_minhash_signature(
             text, self.config.n_gram_size, self.config.num_permutations
         )

@@ -15,26 +15,20 @@ class ExactDedupConfig:
     normalization_config: NormalizationConfig = field(default_factory=NormalizationConfig)
 
 
-_NORMALIZER = Normalizer()
-
-
-def _default_normalize(text: str) -> str:
-    return _NORMALIZER.normalize(text)
-
-
-def _hash_text(text: str, func: str = "sha256") -> str:
-    h = hashlib.new(func)
-    h.update(text.encode("utf-8"))
-    return h.hexdigest()
-
-
 class ExactDeduplicator:
     def __init__(self, config: ExactDedupConfig | None = None) -> None:
         self.config = config or ExactDedupConfig()
+        if self.config.hash_func not in hashlib.algorithms_available:
+            raise ValueError(
+                f"Unknown hash algorithm: {self.config.hash_func!r}. "
+                f"Choose from: {sorted(hashlib.algorithms_available)}"
+            )
         self._seen: set[str] = set()
-        self._normalize_fn: Callable[[str], str] = (
-            _default_normalize if self.config.normalize else lambda x: x
-        )
+        if self.config.normalize:
+            normalizer = Normalizer(self.config.normalization_config)
+            self._normalize_fn: Callable[[str], str] = normalizer.normalize
+        else:
+            self._normalize_fn = lambda x: x
 
     def add_document(self, text: str) -> bool:
         if not text:
@@ -71,7 +65,9 @@ class ExactDeduplicator:
 
     def _make_key(self, text: str) -> str:
         normalized = self._normalize_fn(text)
-        return _hash_text(normalized, self.config.hash_func)
+        h = hashlib.new(self.config.hash_func)
+        h.update(normalized.encode("utf-8"))
+        return h.hexdigest()
 
     def _add_lines(self, text: str) -> bool:
         added = False
