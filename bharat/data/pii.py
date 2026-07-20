@@ -5,6 +5,59 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 
+_PII_PRIORITY: dict[str, int] = {
+    "url_credentials": 1,
+    "email": 2,
+    "credit_card": 3,
+    "aadhaar": 4,
+    "pan": 5,
+    "ip_address": 6,
+    "phone": 7,
+}
+
+
+def _luhn_checksum(digits: str) -> bool:
+    total = 0
+    alternate = False
+    for d in reversed(digits):
+        n = ord(d) - 48
+        if alternate:
+            n *= 2
+            if n > 9:
+                n -= 9
+        total += n
+        alternate = not alternate
+    return total % 10 == 0
+
+
+def _resolve_overlaps(spans: list[PIISpan]) -> list[PIISpan]:
+    if not spans:
+        return spans
+    spans = sorted(spans, key=lambda s: (s.start, -_PII_PRIORITY.get(s.pii_type, 99)))
+    merged: list[PIISpan] = []
+    for span in spans:
+        if not merged:
+            merged.append(span)
+            continue
+        last = merged[-1]
+        if span.start >= last.end:
+            merged.append(span)
+            continue
+        last_pri = _PII_PRIORITY.get(last.pii_type, 99)
+        span_pri = _PII_PRIORITY.get(span.pii_type, 99)
+        if span_pri < last_pri:
+            merged[-1] = span
+        elif span_pri == last_pri and span.end > last.end:
+            merged[-1] = PIISpan(
+                start=last.start,
+                end=max(last.end, span.end),
+                pii_type=last.pii_type,
+                text=last.text,
+                confidence=max(last.confidence, span.confidence),
+            )
+    return merged
+
+
 @dataclass(frozen=True)
 class PIISpan:
     start: int
@@ -42,7 +95,6 @@ class PIIDetector:
         "url_credentials": re.compile(r"\bhttps?://[^:\s]+:[^@\s]+@\S+\b"),
     }
     _LIKELY_PHONE_RE: ClassVar[re.Pattern[str]] = re.compile(r"\d{7,15}")
-    _LIKELY_CC_RE: ClassVar[re.Pattern[str]] = re.compile(r"\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}")
 
     def __init__(self, config: PIIConfig | None = None) -> None:
         self.config = config or PIIConfig()
@@ -60,6 +112,10 @@ class PIIDetector:
                 confidence = self._compute_confidence(pii_type, matched_text)
                 if confidence < self.config.min_confidence:
                     continue
+                if pii_type == "credit_card" and not _luhn_checksum(
+                    "".join(c for c in matched_text if c.isdigit())
+                ):
+                    continue
                 spans.append(
                     PIISpan(
                         start=match.start(),
@@ -70,7 +126,7 @@ class PIIDetector:
                     )
                 )
         spans.sort(key=lambda s: s.start)
-        return spans
+        return _resolve_overlaps(spans)
 
     def has_pii(self, text: str) -> bool:
         return len(self.detect(text)) > 0
@@ -95,15 +151,15 @@ class PIIDetector:
             return 0.3
         if pii_type == "ip_address":
             parts = matched.split(".")
-            if all(0 <= int(p) <= 255 for p in parts):
+            if len(parts) != 4:
+                return 0.3
+            if all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
                 return 0.95
-            return 0.5
+            return 0.3
         if pii_type == "credit_card":
-            if self._LIKELY_CC_RE.match(matched):
-                return 0.85
-            return 0.5
+            return 0.85
         if pii_type == "aadhaar":
-            return 0.9
+            return 0.7
         if pii_type == "pan":
             return 0.95
         if pii_type == "url_credentials":
