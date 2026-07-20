@@ -14,12 +14,7 @@ from bharat.posttraining.preference_loss import (
     reward_accuracy,
 )
 from bharat.posttraining.templates import Template
-from bharat.tokenizer import load_tokenizer
 
-
-@pytest.fixture(scope="module")
-def tokenizer():
-    return load_tokenizer("gpt2")
 
 
 INDIC_TEMPLATE = Template(
@@ -72,15 +67,15 @@ def preferences_jsonl():
 
 
 class TestPreferenceDataset:
-    def test_dataset_loads(self, preferences_jsonl, tokenizer):
+    def test_dataset_loads(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         assert len(dataset) == 3
 
-    def test_response_mask_present(self, preferences_jsonl, tokenizer):
+    def test_response_mask_present(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         item = dataset[0]
         assert "chosen_ids" in item
@@ -90,17 +85,17 @@ class TestPreferenceDataset:
         assert isinstance(item["chosen_response_mask"], torch.Tensor)
         assert item["chosen_response_mask"].dtype == torch.bool
 
-    def test_response_mask_has_active_tokens(self, preferences_jsonl, tokenizer):
+    def test_response_mask_has_active_tokens(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         item = dataset[0]
         assert item["chosen_response_mask"].any(), "Response mask should have active tokens"
         assert item["rejected_response_mask"].any(), "Response mask should have active tokens"
 
-    def test_prompt_tokens_masked(self, preferences_jsonl, tokenizer):
+    def test_prompt_tokens_masked(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         item = dataset[0]
         chosen = item["chosen_ids"]
@@ -110,16 +105,16 @@ class TestPreferenceDataset:
             mask.shape[0] == chosen.shape[0]
         ), f"Mask length {mask.shape[0]} should be len(chosen) = {chosen.shape[0]}"
 
-    def test_variable_prompt_lengths(self, preferences_jsonl, tokenizer):
+    def test_variable_prompt_lengths(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         item0 = dataset[0]
         item2 = dataset[2]
         # Different prompts should have different response mask start positions
         assert not torch.equal(item0["chosen_response_mask"], item2["chosen_response_mask"])
 
-    def test_empty_response(self, tokenizer):
+    def test_empty_response(self, tiny_tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -133,7 +128,7 @@ class TestPreferenceDataset:
             )
             path = f.name
 
-        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer)
         item = dataset[0]
         # Even with empty response, the assistant prefix + suffix tokens are present
         assert item["chosen_response_mask"] is not None
@@ -144,9 +139,9 @@ class TestPreferenceDataset:
 
 
 class TestDPOCollate:
-    def test_collate_batch(self, preferences_jsonl, tokenizer):
+    def test_collate_batch(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         batch = [dataset[i] for i in range(2)]
         result = dpo_collate(batch, pad_token_id=0)
@@ -159,18 +154,18 @@ class TestDPOCollate:
         assert result["chosen_response_mask"].shape[0] == 2
         assert result["rejected_response_mask"].shape[0] == 2
 
-    def test_padding_shape(self, preferences_jsonl, tokenizer):
+    def test_padding_shape(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         batch = [dataset[i] for i in range(3)]
         result = dpo_collate(batch, pad_token_id=0)
         assert result["chosen_ids"].shape[1] == result["chosen_response_mask"].shape[1]
         assert result["rejected_ids"].shape[1] == result["rejected_response_mask"].shape[1]
 
-    def test_padding_has_false_mask(self, preferences_jsonl, tokenizer):
+    def test_padding_has_false_mask(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         batch = [dataset[i] for i in range(3)]
         result = dpo_collate(batch, pad_token_id=0)

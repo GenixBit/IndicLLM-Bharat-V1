@@ -12,7 +12,6 @@ from bharat.posttraining.collators import SFTCollator
 from bharat.posttraining.datasets import SFTDataset
 from bharat.posttraining.sft import SFTConfig, SFTResult, sft_train
 from bharat.posttraining.templates import Template
-from bharat.tokenizer import load_tokenizer
 from train.pretrain import GPT, GPTConfig
 
 # ---------------------------------------------------------------------------
@@ -91,49 +90,6 @@ class TestSFTConfig:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def tokenizer():
-    return load_tokenizer("gpt2")
-
-
-@pytest.fixture(scope="module")
-def tiny_tokenizer():
-    """Build a tiny local BPE tokenizer for offline tests."""
-    from tokenizers import Tokenizer as HFTokenizersTokenizer
-    from tokenizers.models import BPE
-    from tokenizers.pre_tokenizers import ByteLevel
-    from tokenizers.trainers import BpeTrainer
-
-    bpe = BPE()
-    tok = HFTokenizersTokenizer(bpe)
-    tok.pre_tokenizer = ByteLevel(add_prefix_space=False)
-    trainer = BpeTrainer(
-        vocab_size=256,
-        min_frequency=1,
-        special_tokens=["<|endoftext|>", "<|pad|>", "<|instruction|>", "<|response|>"],
-    )
-    tok.train_from_iterator(
-        [
-            "Hello world how are you today",
-            "I am fine thank you",
-            "a b c d e f g h i j k l m n o p q r s t u v w x y z",
-            "Machine learning is fascinating",
-            "What is the answer to this question",
-            "User: hi Assistant: hello there",
-            "System: be concise User: ok Assistant: fine",
-        ],
-        trainer=trainer,
-    )
-    import os
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-        tok.save(f.name)
-        path = f.name
-    yield load_tokenizer(path)
-    os.unlink(path)
-
-
 @pytest.fixture
 def sft_jsonl():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
@@ -150,11 +106,11 @@ def sft_jsonl():
 
 
 class TestSFTDataset:
-    def test_dataset_initialization(self, sft_jsonl, tokenizer):
+    def test_dataset_initialization(self, sft_jsonl, tiny_tokenizer):
         dataset = SFTDataset(sft_jsonl, INDIC_TEMPLATE, block_size=512)
         assert len(dataset) == 2
 
-    def test_dataset_returns_messages(self, sft_jsonl, tokenizer):
+    def test_dataset_returns_messages(self, sft_jsonl, tiny_tokenizer):
         dataset = SFTDataset(sft_jsonl, INDIC_TEMPLATE, block_size=512)
         item = dataset[0]
         assert "messages" in item
@@ -162,7 +118,7 @@ class TestSFTDataset:
         assert item["messages"][0]["role"] == "user"
         assert item["messages"][1]["role"] == "assistant"
 
-    def test_dataset_messages_format(self, tokenizer):
+    def test_dataset_messages_format(self, tiny_tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -194,9 +150,9 @@ class TestSFTDataset:
 
 
 class TestSFTLossMasking:
-    def test_assistant_only_loss(self, tokenizer):
+    def test_assistant_only_loss(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -210,9 +166,9 @@ class TestSFTLossMasking:
         non_masked = (labels != -100).sum().item()
         assert non_masked > 0, "Assistant tokens should not be masked"
 
-    def test_user_tokens_masked(self, tokenizer):
+    def test_user_tokens_masked(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -224,10 +180,10 @@ class TestSFTLossMasking:
         result = collator(batch)
         labels = result["labels"][0]
 
-        ap_ids = tokenizer.encode("<|response|>", add_special_tokens=False)
+        ap_ids = tiny_tokenizer.encode("<|response|>", add_special_tokens=False)
         ap_len = len(ap_ids)
 
-        full_ids = tokenizer.encode(
+        full_ids = tiny_tokenizer.encode(
             "<|instruction|>Hello<|endoftext|><|response|>World<|endoftext|>",
             add_special_tokens=False,
         )
@@ -243,7 +199,7 @@ class TestSFTLossMasking:
         user_labels = labels[: max(0, user_end_in_targets)]
         assert (user_labels == -100).all(), "User tokens should be fully masked"
 
-    def test_system_tokens_masked(self, tokenizer):
+    def test_system_tokens_masked(self, tiny_tokenizer):
         template_with_system = Template(
             name="test_system",
             system_prefix="<|system|>",
@@ -252,7 +208,7 @@ class TestSFTLossMasking:
             suffix="<|end|>",
         )
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=template_with_system,
             block_size=512,
         )
@@ -265,16 +221,16 @@ class TestSFTLossMasking:
         result = collator(batch)
         labels = result["labels"][0]
 
-        sys_ids = tokenizer.encode("<|system|>Be concise<|end|>", add_special_tokens=False)
+        sys_ids = tiny_tokenizer.encode("<|system|>Be concise<|end|>", add_special_tokens=False)
         user_start = len(sys_ids)
 
         sys_end_in_targets = user_start - 1
         sys_labels = labels[: max(0, sys_end_in_targets)]
         assert (sys_labels == -100).all(), "System tokens should be fully masked"
 
-    def test_padding_masked(self, tokenizer):
+    def test_padding_masked(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -294,9 +250,9 @@ class TestSFTLossMasking:
 
 
 class TestSFTCollator:
-    def test_empty_batch(self, tokenizer):
+    def test_empty_batch(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -305,9 +261,9 @@ class TestSFTCollator:
         assert "labels" in result
         assert result["input_ids"].shape[0] == 0
 
-    def test_variable_length_batch(self, tokenizer):
+    def test_variable_length_batch(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -329,9 +285,9 @@ class TestSFTCollator:
         assert result["input_ids"].shape[0] == 2
         assert result["input_ids"].shape[1] == result["labels"].shape[1]
 
-    def test_first_response_token_included(self, tokenizer):
+    def test_first_response_token_included(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -343,12 +299,12 @@ class TestSFTCollator:
         result = collator(batch)
         labels = result["labels"][0]
 
-        full_ids = tokenizer.encode(
+        full_ids = tiny_tokenizer.encode(
             "<|instruction|>Hi<|endoftext|><|response|>Hello<|endoftext|>",
             add_special_tokens=False,
         )
         target_ids = full_ids[1:]
-        ap_ids = tokenizer.encode("<|response|>", add_special_tokens=False)
+        ap_ids = tiny_tokenizer.encode("<|response|>", add_special_tokens=False)
         ap_len = len(ap_ids)
 
         ap_start = None
@@ -365,9 +321,9 @@ class TestSFTCollator:
         ].item(), f"First response token at index {first_response_idx} should not be masked"
         assert labels[first_response_idx].item() == target_ids[first_response_idx]
 
-    def test_user_tokens_masked_multi_turn(self, tokenizer):
+    def test_user_tokens_masked_multi_turn(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -381,14 +337,14 @@ class TestSFTCollator:
         result = collator(batch)
         labels = result["labels"][0]
 
-        ap_ids = tokenizer.encode("<|response|>", add_special_tokens=False)
-        up_ids = tokenizer.encode("<|instruction|>", add_special_tokens=False)
+        ap_ids = tiny_tokenizer.encode("<|response|>", add_special_tokens=False)
+        up_ids = tiny_tokenizer.encode("<|instruction|>", add_special_tokens=False)
 
         full_text = (
             "<|instruction|>First Q<|endoftext|><|response|>First A<|endoftext|>"
             "<|instruction|>Second Q<|endoftext|><|response|>Second A<|endoftext|>"
         )
-        full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+        full_ids = tiny_tokenizer.encode(full_text, add_special_tokens=False)
 
         ap_positions = []
         for i in range(len(full_ids) - len(ap_ids) + 1):
@@ -417,9 +373,9 @@ class TestSFTCollator:
                     f"User tokens at target positions {target_start}:{target_end} should be masked"
                 )
 
-    def test_multi_turn_assistant_active(self, tokenizer):
+    def test_multi_turn_assistant_active(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -442,9 +398,9 @@ class TestSFTCollator:
 
         assert transitions >= 2, f"Expected at least 2 active regions, got {transitions}"
 
-    def test_truncated_conversation(self, tokenizer):
+    def test_truncated_conversation(self, tiny_tokenizer):
         small_collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=10,
         )

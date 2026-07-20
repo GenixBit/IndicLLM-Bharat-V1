@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from bharat.tokenizer import BharatTokenizer, load_tokenizer
+from bharat.tokenizer import BharatTokenizer
 from bharat.training.checkpointing import (
     CheckpointMetadata,
     load_checkpoint,
@@ -21,11 +21,6 @@ def simple_model():
 @pytest.fixture
 def simple_optimizer(simple_model):
     return torch.optim.SGD(simple_model.parameters(), lr=0.01)
-
-
-@pytest.fixture
-def gpt2_tokenizer():
-    return load_tokenizer("gpt2")
 
 
 class TestCheckpointMetadata:
@@ -79,21 +74,21 @@ class TestCheckpointSaveLoad:
         )
         assert result["metadata"].training_step == 0
 
-    def test_save_with_tokenizer(self, tmp_path, simple_model, gpt2_tokenizer):
+    def test_save_with_tokenizer(self, tmp_path, simple_model, fake_gpt2_tokenizer):
         path = tmp_path / "ckpt_with_tok.pt"
-        save_checkpoint(path, simple_model, tokenizer=gpt2_tokenizer)
+        save_checkpoint(path, simple_model, tokenizer=fake_gpt2_tokenizer)
         loaded_model = nn.Linear(10, 10)
         result = load_checkpoint(
-            path, loaded_model, tokenizer=gpt2_tokenizer, device="cpu", strict=False
+            path, loaded_model, tokenizer=fake_gpt2_tokenizer, device="cpu", strict=False
         )
         meta = result["metadata"]
         assert meta.tokenizer_type == "gpt2"
         assert meta.vocab_size == 50257
         assert len(meta.tokenizer_hash) == 64
 
-    def test_load_wrong_tokenizer_fails(self, tmp_path, simple_model, gpt2_tokenizer):
+    def test_load_wrong_tokenizer_fails(self, tmp_path, simple_model, fake_gpt2_tokenizer):
         path = tmp_path / "ckpt_wrong.pt"
-        save_checkpoint(path, simple_model, tokenizer=gpt2_tokenizer)
+        save_checkpoint(path, simple_model, tokenizer=fake_gpt2_tokenizer)
 
         class FakeTokenizer(BharatTokenizer):
             @property
@@ -154,19 +149,19 @@ class TestCheckpointSaveLoad:
 
 
 class TestCheckpointMetadataFields:
-    def test_metadata_has_all_fields(self, tmp_path, simple_model, gpt2_tokenizer):
+    def test_metadata_has_all_fields(self, tmp_path, simple_model, fake_gpt2_tokenizer):
         path = tmp_path / "meta_test.pt"
         save_checkpoint(
             path,
             simple_model,
-            tokenizer=gpt2_tokenizer,
+            tokenizer=fake_gpt2_tokenizer,
             step=500,
             seed=12345,
             data_version="v2.0",
         )
         loaded_model = nn.Linear(10, 10)
         result = load_checkpoint(
-            path, loaded_model, tokenizer=gpt2_tokenizer, device="cpu", strict=False
+            path, loaded_model, tokenizer=fake_gpt2_tokenizer, device="cpu", strict=False
         )
         meta = result["metadata"]
         assert meta.training_step == 500
@@ -184,9 +179,9 @@ class TestCheckpointMetadataFields:
 
 
 class TestCheckpointMismatch:
-    def test_vocab_mismatch(self, tmp_path, simple_model, gpt2_tokenizer):
+    def test_vocab_mismatch(self, tmp_path, simple_model, fake_gpt2_tokenizer):
         path = tmp_path / "vocab_mismatch.pt"
-        save_checkpoint(path, simple_model, tokenizer=gpt2_tokenizer)
+        save_checkpoint(path, simple_model, tokenizer=fake_gpt2_tokenizer)
 
         class DifferentVocabTokenizer(BharatTokenizer):
             @property
@@ -242,10 +237,10 @@ class TestLegacyCheckpoint:
         assert "metadata" in ckpt
         assert "step" in ckpt
 
-    def test_legacy_with_tokenizer(self, tmp_path, gpt2_tokenizer):
+    def test_legacy_with_tokenizer(self, tmp_path, fake_gpt2_tokenizer):
         path = tmp_path / "legacy_tok.pt"
         state = {"weight": torch.randn(10, 10), "bias": torch.randn(10)}
-        save_checkpoint_for_legacy(path, state, tokenizer=gpt2_tokenizer)
+        save_checkpoint_for_legacy(path, state, tokenizer=fake_gpt2_tokenizer)
         ckpt = torch.load(path, weights_only=False)
         assert ckpt["metadata"]["tokenizer_type"] == "gpt2"
         assert ckpt["metadata"]["vocab_size"] == 50257

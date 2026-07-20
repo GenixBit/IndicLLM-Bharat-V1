@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 import torch
 
-from bharat.tokenizer import load_tokenizer
 from bharat.training.checkpointing import (
     CheckpointMetadata,
     make_checkpoint_data,
@@ -13,18 +12,14 @@ from bharat.training.checkpointing import (
 # ── SFT Loss Masking (C1) ────────────────────────────────────
 
 
-def test_sft_loss_masking_assistant_only() -> None:
-    tokenizer = load_tokenizer("gpt2")
-    special = {"additional_special_tokens": ["<|instruction|>", "<|response|>"]}
-    tokenizer.add_special_tokens(special)
-
+def test_sft_loss_masking_assistant_only(tiny_tokenizer) -> None:
     instruction = "What is 2+2?"
     response = "4"
     full_text = f"<|instruction|>{instruction}<|response|>{response}<|endoftext|>"
     response_marker = "<|response|>"
     response_start = full_text.index(response_marker) + len(response_marker)
-    full_ids = tokenizer.encode(full_text, add_special_tokens=False)
-    prefix_ids = tokenizer.encode(full_text[:response_start], add_special_tokens=False)
+    full_ids = tiny_tokenizer.encode(full_text, add_special_tokens=False)
+    prefix_ids = tiny_tokenizer.encode(full_text[:response_start], add_special_tokens=False)
     prompt_end = len(prefix_ids)
 
     assert prompt_end < len(full_ids), "Response must have at least one token"
@@ -38,11 +33,7 @@ def test_sft_loss_masking_assistant_only() -> None:
     assert y_masked[prompt_end:].tolist() == y[prompt_end:].tolist(), "Assistant tokens preserved"
 
 
-def test_sft_loss_masking_multiturn() -> None:
-    tokenizer = load_tokenizer("gpt2")
-    special = {"additional_special_tokens": ["<|instruction|>", "<|response|>"]}
-    tokenizer.add_special_tokens(special)
-
+def test_sft_loss_masking_multiturn(tiny_tokenizer) -> None:
     turns = [
         ("What is 2+2?", "4"),
         ("What is 3+3?", "6"),
@@ -51,26 +42,23 @@ def test_sft_loss_masking_multiturn() -> None:
     for inst, resp in turns:
         full_text += f"<|instruction|>{inst}<|response|>{resp}<|endoftext|>"
 
-    # Find prompt boundaries for each turn
-    full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+    full_ids = tiny_tokenizer.encode(full_text, add_special_tokens=False)
     y = torch.tensor(full_ids[1:], dtype=torch.long)
     y_masked = y.clone()
 
-    # Find each response marker position in encoded form
     turn_boundaries = []
     pos = 0
     for inst, resp in turns:
         turn_text = f"<|instruction|>{inst}<|response|>{resp}<|endoftext|>"
         prefix_until_response = f"<|instruction|>{inst}<|response|>"
-        prompt_end = len(tokenizer.encode(prefix_until_response, add_special_tokens=False))
-        turn_len = len(tokenizer.encode(turn_text, add_special_tokens=False))
+        prompt_end = len(tiny_tokenizer.encode(prefix_until_response, add_special_tokens=False))
+        turn_len = len(tiny_tokenizer.encode(turn_text, add_special_tokens=False))
         turn_boundaries.append((pos + prompt_end, pos + turn_len))
         pos += turn_len
 
     for prompt_end, _turn_end in turn_boundaries:
-        y_masked[: prompt_end - 1] = -100  # first token offset
+        y_masked[: prompt_end - 1] = -100
 
-    # Verify at least some assistant tokens are not masked
     assert (y_masked == -100).sum() > 0, "Some tokens should be masked"
     assert (y_masked != -100).sum() > 0, "Some tokens should contribute to loss"
 
@@ -78,17 +66,16 @@ def test_sft_loss_masking_multiturn() -> None:
 # ── DPO Per-Sample Masking (C2/C3) ────────────────────────────
 
 
-def test_dpo_per_sample_prompt_length() -> None:
-    tokenizer = load_tokenizer("gpt2")
+def test_dpo_per_sample_prompt_length(tiny_tokenizer) -> None:
     prompts = [
-        tokenizer.encode("Short", add_special_tokens=False),
-        tokenizer.encode("A much longer prompt here", add_special_tokens=False),
-        tokenizer.encode("Medium length one", add_special_tokens=False),
+        tiny_tokenizer.encode("Short", add_special_tokens=False),
+        tiny_tokenizer.encode("A much longer prompt here", add_special_tokens=False),
+        tiny_tokenizer.encode("Medium length one", add_special_tokens=False),
     ]
     responses = [
-        tokenizer.encode(" ok", add_special_tokens=False),
-        tokenizer.encode(" response", add_special_tokens=False),
-        tokenizer.encode(" answer", add_special_tokens=False),
+        tiny_tokenizer.encode(" ok", add_special_tokens=False),
+        tiny_tokenizer.encode(" response", add_special_tokens=False),
+        tiny_tokenizer.encode(" answer", add_special_tokens=False),
     ]
     block_size = 20
     pad_id = 0
@@ -104,10 +91,8 @@ def test_dpo_per_sample_prompt_length() -> None:
     ids = torch.stack(padded)
     pl_tensor = torch.tensor(prompt_lens)
 
-    # Verify each sample has different prompt length
     assert len(set(prompt_lens)) > 1, "Need varied prompt lengths for per-sample test"
 
-    # Verify per-sample masking logic
     b_size, t_len = ids.shape
     arange = torch.arange(t_len).unsqueeze(0).expand(b_size, -1)
     mask = (arange >= pl_tensor.unsqueeze(-1)).float()
@@ -119,11 +104,9 @@ def test_dpo_per_sample_prompt_length() -> None:
         ), "All non-prompt positions contribute (including padding)"
 
 
-def test_dpo_variable_prompt_length_batch() -> None:
-    tokenizer = load_tokenizer("gpt2")
-
+def test_dpo_variable_prompt_length_batch(tiny_tokenizer) -> None:
     def encode(text):
-        return tokenizer.encode(text, add_special_tokens=False)
+        return tiny_tokenizer.encode(text, add_special_tokens=False)
 
     batch = [
         (encode("Hi"), encode("Hello world"), encode("Goodbye world")),
@@ -150,7 +133,6 @@ def test_dpo_variable_prompt_length_batch() -> None:
     rejected = torch.stack(rejected_list)
     pl = torch.tensor(prompt_lens)
 
-    # Simulate log_probs with per-sample masking
     b_size, t_len = chosen.shape
     dummy_lp = torch.randn(b_size, t_len - 1)
     arange = torch.arange(t_len - 1, device=dummy_lp.device).unsqueeze(0).expand(b_size, -1)
@@ -166,12 +148,11 @@ def test_dpo_variable_prompt_length_batch() -> None:
 # ── Checkpoint Tokenizer Metadata ────────────────────────────
 
 
-def test_checkpoint_tokenizer_metadata_roundtrip() -> None:
-    tokenizer = load_tokenizer("gpt2")
+def test_checkpoint_tokenizer_metadata_roundtrip(fake_gpt2_tokenizer) -> None:
     model_state = {"test": torch.zeros(2, 2)}
     ckpt = make_checkpoint_data(
         model_state=model_state,
-        tokenizer=tokenizer,
+        tokenizer=fake_gpt2_tokenizer,
         step=42,
         seed=1234,
         data_version="test-v1",
@@ -186,14 +167,12 @@ def test_checkpoint_tokenizer_metadata_roundtrip() -> None:
     assert "torch" in meta.get("package_versions", {}), "Should store package versions"
 
 
-def test_checkpoint_tokenizer_mismatch_rejection() -> None:
-    gpt2 = load_tokenizer("gpt2")
+def test_checkpoint_tokenizer_mismatch_rejection(fake_gpt2_tokenizer, tiny_tokenizer) -> None:
     model_state = {"dummy": torch.tensor(0)}
-    ckpt = make_checkpoint_data(model_state=model_state, tokenizer=gpt2)
+    ckpt = make_checkpoint_data(model_state=model_state, tokenizer=fake_gpt2_tokenizer)
 
-    wrong = load_tokenizer("bert-base-uncased")
     with pytest.raises(ValueError, match="Tokenizer mismatch"):
-        validate_checkpoint(ckpt, tokenizer=wrong)
+        validate_checkpoint(ckpt, tokenizer=tiny_tokenizer)
 
 
 def test_legacy_checkpoint_no_metadata() -> None:
@@ -210,24 +189,17 @@ def test_legacy_checkpoint_no_metadata() -> None:
     assert meta is not None, "Legacy with empty metadata should load with default values"
 
 
-# ── Unified Tokenizer Loading (consistency) ──────────────────
+# ── Unified Tokenizer Properties (consistency) ──────────────────
 
 
-def test_load_tokenizer_from_config_key() -> None:
-    tok = load_tokenizer("gpt2")
-    assert tok.tokenizer_type == "gpt2"
-    assert tok.vocab_size == 50257
-
-    tok2 = load_tokenizer(None)
-    assert tok2.tokenizer_type == "gpt2"
-
-    assert tok2.vocab_size == tok.vocab_size
+def test_load_tokenizer_from_config_key(fake_gpt2_tokenizer) -> None:
+    assert fake_gpt2_tokenizer.tokenizer_type == "gpt2"
+    assert fake_gpt2_tokenizer.vocab_size == 50257
 
 
-def test_load_tokenizer_eos_stop() -> None:
-    tokenizer = load_tokenizer("gpt2")
+def test_load_tokenizer_eos_stop(fake_gpt2_tokenizer) -> None:
     ids = [101, 102, 103]
-    decoded = tokenizer.decode(ids)
+    decoded = fake_gpt2_tokenizer.decode(ids)
     assert isinstance(decoded, str)
-    assert tokenizer.eos_token_id == 50256
-    assert tokenizer.pad_token_id == 50256
+    assert fake_gpt2_tokenizer.eos_token_id == 50256
+    assert fake_gpt2_tokenizer.pad_token_id == 50256

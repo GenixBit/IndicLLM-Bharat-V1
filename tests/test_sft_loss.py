@@ -7,14 +7,6 @@ import pytest
 
 from bharat.posttraining.collators import SFTCollator
 from bharat.posttraining.templates import Template, format_conversation
-from bharat.tokenizer import load_tokenizer
-
-
-@pytest.fixture(scope="module")
-def tokenizer():
-    return load_tokenizer("gpt2")
-
-
 INDIC_TEMPLATE = Template(
     name="indic_instruction",
     system_prefix="",
@@ -87,9 +79,9 @@ class TestTemplateFormatting:
 class TestLossMasking:
     """Verify that only assistant tokens contribute to the loss."""
 
-    def test_loss_only_on_assistant(self, tokenizer):
+    def test_loss_only_on_assistant(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -101,10 +93,10 @@ class TestLossMasking:
         result = collator(batch)
         labels = result["labels"][0]
 
-        ap_ids = tokenizer.encode("<|response|>", add_special_tokens=False)
+        ap_ids = tiny_tokenizer.encode("<|response|>", add_special_tokens=False)
 
         full_text = "<|instruction|>What is 2+2?<|endoftext|><|response|>4<|endoftext|>"
-        full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+        full_ids = tiny_tokenizer.encode(full_text, add_special_tokens=False)
 
         # Find assistant prefix position
         ap_start = None
@@ -124,9 +116,9 @@ class TestLossMasking:
         num_active = (labels != -100).sum().item()
         assert num_active > 0, "At least some tokens should contribute to loss"
 
-    def test_multi_turn_masking(self, tokenizer):
+    def test_multi_turn_masking(self, tiny_tokenizer):
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -153,7 +145,7 @@ class TestLossMasking:
             "<|instruction|>First Q<|endoftext|><|response|>First A<|endoftext|>"
             "<|instruction|>Second Q<|endoftext|><|response|>Second A<|endoftext|>"
         )
-        full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+        full_ids = tiny_tokenizer.encode(full_text, add_special_tokens=False)
         target_ids = full_ids[1:]
 
         # Every non-masked label should match the corresponding target token
@@ -163,10 +155,10 @@ class TestLossMasking:
                     labels[i].item() == target_ids[i]
                 ), f"Label at position {i} should match target token {target_ids[i]}"
 
-    def test_assistant_content_active(self, tokenizer):
+    def test_assistant_content_active(self, tiny_tokenizer):
         # Directly test with a known conversation
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
         )
@@ -179,7 +171,7 @@ class TestLossMasking:
         labels = result["labels"][0]
 
         full_text = "<|instruction|>Hi<|endoftext|><|response|>Hello world<|endoftext|>"
-        full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+        full_ids = tiny_tokenizer.encode(full_text, add_special_tokens=False)
         target_ids = full_ids[1:]
 
         # Where labels != -100, they should match target_ids
@@ -189,18 +181,20 @@ class TestLossMasking:
                     labels[i].item() == target_ids[i]
                 ), f"Label at position {i} should match target token {target_ids[i]}"
 
-    def test_padding_excluded_from_loss(self, tokenizer):
+    def test_padding_excluded_from_loss(self, tiny_tokenizer):
+        pad_id = tiny_tokenizer.vocab_size + 1  # use an ID guaranteed not to appear in the text
         collator = SFTCollator(
-            tokenizer=tokenizer,
+            tokenizer=tiny_tokenizer,
             template=INDIC_TEMPLATE,
             block_size=512,
+            pad_token_id=pad_id,
         )
         batch = [
             {"messages": [{"role": "user", "content": "A"}, {"role": "assistant", "content": "B"}]},
             {
                 "messages": [
-                    {"role": "user", "content": "C" * 100},
-                    {"role": "assistant", "content": "D"},
+                    {"role": "user", "content": "a" * 100},
+                    {"role": "assistant", "content": "b"},
                 ]
             },
         ]
@@ -208,7 +202,7 @@ class TestLossMasking:
         labels = result["labels"]
 
         # Shorter sequence should have padding at the end
-        seq_lens = (result["input_ids"] != 0).sum(dim=1)
+        seq_lens = (result["input_ids"] != pad_id).sum(dim=1)
         for i in range(len(batch)):
             pad_labels = labels[i, seq_lens[i] :]
             assert (pad_labels == -100).all(), f"Padding in sample {i} should have -100 labels"

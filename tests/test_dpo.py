@@ -11,7 +11,6 @@ import torch
 from bharat.posttraining.dpo import DPOConfig, DPOResult, dpo_train
 from bharat.posttraining.preference_dataset import PreferenceDataset, dpo_collate
 from bharat.posttraining.templates import Template
-from bharat.tokenizer import load_tokenizer
 from train.pretrain import GPT, GPTConfig
 
 # ---------------------------------------------------------------------------
@@ -90,47 +89,6 @@ class TestDPOConfig:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def tokenizer():
-    return load_tokenizer("gpt2")
-
-
-@pytest.fixture(scope="module")
-def tiny_tokenizer():
-    from tokenizers import Tokenizer as HFTokenizersTokenizer
-    from tokenizers.models import BPE
-    from tokenizers.pre_tokenizers import ByteLevel
-    from tokenizers.trainers import BpeTrainer
-
-    bpe = BPE()
-    tok = HFTokenizersTokenizer(bpe)
-    tok.pre_tokenizer = ByteLevel(add_prefix_space=False)
-    trainer = BpeTrainer(
-        vocab_size=256,
-        min_frequency=1,
-        special_tokens=["<|endoftext|>", "<|pad|>", "<|instruction|>", "<|response|>"],
-    )
-    tok.train_from_iterator(
-        [
-            "Hello world how are you today",
-            "I am fine thank you",
-            "a b c d e f g h i j k l m n o p q r s t u v w x y z",
-            "Machine learning is fascinating",
-            "User: hi Assistant: hello there",
-            "What is the capital of France",
-        ],
-        trainer=trainer,
-    )
-    import os
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-        tok.save(f.name)
-        path = f.name
-    yield load_tokenizer(path)
-    os.unlink(path)
-
-
 @pytest.fixture
 def preferences_jsonl():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
@@ -157,15 +115,15 @@ def preferences_jsonl():
 
 
 class TestDPODataset:
-    def test_dataset_initialization(self, preferences_jsonl, tokenizer):
+    def test_dataset_initialization(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         assert len(dataset) == 1
 
-    def test_response_mask_correct_shape(self, preferences_jsonl, tokenizer):
+    def test_response_mask_correct_shape(self, preferences_jsonl, tiny_tokenizer):
         dataset = PreferenceDataset(
-            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer
+            preferences_jsonl, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer
         )
         item = dataset[0]
         chosen = item["chosen_ids"]
@@ -298,7 +256,7 @@ class TestDPOTraining:
         os.unlink(data_path)
         shutil.rmtree(config.output_dir, ignore_errors=True)
 
-    def test_different_prompt_lengths_in_batch(self, tokenizer):
+    def test_different_prompt_lengths_in_batch(self, tiny_tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -322,7 +280,7 @@ class TestDPOTraining:
             )
             path = f.name
 
-        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer)
         batch = [dataset[i] for i in range(2)]
         result = dpo_collate(batch, pad_token_id=0)
 
@@ -334,7 +292,7 @@ class TestDPOTraining:
 
         os.unlink(path)
 
-    def test_different_response_lengths(self, tokenizer):
+    def test_different_response_lengths(self, tiny_tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -348,7 +306,7 @@ class TestDPOTraining:
             )
             path = f.name
 
-        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer)
         item = dataset[0]
 
         assert item["chosen_ids"].shape[0] != item["rejected_ids"].shape[0]
@@ -357,7 +315,7 @@ class TestDPOTraining:
 
         os.unlink(path)
 
-    def test_empty_chosen_response(self, tokenizer):
+    def test_empty_chosen_response(self, tiny_tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -371,7 +329,7 @@ class TestDPOTraining:
             )
             path = f.name
 
-        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer)
         item = dataset[0]
 
         assert item["chosen_response_mask"] is not None
@@ -381,7 +339,7 @@ class TestDPOTraining:
 
         os.unlink(path)
 
-    def test_empty_rejected_response(self, tokenizer):
+    def test_empty_rejected_response(self, tiny_tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -395,7 +353,7 @@ class TestDPOTraining:
             )
             path = f.name
 
-        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer)
         item = dataset[0]
 
         assert item["chosen_response_mask"] is not None
@@ -405,7 +363,7 @@ class TestDPOTraining:
 
         os.unlink(path)
 
-    def test_both_responses_empty(self, tokenizer):
+    def test_both_responses_empty(self, tiny_tokenizer):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write(
                 json.dumps(
@@ -419,7 +377,7 @@ class TestDPOTraining:
             )
             path = f.name
 
-        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tokenizer)
+        dataset = PreferenceDataset(path, INDIC_TEMPLATE, block_size=512, tokenizer=tiny_tokenizer)
         item = dataset[0]
 
         assert item["chosen_response_mask"] is not None

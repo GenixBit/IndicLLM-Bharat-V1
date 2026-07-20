@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from pathlib import Path
 
@@ -126,3 +127,56 @@ def tiny_sp_tokenizer(tiny_sp_model_path: Path):
     from bharat.tokenizer import load_tokenizer
 
     return load_tokenizer(str(tiny_sp_model_path))
+
+
+# ---------------------------------------------------------------------------
+# Fake GPT-2 tokenizer fixture for tests that need GPT-2 specific properties
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def fake_gpt2_tokenizer():
+    """Return a BharatTokenizer that mimics GPT-2 properties (offline-safe)."""
+    from bharat.tokenizer.base import BharatTokenizer
+
+    class _FakeGPT2(BharatTokenizer):
+        @property
+        def vocab_size(self) -> int:
+            return 50257
+
+        @property
+        def eos_token_id(self) -> int:
+            return 50256
+
+        @property
+        def pad_token_id(self) -> int:
+            return 50256
+
+        @property
+        def tokenizer_type(self) -> str:
+            return "gpt2"
+
+        def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
+            return [hash(text) % self.vocab_size]
+
+        def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
+            return [[hash(t) % self.vocab_size] for t in texts]
+
+        def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
+            return " ".join(str(i) for i in ids)
+
+        def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
+            return [self.decode(ids) for ids in batch]
+
+        def get_metadata(self) -> dict:
+            return {
+                "tokenizer_type": self.tokenizer_type,
+                "vocab_size": self.vocab_size,
+                "eos_token_id": self.eos_token_id,
+                "pad_token_id": self.pad_token_id,
+            }
+
+        def fingerprint(self) -> str:
+            return hashlib.sha256(b"fake_gpt2").hexdigest()
+
+    return _FakeGPT2()
