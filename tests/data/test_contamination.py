@@ -95,3 +95,83 @@ class TestContaminationChecker:
         checker = ContaminationChecker()
         with pytest.raises(FileNotFoundError, match="Blocklist not found"):
             checker.load_blocklist("/nonexistent/path.txt")
+
+
+class TestContaminationCheckerHardening:
+    def test_char_ngram_hindi_no_whitespace(self, tmp_path):
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("यह एक परीक्षण वाक्य है\n")
+        checker = ContaminationChecker()
+        checker.load_blocklist(str(blocklist))
+        result = checker.check_ngram("यह एक परीक्षण वाक्य है", n=3)
+        assert result.is_contaminated
+
+    def test_char_ngram_tamil_no_whitespace(self, tmp_path):
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("இது ஒரு சோதனை வாக்கியம்\n")
+        checker = ContaminationChecker()
+        checker.load_blocklist(str(blocklist))
+        result = checker.check_ngram("இது ஒரு சோதனை வாக்கியம்", n=3)
+        assert result.is_contaminated
+
+    def test_char_ngram_unrelated_indic_not_contaminated(self, tmp_path):
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("यह एक परीक्षण वाक्य है\n")
+        checker = ContaminationChecker()
+        checker.load_blocklist(str(blocklist))
+        result = checker.check_ngram("पूरी तरह से असंबंधित पाठ", n=3)
+        assert not result.is_contaminated
+
+    def test_invalid_n_raises(self, tmp_path):
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("some text\n")
+        checker = ContaminationChecker()
+        checker.load_blocklist(str(blocklist))
+        with pytest.raises(ValueError, match="n must be >= 1"):
+            checker.check_ngram("test", n=0)
+
+    def test_custom_threshold_higher(self, tmp_path):
+        from bharat.data.contamination import ContaminationConfig
+
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("the quick brown fox jumps over the lazy dog\n")
+        checker = ContaminationChecker(
+            config=ContaminationConfig(ngram_threshold=0.9)
+        )
+        checker.load_blocklist(str(blocklist))
+        result = checker.check_ngram(
+            "the quick brown fox leaps over the lazy dog", n=3
+        )
+        assert not result.is_contaminated
+
+    def test_custom_threshold_lower(self, tmp_path):
+        from bharat.data.contamination import ContaminationConfig
+
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("the quick brown fox jumps over the lazy dog\n")
+        checker = ContaminationChecker(
+            config=ContaminationConfig(ngram_threshold=0.1)
+        )
+        checker.load_blocklist(str(blocklist))
+        result = checker.check_ngram(
+            "the quick brown fox leaps over the lazy dog", n=3
+        )
+        assert result.is_contaminated
+
+    def test_deterministic_matched_source_ids(self, tmp_path):
+        checker = ContaminationChecker()
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("exact match text\n")
+        checker.load_blocklist(str(blocklist))
+        r1 = checker.check_exact("exact match text")
+        r2 = checker.check_exact("exact match text")
+        assert r1 == r2
+
+    def test_exact_with_cached_hashes(self, tmp_path):
+        checker = ContaminationChecker()
+        blocklist = tmp_path / "blocklist.txt"
+        blocklist.write_text("contaminated text here\n")
+        checker.load_blocklist(str(blocklist))
+        result = checker.check_exact("contaminated text here")
+        assert result.is_contaminated
+        assert result.method == "exact"
