@@ -60,8 +60,23 @@ pins, and deterministic ordering/digest — see
 
 **Important:** The registry infrastructure is in place, but no dataset is
 automatically legally approved. No data has been downloaded or processed.
-Quality filtering, deduplication and sharding remain future work. The legacy
+Sharding, manifests, and contamination detection remain future work. The legacy
 `data/` pipelines are unchanged.
+
+### Data Processing Pipeline
+
+Heuristic offline filters for normalization, language identification,
+quality scoring, deduplication (exact + fuzzy), PII detection, and safety
+filtering live under `bharat/data/`. These are **heuristic pre-filters
+only** — they are not legal, safety, or quality guarantees.
+
+```python
+from bharat.data.processing import DataProcessor
+
+processor = DataProcessor()
+decision = processor.process("your text here")
+print(decision.accepted, decision.reasons)
+```
 
 ```bash
 # Validate the registry

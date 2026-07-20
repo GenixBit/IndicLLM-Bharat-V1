@@ -197,8 +197,15 @@ When a source is superseded by a newer version:
 
 ## Pipeline consumption
 
-Future pipeline stages (`bharat/data/...`) will consume only sources
-returned by `registry.approved_for()`.  This guarantees:
+We provide an offline `DataProcessor` pipeline (`bharat/data/processing.py`)
+that composes Normalizer, LanguageIdentifier, QualityScorer,
+ExactDeduplicator, FuzzyDeduplicator, PIIDetector, and SafetyFilter into a
+single deterministic call.  **No data is downloaded; no shards are written;
+no manifests are created yet.**  Integration with the approved-source
+registry is future work.
+
+Future pipeline stages will consume only sources returned by
+`registry.approved_for()`.  This guarantees:
 
 - Licence compliance.
 - Immutable, integrity-checked data.
@@ -213,5 +220,6 @@ returned by `registry.approved_for()`.  This guarantees:
 - [x] Approved sources require evidence and immutable provenance.
 - [ ] No dataset has been automatically legally approved.
 - [ ] No data has been downloaded or processed.
-- [ ] Quality filtering and deduplication remain future work.
+- [x] Quality filtering and deduplication exist as heuristic offline filters.
+- [ ] No data has been automatically filtered, deduplicated, or approved for training.
 - [ ] The legacy `data/` pipelines remain unchanged.

@@ -46,31 +46,63 @@ class LanguageIdentifier:
         self.config = config or LanguageIDConfig()
 
     def identify(self, text: str) -> LanguageIDResult:
+        script = self._detect_script(text) if text else "unknown"
         if len(text) < self.config.min_text_length:
-            return LanguageIDResult(
-                language="unknown", confidence=0.0, script="unknown", method="too_short"
-            )
-        try:
-            import langdetect
-
-            lang = langdetect.detect(text)
-            if lang:
+            if self.config.script_fallback and script != "Latin" and script != "unknown":
+                lang = _SCRIPT_INDIC_MAP.get(script, "unknown")
                 return LanguageIDResult(
                     language=lang,
-                    confidence=1.0,
-                    script=self._detect_script(text),
-                    method="langdetect",
+                    confidence=0.8 if lang != "unknown" else 0.0,
+                    script=script,
+                    method="script_fallback",
                 )
+            return LanguageIDResult(
+                language="unknown", confidence=0.0, script=script, method="too_short"
+            )
+        result = self._try_langdetect(text)
+        if result is not None:
+            if result.confidence >= self.config.confidence_threshold:
+                return result
+            if not self.config.script_fallback:
+                return LanguageIDResult(
+                    language="unknown",
+                    confidence=0.0,
+                    script=self._detect_script(text),
+                    method="unknown",
+                )
+        if self.config.script_fallback:
+            return self._identify_by_script(text)
+        return LanguageIDResult(
+            language="unknown", confidence=0.0, script=self._detect_script(text), method="none"
+        )
+
+    def identify_batch(self, texts: list[str]) -> list[LanguageIDResult]:
+        return [self.identify(t) for t in texts]
+
+    def _try_langdetect(self, text: str) -> LanguageIDResult | None:
+        try:
+            import langdetect as _ld
+
+            try:
+                probs = _ld.detect_langs(text)
+            except Exception:
+                probs = None
+            if probs:
+                best = probs[0]
+                prob = getattr(best, "prob", 1.0)
+                lang = str(getattr(best, "lang", ""))
+                if lang:
+                    return LanguageIDResult(
+                        language=lang,
+                        confidence=min(1.0, prob),
+                        script=self._detect_script(text),
+                        method="langdetect",
+                    )
         except ImportError:
             pass
         except Exception:
             pass
-        if self.config.script_fallback:
-            return self._identify_by_script(text)
-        return LanguageIDResult(language="unknown", confidence=0.0, script="unknown", method="none")
-
-    def identify_batch(self, texts: list[str]) -> list[LanguageIDResult]:
-        return [self.identify(t) for t in texts]
+        return None
 
     def _identify_by_script(self, text: str) -> LanguageIDResult:
         script = self._detect_script(text)

@@ -27,7 +27,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 ### Milestone 3 — Data Engine (In Progress)
 
 - [x] Source registry infrastructure with licence validation (Milestone 3.1)
-- [ ] Quality filters, deduplication, PII detection (Milestone 3.2)
+- [x] Quality filters, deduplication, PII detection, pipeline wrapper (Milestone 3.2)
 - [ ] Data manifests and contamination checks (Milestone 3.3)
 - [ ] Indic data pipeline unification
 

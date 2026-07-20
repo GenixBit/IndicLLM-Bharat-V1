@@ -16,6 +16,14 @@ class QualityScore:
 
 
 @dataclass(frozen=True)
+class QualityDecision:
+    is_quality: bool
+    score: float
+    reasons: tuple[str, ...]
+    features: dict[str, float]
+
+
+@dataclass(frozen=True)
 class QualityConfig:
     min_chars: int = 50
     max_chars: int = 1_000_000
@@ -32,19 +40,55 @@ class QualityConfig:
     min_unique_word_ratio: float = 0.1
 
 
+_REASON_CODES: dict[str, str] = {
+    "min_chars": "too_short",
+    "max_chars": "too_long",
+    "min_words": "too_few_words",
+    "max_words": "too_many_words",
+    "min_alpha_ratio": "low_alpha_ratio",
+    "max_punct_ratio": "too_many_punctuation",
+    "max_ellipsis_ratio": "too_many_ellipses",
+    "max_bullet_ratio": "too_many_bullets",
+    "min_avg_word_len": "avg_word_too_short",
+    "max_avg_word_len": "avg_word_too_long",
+    "min_unique_word_ratio": "too_few_unique_words",
+    "max_line_length": "line_too_long",
+    "repeated_words": "excessive_repetition",
+    "url_count": "too_many_urls",
+    "repeated_char": "excessive_char_repetition",
+    "lines": "too_few_lines",
+}
+
+
 class QualityScorer:
     _URL_RE: ClassVar[re.Pattern[str]] = re.compile(r"https?://\S+")
     _BULLET_RE: ClassVar[re.Pattern[str]] = re.compile(r"^[\s]*[>\-]\s", re.MULTILINE)
     _ELLIPSIS_RE: ClassVar[re.Pattern[str]] = re.compile(r"\.{4,}")
     _REPEATED_WORD_RE: ClassVar[re.Pattern[str]] = re.compile(r"\b(\w+)\s+\1\b", re.IGNORECASE)
     _REPEATED_CHAR_RE: ClassVar[re.Pattern[str]] = re.compile(r"(.)\1{4,}")
-    _NON_ALPHA_RE: ClassVar[re.Pattern[str]] = re.compile(r"[^a-zA-Z0-9\s]")
     _PUNCT_RE: ClassVar[re.Pattern[str]] = re.compile(r"[^\w\s]")
-    _DIGIT_RE: ClassVar[re.Pattern[str]] = re.compile(r"\d")
-    _UPPER_RE: ClassVar[re.Pattern[str]] = re.compile(r"[A-Z]")
 
     def __init__(self, config: QualityConfig | None = None) -> None:
         self.config = config or QualityConfig()
+        self._validate_config()
+
+    def _validate_config(self) -> None:
+        if self.config.min_chars <= 0:
+            raise ValueError("min_chars must be > 0")
+        if self.config.max_chars < self.config.min_chars:
+            raise ValueError("max_chars must be >= min_chars")
+        if self.config.min_words <= 0:
+            raise ValueError("min_words must be > 0")
+        if self.config.max_words < self.config.min_words:
+            raise ValueError("max_words must be >= min_words")
+        if not 0.0 <= self.config.min_alpha_ratio <= 1.0:
+            raise ValueError("min_alpha_ratio must be in [0.0, 1.0]")
+        if not 0.0 <= self.config.max_punct_ratio <= 1.0:
+            raise ValueError("max_punct_ratio must be in [0.0, 1.0]")
+        if not 0.0 <= self.config.max_ellipsis_ratio <= 1.0:
+            raise ValueError("max_ellipsis_ratio must be in [0.0, 1.0]")
+        if not 0.0 <= self.config.max_bullet_ratio <= 1.0:
+            raise ValueError("max_bullet_ratio must be in [0.0, 1.0]")
 
     def score(self, text: str) -> QualityScore:
         if not text:
@@ -62,8 +106,52 @@ class QualityScorer:
             features=features,
         )
 
-    def is_quality(self, text: str, min_score: float = 0.5) -> bool:
-        return self.score(text).overall >= min_score
+    def evaluate(self, text: str) -> QualityDecision:
+        qs = self.score(text)
+        reasons: list[str] = []
+        f = qs.features
+        if not f:
+            return QualityDecision(is_quality=False, score=0.0, reasons=("empty",), features={})
+        if f["chars"] < self.config.min_chars:
+            reasons.append(_REASON_CODES["min_chars"])
+        if f["chars"] > self.config.max_chars:
+            reasons.append(_REASON_CODES["max_chars"])
+        if f["words"] < self.config.min_words:
+            reasons.append(_REASON_CODES["min_words"])
+        if f["words"] > self.config.max_words:
+            reasons.append(_REASON_CODES["max_words"])
+        if f["alpha_ratio"] < self.config.min_alpha_ratio:
+            reasons.append(_REASON_CODES["min_alpha_ratio"])
+        if f["punct_ratio"] > self.config.max_punct_ratio:
+            reasons.append(_REASON_CODES["max_punct_ratio"])
+        if f["ellipsis_ratio"] > self.config.max_ellipsis_ratio:
+            reasons.append(_REASON_CODES["max_ellipsis_ratio"])
+        if f["bullet_ratio"] > self.config.max_bullet_ratio:
+            reasons.append(_REASON_CODES["max_bullet_ratio"])
+        if "avg_word_len" in f:
+            if f["avg_word_len"] < self.config.min_avg_word_len:
+                reasons.append(_REASON_CODES["min_avg_word_len"])
+            if f["avg_word_len"] > self.config.max_avg_word_len:
+                reasons.append(_REASON_CODES["max_avg_word_len"])
+        if f["unique_word_ratio"] < self.config.min_unique_word_ratio:
+            reasons.append(_REASON_CODES["min_unique_word_ratio"])
+        if f["max_line_length"] > self.config.max_line_length:
+            reasons.append(_REASON_CODES["max_line_length"])
+        if int(f["repeated_words"]) > 5:
+            reasons.append(_REASON_CODES["repeated_words"])
+        if f["url_count"] > 10:
+            reasons.append(_REASON_CODES["url_count"])
+        if f["repeated_char_ratio"] > 0.05:
+            reasons.append(_REASON_CODES["repeated_char"])
+        if f["lines"] < 2:
+            reasons.append(_REASON_CODES["lines"])
+        is_quality = qs.overall >= 0.5 and not reasons
+        return QualityDecision(
+            is_quality=is_quality, score=qs.overall, reasons=tuple(reasons), features=f
+        )
+
+    def is_quality(self, text: str) -> bool:
+        return self.evaluate(text).is_quality
 
     def _extract_features(self, text: str) -> dict[str, float]:
         chars = len(text)
@@ -73,10 +161,7 @@ class QualityScorer:
         num_lines = len(lines)
         avg_word_len = statistics.mean(len(w) for w in words_list) if words_list else 0.0
         alpha_chars = sum(1 for c in text if c.isalpha())
-        upper_chars = sum(1 for c in text if c.isupper())
-        digit_chars = sum(1 for c in text if c.isdigit())
         punct_chars = len(self._PUNCT_RE.findall(text))
-        space_chars = text.count(" ")
         bullet_lines = len(self._BULLET_RE.findall(text))
         ellipsis_count = len(self._ELLIPSIS_RE.findall(text))
         repeated_words = len(self._REPEATED_WORD_RE.findall(text))
@@ -90,10 +175,7 @@ class QualityScorer:
             "lines": float(num_lines),
             "avg_word_len": avg_word_len,
             "alpha_ratio": alpha_chars / max(chars, 1),
-            "upper_ratio": upper_chars / max(alpha_chars, 1),
-            "digit_ratio": digit_chars / max(chars, 1),
             "punct_ratio": punct_chars / max(chars, 1),
-            "space_ratio": space_chars / max(chars, 1),
             "bullet_ratio": bullet_lines / max(num_lines, 1),
             "ellipsis_ratio": ellipsis_count / max(words, 1),
             "repeated_words": float(repeated_words),
@@ -110,10 +192,6 @@ class QualityScorer:
             score += 0.25
         if f["alpha_ratio"] >= self.config.min_alpha_ratio:
             score += 0.25
-        if f["upper_ratio"] < 0.9:
-            score += 0.1
-        if f["digit_ratio"] < 0.5:
-            score += 0.1
         if f["punct_ratio"] <= self.config.max_punct_ratio:
             score += 0.1
         if f["repeated_char_ratio"] < 0.01:
@@ -127,7 +205,7 @@ class QualityScorer:
         if self.config.min_words <= f["words"] <= self.config.max_words:
             score += 0.3
         if self.config.min_avg_word_len <= f["avg_word_len"] <= self.config.max_avg_word_len:
-            score += 0.2
+            score += 0.3
         if f["unique_word_ratio"] >= self.config.min_unique_word_ratio:
             score += 0.3
         if f["ellipsis_ratio"] <= self.config.max_ellipsis_ratio:
