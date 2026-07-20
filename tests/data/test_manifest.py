@@ -120,6 +120,102 @@ class TestDatasetManifest:
         errors = m.validate()
         assert any("records must be non-negative" in e for e in errors)
 
+    def test_reproducible_digest_with_same_created_at(self):
+        m1 = _make_minimal_manifest(created_at="2026-07-20T12:00:00Z")
+        m2 = _make_minimal_manifest(created_at="2026-07-20T12:00:00Z")
+        assert m1.digest() == m2.digest()
+
+    def test_different_created_at_different_digest(self):
+        m1 = _make_minimal_manifest(created_at="2026-07-20T12:00:00Z")
+        m2 = _make_minimal_manifest(created_at="2026-07-21T12:00:00Z")
+        assert m1.digest() != m2.digest()
+
+    def test_create_manifest_explicit_created_at(self):
+        m = create_manifest(
+            dataset_id="ds",
+            source_id="src",
+            source_version="1.0",
+            license="mit",
+            language="en",
+            split="train",
+            records=10,
+            bytes_utf8=1000,
+            sha256=_SAMPLE_SHA256,
+            processing_config_digest=_SAMPLE_DIGEST,
+            registry_digest=_SAMPLE_DIGEST,
+            policy_digest=_SAMPLE_DIGEST,
+            created_at="2026-07-20T12:00:00Z",
+        )
+        assert m.created_at == "2026-07-20T12:00:00Z"
+
+    def test_invalid_created_at_format(self):
+        with pytest.raises(ValueError, match="created_at must be in ISO"):
+            create_manifest(
+                dataset_id="ds",
+                source_id="src",
+                source_version="1.0",
+                license="mit",
+                language="en",
+                split="train",
+                records=10,
+                bytes_utf8=1000,
+                sha256=_SAMPLE_SHA256,
+                processing_config_digest=_SAMPLE_DIGEST,
+                registry_digest=_SAMPLE_DIGEST,
+                policy_digest=_SAMPLE_DIGEST,
+                created_at="not-iso-format",
+            )
+
+    def test_invalid_sha256_length(self):
+        data = _make_minimal_manifest().to_dict()
+        data["sha256"] = "too-short"
+        with pytest.raises(ValueError, match="sha256 must be a 64-char"):
+            DatasetManifest.from_dict(data)
+
+    def test_invalid_sha256_characters(self):
+        data = _make_minimal_manifest().to_dict()
+        data["sha256"] = "z" + "0" * 63
+        with pytest.raises(ValueError, match="sha256 must be a 64-char"):
+            DatasetManifest.from_dict(data)
+
+    def test_shard_contiguity_mismatch(self):
+        shards = (
+            ShardManifest("s_0000", 0, 0, 50),
+            ShardManifest("s_0001", 1, 60, 110),
+        )
+        with pytest.raises(ValueError, match="Non-contiguous"):
+            _make_minimal_manifest(records=100, shards=shards)
+
+    def test_shard_non_sequential_indexes(self):
+        shards = (
+            ShardManifest("s_0000", 0, 0, 50),
+            ShardManifest("s_0001", 2, 50, 100),
+        )
+        with pytest.raises(ValueError, match="sequential from 0"):
+            _make_minimal_manifest(records=100, shards=shards)
+
+    def test_valid_sequential_shards(self):
+        shards = (
+            ShardManifest("s_0000", 0, 0, 50),
+            ShardManifest("s_0001", 1, 50, 100),
+        )
+        m = _make_minimal_manifest(records=100, shards=shards)
+        assert m.is_valid()
+
+    def test_shard_invalid_sha256(self):
+        data = _make_minimal_manifest(shards=()).to_dict()
+        data["shards"] = [
+            {
+                "shard_id": "s_0000",
+                "index": 0,
+                "record_start": 0,
+                "record_end": 100,
+                "sha256": "bad",
+            }
+        ]
+        with pytest.raises(ValueError, match="sha256 must be a 64-char"):
+            DatasetManifest.from_dict(data)
+
     def test_shard_record_sum_mismatch(self):
         shards = (
             ShardManifest("s_0000", 0, 0, 50),
@@ -146,11 +242,26 @@ class TestDatasetManifest:
         assert m.is_valid()
 
     def test_duplicate_shard_index(self):
-        shards = (
-            ShardManifest("s_0000", 0, 0, 50),
-            ShardManifest("s_0001", 0, 50, 100),
+        m = DatasetManifest(
+            manifest_version="1.0",
+            dataset_id="test_ds",
+            source_id="test_source",
+            source_version="1.0.0",
+            created_at="2026-07-20T12:00:00Z",
+            license="cc-by-4.0",
+            language="en",
+            split="train",
+            records=100,
+            bytes_utf8=50000,
+            sha256=_SAMPLE_SHA256,
+            processing_config_digest=_SAMPLE_DIGEST,
+            registry_digest=_SAMPLE_DIGEST,
+            policy_digest=_SAMPLE_DIGEST,
+            shards=(
+                ShardManifest("s_0000", 0, 0, 50),
+                ShardManifest("s_0001", 0, 50, 100),
+            ),
         )
-        m = _make_minimal_manifest(records=100, shards=shards)
         errors = m.validate()
         assert any("Duplicate shard index" in e for e in errors)
 

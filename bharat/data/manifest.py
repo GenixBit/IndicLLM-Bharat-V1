@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 _MANIFEST_SCHEMA_VERSION = "1.0"
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _ALLOWED_MANIFEST_ROOT_KEYS = frozenset(
     {
         "manifest_version",
@@ -37,6 +40,37 @@ _ALLOWED_SHARD_KEYS = frozenset(
         "created_at",
     }
 )
+
+
+def _validate_sha256(value: str, field_name: str) -> None:
+    if not value:
+        raise ValueError(f"{field_name} must be a non-empty string")
+    if not _SHA256_RE.match(value):
+        raise ValueError(
+            f"{field_name} must be a 64-character lowercase hex string, "
+            f"got '{value[:20]}...' (len={len(value)})"
+        )
+
+
+def _validate_shards(shards: tuple[ShardManifest, ...]) -> None:
+    if not shards:
+        return
+    sorted_shards = sorted(shards, key=lambda s: s.index)
+    expected_indices = list(range(len(shards)))
+    actual_indices = [s.index for s in sorted_shards]
+    if actual_indices != expected_indices:
+        raise ValueError(
+            f"Shard indexes must be sequential from 0; got {actual_indices}"
+        )
+    for i in range(1, len(sorted_shards)):
+        prev = sorted_shards[i - 1]
+        curr = sorted_shards[i]
+        if curr.record_start != prev.record_end:
+            raise ValueError(
+                f"Non-contiguous shards: shard index {prev.index} ends at "
+                f"{prev.record_end} but shard index {curr.index} starts at "
+                f"{curr.record_start}"
+            )
 
 
 @dataclass(frozen=True)
@@ -83,13 +117,16 @@ class ShardManifest:
             raise ValueError("record_end must be a non-negative integer")
         if record_end < record_start:
             raise ValueError(f"record_end ({record_end}) must be >= record_start ({record_start})")
+        sha256 = data.get("sha256", "")
+        if sha256:
+            _validate_sha256(sha256, f"shard '{shard_id}'.sha256")
         return cls(
             shard_id=shard_id,
             index=index,
             record_start=record_start,
             record_end=record_end,
             bytes_utf8=data.get("bytes_utf8", 0),
-            sha256=data.get("sha256", ""),
+            sha256=sha256,
             created_at=data.get("created_at", ""),
         )
 
@@ -184,23 +221,29 @@ class DatasetManifest:
         sha256 = data.get("sha256")
         if not isinstance(sha256, str) or not sha256:
             raise ValueError("sha256 must be a non-empty string")
+        _validate_sha256(sha256, "sha256")
 
         processing_config_digest = data.get("processing_config_digest")
         if not isinstance(processing_config_digest, str) or not processing_config_digest:
             raise ValueError("processing_config_digest must be a non-empty string")
+        _validate_sha256(processing_config_digest, "processing_config_digest")
 
         registry_digest = data.get("registry_digest")
         if not isinstance(registry_digest, str) or not registry_digest:
             raise ValueError("registry_digest must be a non-empty string")
+        _validate_sha256(registry_digest, "registry_digest")
 
         policy_digest = data.get("policy_digest")
         if not isinstance(policy_digest, str) or not policy_digest:
             raise ValueError("policy_digest must be a non-empty string")
+        _validate_sha256(policy_digest, "policy_digest")
 
         shards_raw = data.get("shards", [])
         if not isinstance(shards_raw, list):
             raise ValueError("shards must be a list")
         shards = tuple(ShardManifest.from_dict(s) for s in shards_raw)
+
+        _validate_shards(shards)
 
         total_shard_records = sum(s.record_end - s.record_start for s in shards)
         if shards and total_shard_records != records:
@@ -241,12 +284,20 @@ class DatasetManifest:
             errors.append("bytes_utf8 must be non-negative")
         if not self.sha256:
             errors.append("sha256 must be non-empty")
+        elif not _SHA256_RE.match(self.sha256):
+            errors.append(f"sha256 has invalid format (len={len(self.sha256)})")
         if not self.processing_config_digest:
             errors.append("processing_config_digest must be non-empty")
+        elif not _SHA256_RE.match(self.processing_config_digest):
+            errors.append("processing_config_digest has invalid format")
         if not self.registry_digest:
             errors.append("registry_digest must be non-empty")
+        elif not _SHA256_RE.match(self.registry_digest):
+            errors.append("registry_digest has invalid format")
         if not self.policy_digest:
             errors.append("policy_digest must be non-empty")
+        elif not _SHA256_RE.match(self.policy_digest):
+            errors.append("policy_digest has invalid format")
         if self.shards:
             total_shard_records = sum(s.record_end - s.record_start for s in self.shards)
             if total_shard_records != self.records:
@@ -261,6 +312,18 @@ class DatasetManifest:
                 seen_indices.add(s.index)
                 if s.record_end < s.record_start:
                     errors.append(f"Shard '{s.shard_id}': record_end < record_start")
+            sorted_shards = sorted(self.shards, key=lambda s: s.index)
+            expected = list(range(len(self.shards)))
+            actual = [s.index for s in sorted_shards]
+            if actual != expected:
+                errors.append(f"Shard indexes must be sequential from 0; got {actual}")
+            for i in range(1, len(sorted_shards)):
+                if sorted_shards[i].record_start != sorted_shards[i - 1].record_end:
+                    errors.append(
+                        f"Non-contiguous shards: shard {sorted_shards[i-1].index} ends at "
+                        f"{sorted_shards[i-1].record_end} but shard {sorted_shards[i].index} "
+                        f"starts at {sorted_shards[i].record_start}"
+                    )
         return errors
 
     def is_valid(self) -> bool:
@@ -295,9 +358,18 @@ def create_manifest(
     registry_digest: str,
     policy_digest: str,
     shards: tuple[ShardManifest, ...] = (),
+    created_at: str | None = None,
 ) -> DatasetManifest:
-    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if created_at is not None:
+        if not _ISO_UTC_RE.match(created_at):
+            raise ValueError(
+                f"created_at must be in ISO 8601 UTC format "
+                f"(YYYY-MM-DDTHH:MM:SSZ), got '{created_at}'"
+            )
+    else:
+        created_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     if shards:
+        _validate_shards(shards)
         total_shard_records = sum(s.record_end - s.record_start for s in shards)
         if total_shard_records != records:
             raise ValueError(
@@ -309,7 +381,7 @@ def create_manifest(
         dataset_id=dataset_id,
         source_id=source_id,
         source_version=source_version,
-        created_at=now,
+        created_at=created_at,
         license=license,
         language=language,
         split=split,

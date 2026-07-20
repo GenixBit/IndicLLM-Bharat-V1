@@ -6,6 +6,11 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class ContaminationConfig:
+    ngram_threshold: float = 0.5
+
+
+@dataclass(frozen=True)
 class ContaminationResult:
     is_contaminated: bool
     method: str
@@ -13,11 +18,24 @@ class ContaminationResult:
     matched_sources: tuple[str, ...] = ()
 
 
+_CONTAMINATION_RNG = 1315423911
+
+
+def _hash_text(text: str) -> int:
+    h = _CONTAMINATION_RNG
+    for b in text.encode("utf-8"):
+        h ^= (h << 5) + b + (h >> 2)
+    return h & 0x7FFFFFFF
+
+
 class ContaminationChecker:
-    def __init__(self) -> None:
-        self._blocklist: set[str] = set()
-        self._normalized_blocklist: set[str] = set()
-        self._ngram_blocklist: dict[int, set[int]] = {}
+    def __init__(self, config: ContaminationConfig | None = None) -> None:
+        self._config = config or ContaminationConfig()
+        self._entries: list[str] = []
+        self._entry_set: set[str] = set()
+        self._exact_hashes: set[str] = set()
+        self._normalized_set: set[str] = set()
+        self._ngram_cache: dict[int, list[set[int]]] = {}
 
     def load_blocklist(self, path: str | Path) -> None:
         path = Path(path)
@@ -38,9 +56,12 @@ class ContaminationChecker:
             with path.open("r", encoding="utf-8") as f:
                 entries = [line.strip() for line in f if line.strip()]
         for entry in entries:
-            self._blocklist.add(entry)
-            normalized = self._normalize(entry)
-            self._normalized_blocklist.add(normalized)
+            if entry not in self._entry_set:
+                self._entries.append(entry)
+                self._entry_set.add(entry)
+                self._exact_hashes.add(self._sha256(entry))
+                self._normalized_set.add(self._normalize(entry))
+                self._ngram_cache.clear()
 
     def _normalize(self, text: str) -> str:
         return " ".join(text.lower().split())
@@ -51,53 +72,64 @@ class ContaminationChecker:
     def _text_ngrams(self, text: str, n: int) -> set[int]:
         words = text.split()
         if len(words) < n:
-            effective = max(1, len(text))
+            effective = min(n, len(text))
+            if effective < 1:
+                return set()
             return {
-                int(hashlib.md5(text[i : i + effective].encode("utf-8")).hexdigest()[:8], 16)
+                _hash_text(text[i : i + effective])
                 for i in range(max(1, len(text) - effective + 1))
             }
         ngrams: set[int] = set()
         for i in range(len(words) - n + 1):
             ng = " ".join(words[i : i + n])
-            h = int(hashlib.md5(ng.encode("utf-8")).hexdigest()[:8], 16)
-            ngrams.add(h)
+            ngrams.add(_hash_text(ng))
         return ngrams
 
+    def _get_ngrams_for(self, n: int) -> list[set[int]]:
+        if n not in self._ngram_cache:
+            self._ngram_cache[n] = [
+                self._text_ngrams(e, n) for e in self._entries
+            ]
+        return self._ngram_cache[n]
+
     def check_exact(self, text: str) -> ContaminationResult:
-        if not text or not self._blocklist:
+        if not text or not self._entries:
             return ContaminationResult(False, "exact", 0.0)
         h = self._sha256(text)
-        if h in {self._sha256(b) for b in self._blocklist}:
+        if h in self._exact_hashes:
             return ContaminationResult(True, "exact", 1.0)
         return ContaminationResult(False, "exact", 0.0)
 
     def check_normalized(self, text: str) -> ContaminationResult:
-        if not text or not self._blocklist:
+        if not text or not self._entries:
             return ContaminationResult(False, "normalized", 0.0)
         normalized = self._normalize(text)
-        if normalized in self._normalized_blocklist:
+        if normalized in self._normalized_set:
             return ContaminationResult(True, "normalized", 1.0)
         return ContaminationResult(False, "normalized", 0.0)
 
     def check_ngram(self, text: str, n: int = 5) -> ContaminationResult:
-        if not text or not self._blocklist:
+        if n < 1:
+            raise ValueError(f"n must be >= 1, got {n}")
+        if not text or not self._entries:
             return ContaminationResult(False, f"ngram_{n}", 0.0)
+        text = self._normalize(text)
         text_ngs = self._text_ngrams(text, n)
         if not text_ngs:
             return ContaminationResult(False, f"ngram_{n}", 0.0)
+        block_ngram_list = self._get_ngrams_for(n)
         max_overlap = 0.0
         matched: list[str] = []
-        for blocked in self._blocklist:
-            block_ngs = self._text_ngrams(blocked, n)
+        for i, block_ngs in enumerate(block_ngram_list):
             if not block_ngs:
                 continue
             common = len(text_ngs & block_ngs)
             overlap = common / max(len(text_ngs), len(block_ngs))
             if overlap > max_overlap:
                 max_overlap = overlap
-            if overlap >= 0.5:
-                matched.append(self._sha256(blocked)[:12])
-        is_contaminated = max_overlap >= 0.5
+            if overlap >= self._config.ngram_threshold:
+                matched.append(self._sha256(self._entries[i])[:12])
+        is_contaminated = max_overlap >= self._config.ngram_threshold
         return ContaminationResult(
             is_contaminated=is_contaminated,
             method=f"ngram_{n}",
@@ -115,6 +147,8 @@ class ContaminationChecker:
         return self.check_ngram(text, n)
 
     def reset(self) -> None:
-        self._blocklist.clear()
-        self._normalized_blocklist.clear()
-        self._ngram_blocklist.clear()
+        self._entries.clear()
+        self._entry_set.clear()
+        self._exact_hashes.clear()
+        self._normalized_set.clear()
+        self._ngram_cache.clear()
