@@ -28,13 +28,20 @@ def _unicode_words(text: str) -> list[str]:
 
 def _default_minhash_signature(text: str, n_gram_size: int, num_perm: int) -> list[int] | None:
     words = _unicode_words(text)
-    if len(words) < n_gram_size:
-        n_gram_size = max(1, len(words))
     n_grams: set[int] = set()
-    for i in range(len(words) - n_gram_size + 1):
-        ng = " ".join(words[i : i + n_gram_size])
-        h = int(hashlib.md5(ng.encode("utf-8")).hexdigest()[:8], 16)
-        n_grams.add(h)
+    if not words:
+        return None
+    if len(words) >= n_gram_size:
+        for i in range(len(words) - n_gram_size + 1):
+            ng = " ".join(words[i : i + n_gram_size])
+            h = int(hashlib.md5(ng.encode("utf-8")).hexdigest()[:8], 16)
+            n_grams.add(h)
+    else:
+        effective = max(1, min(n_gram_size, len(text)))
+        for i in range(len(text) - effective + 1):
+            ng = text[i : i + effective]
+            h = int(hashlib.md5(ng.encode("utf-8")).hexdigest()[:8], 16)
+            n_grams.add(h)
     if not n_grams:
         return None
     a_coeffs = [2 * i + 1 for i in range(num_perm)]

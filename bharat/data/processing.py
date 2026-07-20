@@ -60,27 +60,25 @@ class DataProcessor:
         quality_decision = self.quality.evaluate(normalized or text)
         safety_result = self.safety.classify(normalized or text)
         pii_spans = self.pii.detect(normalized or text)
-        exact_dup = not self.exact_dedup.add_document(normalized or text) if normalized else True
-        fuzzy_dup = not self.fuzzy_dedup.add_document(normalized or text) if normalized else True
         reasons: list[str] = []
-        if exact_dup:
-            reasons.append("exact_duplicate")
-        if fuzzy_dup:
-            reasons.append("fuzzy_duplicate")
         if not safety_result.is_safe:
             reasons.append(f"unsafe:{','.join(safety_result.categories_violated)}")
         if pii_spans:
             reasons.append(f"pii:{','.join(s.pii_type for s in pii_spans)}")
         if not quality_decision.is_quality:
             reasons.extend(quality_decision.reasons)
+        accepted = safety_result.is_safe and not pii_spans and quality_decision.is_quality
+        exact_dup = False
+        fuzzy_dup = False
+        if accepted and normalized:
+            exact_dup = not self.exact_dedup.add_document(normalized)
+            fuzzy_dup = not self.fuzzy_dedup.add_document(normalized)
+        if exact_dup:
+            reasons.append("exact_duplicate")
+        if fuzzy_dup:
+            reasons.append("fuzzy_duplicate")
         reasons = sorted(set(reasons))
-        accepted = (
-            not exact_dup
-            and not fuzzy_dup
-            and safety_result.is_safe
-            and not pii_spans
-            and quality_decision.is_quality
-        )
+        accepted = accepted and not exact_dup and not fuzzy_dup
         return ProcessingDecision(
             accepted=accepted,
             normalized_text=normalized,
