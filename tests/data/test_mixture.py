@@ -184,7 +184,7 @@ class TestMixturePlannerHardening:
             max_pct_per_source=0.4,
         )
         planner = MixturePlanner()
-        with pytest.raises(ValueError, match="All sources exceed"):
+        with pytest.raises(ValueError, match="cannot accommodate"):
             planner.plan(manifests, constraint)
 
     def test_domain_weights_validation(self):
@@ -517,3 +517,100 @@ class TestZeroWeight:
         assert zero_plan.weight == 0.0
         assert zero_plan.estimated_records == 0
         assert "excluded" in zero_plan.note.lower()
+
+
+class TestStableCapRedistribution:
+    def test_single_over_cap_three_sources(self):
+        manifests = [
+            _make_manifest("a", "src_a", "en", 1000, domain="web"),
+            _make_manifest("b", "src_b", "hi", 1000, domain="web"),
+            _make_manifest("c", "src_c", "te", 1000, domain="web"),
+        ]
+        constraint = MixtureConstraint(
+            language_weights={"en": 0.70, "hi": 0.20, "te": 0.10},
+            domain_weights={"web": 1.0},
+            max_pct_per_source=0.50,
+            min_record_threshold=0,
+        )
+        planner = MixturePlanner()
+        plans = planner.plan(manifests, constraint)
+        a = [p for p in plans if p.source_id == "src_a"][0]
+        b = [p for p in plans if p.source_id == "src_b"][0]
+        c = [p for p in plans if p.source_id == "src_c"][0]
+        assert abs(a.weight - 0.50) < 1e-9, f"A={a.weight}"
+        assert abs(b.weight - 1.0 / 3.0) < 1e-6, f"B={b.weight}"
+        assert abs(c.weight - 1.0 / 6.0) < 1e-6, f"C={c.weight}"
+        assert abs(sum(p.weight for p in plans) - 1.0) < 1e-9
+
+    def test_multi_round_cap_scenario(self):
+        manifests = [
+            _make_manifest("a", "src_a", "en", 1000, domain="web"),
+            _make_manifest("b", "src_b", "hi", 1000, domain="web"),
+            _make_manifest("c", "src_c", "te", 1000, domain="web"),
+        ]
+        constraint = MixtureConstraint(
+            language_weights={"en": 0.70, "hi": 0.25, "te": 0.05},
+            domain_weights={"web": 1.0},
+            max_pct_per_source=0.40,
+            min_record_threshold=0,
+        )
+        planner = MixturePlanner()
+        plans = planner.plan(manifests, constraint)
+        a = [p for p in plans if p.source_id == "src_a"][0]
+        b = [p for p in plans if p.source_id == "src_b"][0]
+        c = [p for p in plans if p.source_id == "src_c"][0]
+        assert abs(a.weight - 0.40) < 1e-9, f"A={a.weight}"
+        assert abs(b.weight - 0.40) < 1e-9, f"B={b.weight}"
+        assert abs(c.weight - 0.20) < 1e-9, f"C={c.weight}"
+        assert abs(sum(p.weight for p in plans) - 1.0) < 1e-9
+
+    def test_impossible_cap_two_sources(self):
+        manifests = [
+            _make_manifest("a", "src_a", "en", 1000, domain="web"),
+            _make_manifest("b", "src_b", "hi", 1000, domain="web"),
+        ]
+        constraint = MixtureConstraint(
+            language_weights={"en": 0.6, "hi": 0.4},
+            domain_weights={"web": 1.0},
+            max_pct_per_source=0.40,
+            min_record_threshold=0,
+        )
+        planner = MixturePlanner()
+        with pytest.raises(ValueError, match="cannot accommodate"):
+            planner.plan(manifests, constraint)
+
+    def test_final_weights_within_cap_tolerance(self):
+        manifests = [
+            _make_manifest("a", "src_a", "en", 1000, domain="web"),
+            _make_manifest("b", "src_b", "hi", 1000, domain="web"),
+            _make_manifest("c", "src_c", "te", 1000, domain="web"),
+        ]
+        constraint = MixtureConstraint(
+            language_weights={"en": 0.70, "hi": 0.25, "te": 0.05},
+            domain_weights={"web": 1.0},
+            max_pct_per_source=0.40,
+            min_record_threshold=0,
+        )
+        planner = MixturePlanner()
+        plans = planner.plan(manifests, constraint)
+        tolerance = 1e-9
+        assert abs(sum(p.weight for p in plans) - 1.0) < tolerance
+        assert all(p.weight <= 0.40 + tolerance for p in plans)
+
+    def test_estimated_records_101(self):
+        manifests = [
+            _make_manifest("a", "src_a", "en", 1000, domain="web"),
+            _make_manifest("b", "src_b", "hi", 1000, domain="web"),
+        ]
+        constraint = MixtureConstraint(
+            language_weights={"en": 0.5, "hi": 0.5},
+            domain_weights={"web": 1.0},
+            max_pct_per_source=1.0,
+            min_record_threshold=0,
+        )
+        planner = MixturePlanner()
+        plans = planner.plan(manifests, constraint, target_records=101)
+        est_sum = sum(p.estimated_records for p in plans)
+        assert est_sum == 101
+        p1 = planner.plan(manifests, constraint, target_records=101)
+        assert p1 == plans
