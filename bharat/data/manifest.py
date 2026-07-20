@@ -26,6 +26,7 @@ _ALLOWED_MANIFEST_ROOT_KEYS = frozenset(
         "processing_config_digest",
         "registry_digest",
         "policy_digest",
+        "domain",
         "shards",
     }
 )
@@ -147,6 +148,7 @@ class DatasetManifest:
     processing_config_digest: str
     registry_digest: str
     policy_digest: str
+    domain: str = ""
     shards: tuple[ShardManifest, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -167,6 +169,8 @@ class DatasetManifest:
             "policy_digest": self.policy_digest,
             "shards": [s.to_dict() for s in self.shards],
         }
+        if self.domain:
+            d["domain"] = self.domain
         return d
 
     @classmethod
@@ -209,6 +213,8 @@ class DatasetManifest:
         split = data.get("split")
         if not isinstance(split, str) or not split:
             raise ValueError("split must be a non-empty string")
+
+        domain = data.get("domain", "")
 
         records = data.get("records")
         if not isinstance(records, int) or records < 0:
@@ -261,6 +267,7 @@ class DatasetManifest:
             license=lic,
             language=language,
             split=split,
+            domain=domain,
             records=records,
             bytes_utf8=bytes_utf8,
             sha256=sha256,
@@ -359,6 +366,7 @@ def create_manifest(
     policy_digest: str,
     shards: tuple[ShardManifest, ...] = (),
     created_at: str | None = None,
+    domain: str = "",
 ) -> DatasetManifest:
     if created_at is not None:
         if not _ISO_UTC_RE.match(created_at):
@@ -385,6 +393,7 @@ def create_manifest(
         license=license,
         language=language,
         split=split,
+        domain=domain,
         records=records,
         bytes_utf8=bytes_utf8,
         sha256=sha256,
