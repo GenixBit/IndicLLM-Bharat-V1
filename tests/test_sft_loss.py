@@ -7,6 +7,7 @@ import pytest
 
 from bharat.posttraining.collators import SFTCollator
 from bharat.posttraining.templates import Template, format_conversation
+
 INDIC_TEMPLATE = Template(
     name="indic_instruction",
     system_prefix="",

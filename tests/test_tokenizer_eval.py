@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from bharat.tokenizer.evaluate import (
     all_metrics,
     code_efficiency,
@@ -11,7 +9,6 @@ from bharat.tokenizer.evaluate import (
     top_k_common_tokens,
     top_k_rare_tokens,
 )
-
 
 SAMPLE_TEXTS = [
     "The quick brown fox jumps over the lazy dog.",

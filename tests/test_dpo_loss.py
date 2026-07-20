@@ -15,8 +15,6 @@ from bharat.posttraining.preference_loss import (
 )
 from bharat.posttraining.templates import Template
 
-
-
 INDIC_TEMPLATE = Template(
     name="indic_instruction",
     system_prefix="",

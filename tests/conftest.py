@@ -159,13 +159,17 @@ def fake_gpt2_tokenizer():
         def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
             return [hash(text) % self.vocab_size]
 
-        def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
+        def encode_batch(
+            self, texts: list[str], add_special_tokens: bool = True
+        ) -> list[list[int]]:
             return [[hash(t) % self.vocab_size] for t in texts]
 
         def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
             return " ".join(str(i) for i in ids)
 
-        def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
+        def decode_batch(
+            self, batch: list[list[int]], skip_special_tokens: bool = True
+        ) -> list[str]:
             return [self.decode(ids) for ids in batch]
 
         def get_metadata(self) -> dict:
