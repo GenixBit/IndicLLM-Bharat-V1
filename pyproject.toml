@@ -33,6 +33,7 @@ dependencies = [
 validate-data-manifest = "scripts.validate_data_manifest:main"
 plan-data-shards = "scripts.plan_data_shards:main"
 compute-data-stats = "scripts.compute_data_stats:main"
+prepare-local-data = "scripts.prepare_local_data:main"
 
 [project.optional-dependencies]
 dev = [
