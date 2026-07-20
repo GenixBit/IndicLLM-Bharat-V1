@@ -28,7 +28,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 
 - [x] Source registry infrastructure with licence validation (Milestone 3.1)
 - [x] Quality filters, deduplication, PII detection, pipeline wrapper (Milestone 3.2)
-- [ ] Data manifests and contamination checks (Milestone 3.3)
+- [x] Data manifests, statistics, shard planning, mixture planning, and contamination checks (Milestone 3.3)
 - [ ] Indic data pipeline unification
 
 ### Milestone 4 — Evaluation (BharatBench)
