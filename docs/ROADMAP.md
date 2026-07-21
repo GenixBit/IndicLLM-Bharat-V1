@@ -31,6 +31,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 - [x] Data manifests, statistics, shard planning, mixture planning, and contamination checks (Milestone 3.3)
 - [x] Manifest/scoring hardening, source-cap redistribution fixes, water-filling algorithm (Milestone 3.3.1–3.3.3)
 - [x] Local governed data preparation: file reader, records, shard writer, prepare pipeline, CLI (Milestone 3.4)
+- [x] Dataset approval workflow and release packaging (Milestone 3.5)
 - [ ] Indic data pipeline unification
 
 ### Milestone 4 — Evaluation (BharatBench)
