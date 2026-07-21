@@ -36,7 +36,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 
 ### Milestone 4 — Evaluation (BharatBench)
 
-- [ ] Evaluation runner with registry
+- [x] BharatBench evaluation harness with schema, metrics, runner, reporting, CLI, and tiny fixtures (Milestone 4.1)
 - [ ] Language, reasoning, coding, knowledge, safety benchmarks
 - [ ] Leaderboard for cross-checkpoint comparison
 
