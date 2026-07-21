@@ -87,7 +87,16 @@ python scripts/validate_data_registry.py
 python scripts/validate_data_manifest.py --manifest manifest.json
 python scripts/plan_data_shards.py --manifest manifest.json
 python scripts/compute_data_stats.py --input data.txt
+
+# Evaluate predictions with BharatBench
+python scripts/run_bharatbench.py \
+  --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
+  --predictions predictions.jsonl \
+  --output-dir eval_out \
+  --json
 ```
+
+**Important:** BharatBench evaluates local prediction files only. No model training or benchmark downloads are included yet. The tiny fixtures under `eval_fixtures/bharatbench_tiny/` are synthetic smoke tests — see [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for details.
 
 ---
 

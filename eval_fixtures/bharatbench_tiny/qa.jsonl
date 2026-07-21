@@ -1,0 +1,3 @@
+{"example_id":"qa_001","task_type":"qa","prompt":"What is the capital of India?","expected":"New Delhi"}
+{"example_id":"qa_002","task_type":"qa","prompt":"Which river is the longest in India?","expected":"Ganges"}
+{"example_id":"qa_003","task_type":"qa","prompt":"What is the official language of the Indian Union?","expected":"Hindi"}

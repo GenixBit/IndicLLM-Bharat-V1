@@ -1,0 +1,2 @@
+{"example_id":"cls_001","task_type":"classification","prompt":"Identify the language: 'नमस्ते'","expected":"hindi","choices":["hindi","tamil","bengali","telugu"]}
+{"example_id":"cls_002","task_type":"classification","prompt":"Identify the language: 'Vanakkam'","expected":"tamil","choices":["hindi","tamil","bengali","telugu"]}

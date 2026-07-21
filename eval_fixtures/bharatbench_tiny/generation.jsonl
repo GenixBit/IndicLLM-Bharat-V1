@@ -1,0 +1,2 @@
+{"example_id":"gen_001","task_type":"generation","prompt":"Translate 'Hello' to Hindi:","expected":"Namaste"}
+{"example_id":"gen_002","task_type":"generation","prompt":"Complete: The capital of India is","expected":"New Delhi"}

@@ -175,16 +175,18 @@ IndicLLM-Bharat-V1/
 
 **Goal:** Comprehensive evaluation framework.
 
-#### PR 14: Evaluation runner + registry
-- **Files:** `bharat/evaluation/runner.py`, `bharat/evaluation/registry.py`, `bharat/evaluation/reporting.py`
-- **Content:** Benchmark registration, parallel evaluation, JSON + Markdown reporting, leaderboard format
-- **Tests:** Registry lookup, report generation
+**Progress:** PR 14 (harness) ✅ — 4.1 harness complete.
+
+#### PR 14: BharatBench evaluation harness ✅ COMPLETED (Milestone 4.1)
+- **Files:** `bharat/eval/schema.py`, `bharat/eval/metrics.py`, `bharat/eval/runner.py`, `bharat/eval/reporting.py`, `bharat/eval/__init__.py`, `scripts/run_bharatbench.py`, `eval_fixtures/bharatbench_tiny/`, `tests/eval/test_schema.py`, `tests/eval/test_metrics.py`, `tests/eval/test_runner.py`, `tests/eval/test_reporting.py`, `tests/scripts/test_run_bharatbench.py`
+- **Content:** `EvalExample`/`EvalPrediction`/`EvalResult` frozen dataclasses with deterministic JSON and SHA-256 digest; QA, classification, and generation task types; dependency-free metrics (exact_match, normalized_exact_match, token_f1, choice_accuracy); `BharatBenchRunner` that matches predictions to examples, rejects missing/duplicate/unknown predictions, and computes per-task metrics; `BharatBenchReport` with aggregate scores and deterministic digest; CLI that evaluates local prediction JSONL files only; tiny synthetic fixtures in `eval_fixtures/bharatbench_tiny/`
+- **Tests:** 18 tests across schema, metrics, runner, reporting, and CLI
 - **Depends on:** PR 1
-- **Rollback:** Delete files; keep `eval/benchmark.py`
-- **Acceptance:** Reports contain model hash, git commit, tokenizer hash, all generation settings
+- **Rollback:** Delete `bharat/eval/`, `scripts/run_bharatbench.py`, `eval_fixtures/`, and `tests/eval/`
+- **Acceptance:** QA, classification, and generation task types supported; metrics are deterministic and dependency-free; runner rejects missing/duplicate/unknown predictions; report aggregates deterministically; CLI evaluates local prediction JSONL files only; remote URLs rejected; no model training or generation added
 
 #### PR 15: Evaluation modules
-- **Files:** `bharat/evaluation/language.py`, `bharat/evaluation/reasoning.py`, `bharat/evaluation/coding.py`, `bharat/evaluation/knowledge.py`, `bharat/evaluation/safety.py`, `bharat/evaluation/hallucination.py`, `bharat/evaluation/tool_use.py`, `bharat/evaluation/long_context.py`, `bharat/evaluation/latency.py`, `bharat/evaluation/contamination_check.py`
+- **Files:** `bharat/eval/language.py`, `bharat/eval/reasoning.py`, `bharat/eval/coding.py`, `bharat/eval/knowledge.py`, `bharat/eval/safety.py`, `bharat/eval/hallucination.py`, `bharat/eval/tool_use.py`, `bharat/eval/long_context.py`, `bharat/eval/latency.py`, `bharat/eval/contamination_check.py`
 - **Content:** All evaluation modules with standard benchmark integration
 - **Tests:** Each module has at least a smoke test
 - **Depends on:** PR 14
@@ -192,7 +194,7 @@ IndicLLM-Bharat-V1/
 - **Acceptance:** Language eval runs on Indic datasets; safety eval runs; latency measured
 
 #### PR 16: Leaderboard + reporting
-- **Files:** Update `bharat/evaluation/reporting.py` for full leaderboard
+- **Files:** Update `bharat/eval/reporting.py` for full leaderboard
 - **Content:** Cross-checkpoint comparison, tokenizer comparison, data variant comparison
 - **Tests:** Leaderboard generation
 - **Depends on:** PR 15
