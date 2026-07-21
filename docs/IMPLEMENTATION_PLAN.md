@@ -136,6 +136,7 @@ IndicLLM-Bharat-V1/
 **Progress:** PR 10 (source registry + licensing) ✅, PR 11 (filters + dedup) ✅, PR 12 (manifests + contamination) ✅.
 **3.3 Hardening (manifests, contamination, mixture, source caps):** 3 PRs merged — 934→955 tests.
 **3.4 Local governed preparation:** `local_reader.py`, `records.py`, `shard_writer.py`, `preparation.py`, `scripts/prepare_local_data.py` — 989 tests pass.
+**3.5 Dataset approval + release packaging:** `approval.py`, `release.py`, 2 CLI tools — 1062 tests pass.
 
 #### PR 10: Source registry + licensing ✅ COMPLETED
 - **Files:** `bharat/data/schema.py`, `bharat/data/licensing.py`, `bharat/data/sources.py`, `bharat/data/registry.py`, `bharat/data/__init__.py`, `data_registry/`, `scripts/validate_data_registry.py`, `docs/DATA_GOVERNANCE.md`
@@ -162,11 +163,19 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete files; existing `bharat/data/*.py` unchanged
 - **Acceptance:** Manifest schema is deterministic and validated; statistics work on local records only; shard planner does not download data; mixture planner enforces source/language constraints; contamination checks are offline and deterministic; CLI tools support JSON output; no datasets downloaded; no training added
 
-### Milestone 4 — BharatBench (PRs 13–15)
+#### PR 13: Dataset approval + release packaging ✅ COMPLETED (Milestone 3.5)
+- **Files:** `bharat/data/approval.py`, `bharat/data/release.py`, `scripts/validate_dataset_approval.py`, `scripts/build_dataset_release.py`, `tests/data/test_approval.py`, `tests/data/test_release.py`, `tests/scripts/test_validate_dataset_approval.py`, `tests/scripts/test_build_dataset_release.py`
+- **Content:** `DatasetApproval` frozen dataclass with deterministic JSON serialisation, SHA-256 digest, ISO-8601 timestamps, four review flags (license, PII, contamination, safety); `validate_approval_for_manifest()` cross-checks approval against manifest; `DatasetRelease` frozen dataclass with `shard_count`, `records`, `bytes_utf8`, `package_sha256`; `DatasetAuditReport` for release audit trail; `DatasetReleaseBuilder` loads manifest + approval from local files, verifies shard files exist and SHA-256 digests match, rejects remote URLs, writes deterministic `dataset_release.json` and `audit_report.json`; CLI tools for approval validation and release building
+- **Tests:** 65 tests (18 approval, 30 release, 12 validate CLI, 5 build CLI)
+- **Depends on:** PR 12
+- **Rollback:** Delete approval.py, release.py, CLI scripts, and tests
+- **Acceptance:** Approval requires all four review flags; pending/rejected/revoked cannot release; release builder verifies shard files and digests; tampered/missing shards fail; remote URLs rejected; deterministic JSON output; no datasets downloaded; no training added
+
+### Milestone 4 — BharatBench (PRs 14–16)
 
 **Goal:** Comprehensive evaluation framework.
 
-#### PR 13: Evaluation runner + registry
+#### PR 14: Evaluation runner + registry
 - **Files:** `bharat/evaluation/runner.py`, `bharat/evaluation/registry.py`, `bharat/evaluation/reporting.py`
 - **Content:** Benchmark registration, parallel evaluation, JSON + Markdown reporting, leaderboard format
 - **Tests:** Registry lookup, report generation
@@ -174,19 +183,19 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete files; keep `eval/benchmark.py`
 - **Acceptance:** Reports contain model hash, git commit, tokenizer hash, all generation settings
 
-#### PR 14: Evaluation modules
+#### PR 15: Evaluation modules
 - **Files:** `bharat/evaluation/language.py`, `bharat/evaluation/reasoning.py`, `bharat/evaluation/coding.py`, `bharat/evaluation/knowledge.py`, `bharat/evaluation/safety.py`, `bharat/evaluation/hallucination.py`, `bharat/evaluation/tool_use.py`, `bharat/evaluation/long_context.py`, `bharat/evaluation/latency.py`, `bharat/evaluation/contamination_check.py`
 - **Content:** All evaluation modules with standard benchmark integration
 - **Tests:** Each module has at least a smoke test
-- **Depends on:** PR 13
+- **Depends on:** PR 14
 - **Rollback:** Delete module files
 - **Acceptance:** Language eval runs on Indic datasets; safety eval runs; latency measured
 
-#### PR 15: Leaderboard + reporting
+#### PR 16: Leaderboard + reporting
 - **Files:** Update `bharat/evaluation/reporting.py` for full leaderboard
 - **Content:** Cross-checkpoint comparison, tokenizer comparison, data variant comparison
 - **Tests:** Leaderboard generation
-- **Depends on:** PR 14
+- **Depends on:** PR 15
 - **Rollback:** Revert reporting changes
 - **Acceptance:** Leaderboard compares multiple checkpoints correctly
 

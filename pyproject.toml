@@ -31,9 +31,11 @@ dependencies = [
 
 [project.scripts]
 validate-data-manifest = "scripts.validate_data_manifest:main"
+validate-dataset-approval = "scripts.validate_dataset_approval:main"
 plan-data-shards = "scripts.plan_data_shards:main"
 compute-data-stats = "scripts.compute_data_stats:main"
 prepare-local-data = "scripts.prepare_local_data:main"
+build-dataset-release = "scripts.build_dataset_release:main"
 
 [project.optional-dependencies]
 dev = [
