@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bharat.data.approval import DatasetApproval, validate_approval_for_manifest
 from bharat.data.contamination import ContaminationChecker, ContaminationResult
 from bharat.data.exact_dedup import ExactDedupConfig, ExactDeduplicator
 from bharat.data.fuzzy_dedup import FuzzyDedupConfig, FuzzyDeduplicator
@@ -25,6 +26,7 @@ from bharat.data.processing import DataProcessor, ProcessingConfig, ProcessingDe
 from bharat.data.quality import QualityConfig, QualityScore, QualityScorer
 from bharat.data.records import ProcessedRecord, RawRecord
 from bharat.data.registry import DataRegistry
+from bharat.data.release import DatasetAuditReport, DatasetRelease, DatasetReleaseBuilder
 from bharat.data.safety_filter import SafetyFilter, SafetyFilterConfig, SafetyResult, SafetySpan
 from bharat.data.schema import (
     DataIntegrityRecord,
@@ -45,7 +47,11 @@ __all__ = [
     "DataProcessor",
     "DataRegistry",
     "DataSourceSpec",
+    "DatasetApproval",
+    "DatasetAuditReport",
     "DatasetManifest",
+    "DatasetRelease",
+    "DatasetReleaseBuilder",
     "DatasetStatistics",
     "ExactDedupConfig",
     "ExactDeduplicator",
@@ -89,6 +95,7 @@ __all__ = [
     "SourceStatus",
     "UsagePurpose",
     "compute_statistics",
+    "validate_approval_for_manifest",
     "create_manifest",
     "digest_processing_config",
     "load_license_policy",
