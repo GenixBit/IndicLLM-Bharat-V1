@@ -8,7 +8,10 @@ import re
 import sys
 from pathlib import Path
 
-from bharat.eval.local_inference import LocalInferenceConfig, load_local_causal_lm_adapter
+from bharat.eval.local_inference import (
+    LocalInferenceConfig,
+    load_local_causal_lm_adapter,
+)
 from bharat.eval.prediction_runner import PredictionRunner, write_predictions_jsonl
 from bharat.eval.schema import EvalExample
 
@@ -63,8 +66,16 @@ def main() -> None:
     )
     parser.add_argument("--examples", required=True, help="Path to examples JSONL file")
     parser.add_argument("--output", required=True, help="Output predictions JSONL path")
-    parser.add_argument("--checkpoint", required=True, help="Local Bharat checkpoint directory")
-    parser.add_argument("--tokenizer", required=True, help="Local tokenizer path or directory")
+    parser.add_argument(
+        "--checkpoint",
+        required=True,
+        help="Local Bharat checkpoint directory",
+    )
+    parser.add_argument(
+        "--tokenizer",
+        required=True,
+        help="Local tokenizer path or directory",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--json", action="store_true", help="Output JSON only")
