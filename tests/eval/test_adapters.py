@@ -12,12 +12,22 @@ from bharat.eval.schema import EvalExample
 
 
 def test_expected_prediction_adapter_returns_expected() -> None:
-    ex = EvalExample(example_id="qa_001", task_type="qa", prompt="Question?", expected="Answer")
+    ex = EvalExample(
+        example_id="qa_001",
+        task_type="qa",
+        prompt="Question?",
+        expected="Answer",
+    )
     assert ExpectedPredictionAdapter().predict(ex) == "Answer"
 
 
 def test_echo_prediction_adapter_returns_prompt() -> None:
-    ex = EvalExample(example_id="qa_001", task_type="qa", prompt="Question?", expected="Answer")
+    ex = EvalExample(
+        example_id="qa_001",
+        task_type="qa",
+        prompt="Question?",
+        expected="Answer",
+    )
     assert EchoPredictionAdapter().predict(ex) == "Question?"
 
 
@@ -33,7 +43,12 @@ def test_choice_baseline_adapter_returns_first_choice() -> None:
 
 
 def test_choice_baseline_adapter_rejects_non_classification() -> None:
-    ex = EvalExample(example_id="qa_001", task_type="qa", prompt="Question?", expected="Answer")
+    ex = EvalExample(
+        example_id="qa_001",
+        task_type="qa",
+        prompt="Question?",
+        expected="Answer",
+    )
     with pytest.raises(ValueError, match="only supports classification"):
         ChoiceBaselineAdapter().predict(ex)
 
