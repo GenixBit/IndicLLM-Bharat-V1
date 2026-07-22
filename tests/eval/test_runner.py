@@ -17,7 +17,10 @@ def _make_examples() -> list[EvalExample]:
             choices=("A", "B"),
         ),
         EvalExample(
-            example_id="gen_001", task_type="generation", prompt="Q3?", expected="hello world"
+            example_id="gen_001",
+            task_type="generation",
+            prompt="Q3?",
+            expected="hello world",
         ),
     ]
 
@@ -43,14 +46,18 @@ class TestBharatBenchRunner:
 
     def test_missing_prediction_fails(self) -> None:
         runner = BharatBenchRunner()
-        exs = [EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")]
+        exs = [
+            EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")
+        ]
         preds: list[EvalPrediction] = []
         with pytest.raises(ValueError, match="Missing prediction"):
             runner.run(exs, preds)
 
     def test_duplicate_prediction_fails(self) -> None:
         runner = BharatBenchRunner()
-        exs = [EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")]
+        exs = [
+            EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")
+        ]
         preds = [
             EvalPrediction(example_id="ex_001", prediction="A"),
             EvalPrediction(example_id="ex_001", prediction="B"),
@@ -60,7 +67,9 @@ class TestBharatBenchRunner:
 
     def test_unknown_prediction_fails(self) -> None:
         runner = BharatBenchRunner()
-        exs = [EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")]
+        exs = [
+            EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")
+        ]
         preds = [
             EvalPrediction(example_id="ex_001", prediction="A"),
             EvalPrediction(example_id="unknown", prediction="B"),
@@ -79,7 +88,12 @@ class TestBharatBenchRunner:
     def test_qa_metrics(self) -> None:
         runner = BharatBenchRunner()
         examples = [
-            EvalExample(example_id="qa_001", task_type="qa", prompt="Q?", expected="New Delhi")
+            EvalExample(
+                example_id="qa_001",
+                task_type="qa",
+                prompt="Q?",
+                expected="New Delhi",
+            )
         ]
         predictions = [EvalPrediction(example_id="qa_001", prediction="New Delhi")]
         results = runner.run(examples, predictions)
@@ -106,7 +120,10 @@ class TestBharatBenchRunner:
         runner = BharatBenchRunner()
         examples = [
             EvalExample(
-                example_id="gen_001", task_type="generation", prompt="Q?", expected="hello world"
+                example_id="gen_001",
+                task_type="generation",
+                prompt="Q?",
+                expected="hello world",
             )
         ]
         predictions = [EvalPrediction(example_id="gen_001", prediction="hello world")]
