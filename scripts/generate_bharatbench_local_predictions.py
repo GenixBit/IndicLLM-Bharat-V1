@@ -33,7 +33,9 @@ def _load_jsonl(path: Path) -> list[dict[str, object]]:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSONL at {path}:{line_num}: {e}") from e
         if not isinstance(record, dict):
-            raise ValueError(f"Invalid JSONL record at {path}:{line_num}: expected object")
+            raise ValueError(
+                f"Invalid JSONL record at {path}:{line_num}: expected object"
+            )
         records.append(record)
     return records
 
@@ -50,9 +52,9 @@ def _load_examples(path: Path) -> list[EvalExample]:
     return examples
 
 
-def _reject_remote(name: str, path: Path) -> None:
-    if _is_remote_url(str(path)):
-        raise ValueError(f"Remote {name} path rejected: {path}")
+def _reject_remote(name: str, raw_path: str) -> None:
+    if _is_remote_url(raw_path):
+        raise ValueError(f"Remote {name} path rejected: {raw_path}")
 
 
 def main() -> None:
@@ -69,16 +71,16 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    examples_path = Path(args.examples)
-    output_path = Path(args.output)
-    checkpoint_path = Path(args.checkpoint)
-    tokenizer_path = Path(args.tokenizer)
-
     try:
-        _reject_remote("examples", examples_path)
-        _reject_remote("output", output_path)
-        _reject_remote("checkpoint", checkpoint_path)
-        _reject_remote("tokenizer", tokenizer_path)
+        _reject_remote("examples", args.examples)
+        _reject_remote("output", args.output)
+        _reject_remote("checkpoint", args.checkpoint)
+        _reject_remote("tokenizer", args.tokenizer)
+
+        examples_path = Path(args.examples)
+        output_path = Path(args.output)
+        checkpoint_path = Path(args.checkpoint)
+        tokenizer_path = Path(args.tokenizer)
 
         if not examples_path.exists():
             raise FileNotFoundError(f"Examples file not found: {examples_path}")
