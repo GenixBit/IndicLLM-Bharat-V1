@@ -29,7 +29,12 @@ def test_remote_checkpoint_rejected(tmp_path: Path) -> None:
     _write_jsonl(
         examples_path,
         [
-            {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
+            {
+                "example_id": "qa_001",
+                "task_type": "qa",
+                "prompt": "Q?",
+                "expected": "A",
+            },
         ],
     )
 
@@ -55,7 +60,12 @@ def test_remote_tokenizer_rejected(tmp_path: Path) -> None:
     _write_jsonl(
         examples_path,
         [
-            {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
+            {
+                "example_id": "qa_001",
+                "task_type": "qa",
+                "prompt": "Q?",
+                "expected": "A",
+            },
         ],
     )
 
@@ -99,7 +109,12 @@ def test_duplicate_examples_rejected_before_model_loading(tmp_path: Path) -> Non
     _write_jsonl(
         examples_path,
         [
-            {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
+            {
+                "example_id": "qa_001",
+                "task_type": "qa",
+                "prompt": "Q?",
+                "expected": "A",
+            },
             {
                 "example_id": "qa_001",
                 "task_type": "qa",
