@@ -11,7 +11,12 @@ from bharat.eval.schema import EvalExample
 
 
 def _example(example_id: str, expected: str = "A") -> EvalExample:
-    return EvalExample(example_id=example_id, task_type="qa", prompt=f"Prompt {example_id}", expected=expected)
+    return EvalExample(
+        example_id=example_id,
+        task_type="qa",
+        prompt=f"Prompt {example_id}",
+        expected=expected,
+    )
 
 
 def test_prediction_runner_emits_one_prediction_per_example() -> None:
@@ -43,7 +48,9 @@ def test_prediction_runner_rejects_non_string_adapter_output() -> None:
 
 
 def test_write_predictions_jsonl_writes_deterministic_jsonl(tmp_path) -> None:
-    predictions = PredictionRunner().run([_example("b", "B"), _example("a", "A")], ExpectedPredictionAdapter())
+    predictions = PredictionRunner().run(
+        [_example("b", "B"), _example("a", "A")], ExpectedPredictionAdapter()
+    )
     out = tmp_path / "predictions.jsonl"
     write_predictions_jsonl(predictions, out)
 
