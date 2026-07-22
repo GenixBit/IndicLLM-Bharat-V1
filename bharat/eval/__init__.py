@@ -12,12 +12,7 @@ from bharat.eval.local_inference import (
     LocalInferenceConfig,
     load_local_causal_lm_adapter,
 )
-from bharat.eval.metrics import (
-    choice_accuracy,
-    exact_match,
-    normalized_exact_match,
-    token_f1,
-)
+from bharat.eval.metrics import choice_accuracy, exact_match, normalized_exact_match, token_f1
 from bharat.eval.prediction_runner import PredictionRunner, write_predictions_jsonl
 from bharat.eval.reporting import BharatBenchReport
 from bharat.eval.runner import BharatBenchRunner
