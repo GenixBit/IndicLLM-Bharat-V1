@@ -8,7 +8,12 @@ from pathlib import Path
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "scripts.generate_bharatbench_local_predictions", *args],
+        [
+            sys.executable,
+            "-m",
+            "scripts.generate_bharatbench_local_predictions",
+            *args,
+        ],
         capture_output=True,
         text=True,
     )
@@ -23,7 +28,9 @@ def test_remote_checkpoint_rejected(tmp_path: Path) -> None:
     examples_path = tmp_path / "examples.jsonl"
     _write_jsonl(
         examples_path,
-        [{"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"}],
+        [
+            {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
+        ],
     )
 
     result = run_cli(
@@ -47,7 +54,9 @@ def test_remote_tokenizer_rejected(tmp_path: Path) -> None:
     examples_path = tmp_path / "examples.jsonl"
     _write_jsonl(
         examples_path,
-        [{"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"}],
+        [
+            {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
+        ],
     )
 
     result = run_cli(
@@ -91,7 +100,12 @@ def test_duplicate_examples_rejected_before_model_loading(tmp_path: Path) -> Non
         examples_path,
         [
             {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
-            {"example_id": "qa_001", "task_type": "qa", "prompt": "Q2?", "expected": "A2"},
+            {
+                "example_id": "qa_001",
+                "task_type": "qa",
+                "prompt": "Q2?",
+                "expected": "A2",
+            },
         ],
     )
 
