@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-def run_cli(args: list[str]) -> subprocess.CompletedProcess:
+def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "scripts.run_bharatbench", *args],
         capture_output=True,
@@ -19,24 +19,18 @@ def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     path.write_text(lines, encoding="utf-8")
 
 
+def _qa_example() -> dict[str, object]:
+    return {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"}
+
+
 class TestRunBharatBenchCLI:
     def test_success(self, tmp_path: Path) -> None:
         examples_path = tmp_path / "examples.jsonl"
         predictions_path = tmp_path / "predictions.jsonl"
         output_dir = tmp_path / "out"
 
-        _write_jsonl(
-            examples_path,
-            [
-                {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
-            ],
-        )
-        _write_jsonl(
-            predictions_path,
-            [
-                {"example_id": "qa_001", "prediction": "A"},
-            ],
-        )
+        _write_jsonl(examples_path, [_qa_example()])
+        _write_jsonl(predictions_path, [{"example_id": "qa_001", "prediction": "A"}])
 
         result = run_cli(
             [
@@ -58,18 +52,8 @@ class TestRunBharatBenchCLI:
         predictions_path = tmp_path / "predictions.jsonl"
         output_dir = tmp_path / "out"
 
-        _write_jsonl(
-            examples_path,
-            [
-                {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
-            ],
-        )
-        _write_jsonl(
-            predictions_path,
-            [
-                {"example_id": "qa_001", "prediction": "A"},
-            ],
-        )
+        _write_jsonl(examples_path, [_qa_example()])
+        _write_jsonl(predictions_path, [{"example_id": "qa_001", "prediction": "A"}])
 
         result = run_cli(
             [
@@ -110,12 +94,7 @@ class TestRunBharatBenchCLI:
         examples_path = tmp_path / "examples.jsonl"
         predictions_path = tmp_path / "predictions.jsonl"
         output_dir = tmp_path / "out"
-        _write_jsonl(
-            examples_path,
-            [
-                {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
-            ],
-        )
+        _write_jsonl(examples_path, [_qa_example()])
         _write_jsonl(predictions_path, [])
 
         result = run_cli(
@@ -134,19 +113,8 @@ class TestRunBharatBenchCLI:
         examples_path = tmp_path / "examples.jsonl"
         predictions_path = tmp_path / "predictions.jsonl"
         output_dir = tmp_path / "out"
-        _write_jsonl(
-            examples_path,
-            [
-                {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
-                {"example_id": "qa_001", "task_type": "qa", "prompt": "Q?", "expected": "A"},
-            ],
-        )
-        _write_jsonl(
-            predictions_path,
-            [
-                {"example_id": "qa_001", "prediction": "A"},
-            ],
-        )
+        _write_jsonl(examples_path, [_qa_example(), _qa_example()])
+        _write_jsonl(predictions_path, [{"example_id": "qa_001", "prediction": "A"}])
 
         result = run_cli(
             [
@@ -164,11 +132,14 @@ class TestRunBharatBenchCLI:
         repo_root = Path(__file__).resolve().parent.parent.parent
         fixtures_dir = repo_root / "eval_fixtures" / "bharatbench_tiny"
         predictions_path = tmp_path / "predictions.jsonl"
-        _write_jsonl(predictions_path, [
-            {"example_id": "qa_001", "prediction": "New Delhi"},
-            {"example_id": "qa_002", "prediction": "Ganges"},
-            {"example_id": "qa_003", "prediction": "Hindi"},
-        ])
+        _write_jsonl(
+            predictions_path,
+            [
+                {"example_id": "qa_001", "prediction": "New Delhi"},
+                {"example_id": "qa_002", "prediction": "Ganges"},
+                {"example_id": "qa_003", "prediction": "Hindi"},
+            ],
+        )
         output_dir = tmp_path / "out"
 
         result = run_cli(
