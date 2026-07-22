@@ -88,6 +88,13 @@ python scripts/validate_data_manifest.py --manifest manifest.json
 python scripts/plan_data_shards.py --manifest manifest.json
 python scripts/compute_data_stats.py --input data.txt
 
+# Generate deterministic local BharatBench predictions
+python scripts/generate_bharatbench_predictions.py \
+  --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
+  --output predictions.jsonl \
+  --adapter expected \
+  --json
+
 # Evaluate predictions with BharatBench
 python scripts/run_bharatbench.py \
   --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
@@ -97,6 +104,8 @@ python scripts/run_bharatbench.py \
 ```
 
 **Important:** BharatBench evaluates local prediction files only. No model training or benchmark downloads are included yet. The tiny fixtures under `eval_fixtures/bharatbench_tiny/` are synthetic smoke tests — see [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for details.
+
+**Milestone 4.2 note:** `scripts/generate_bharatbench_predictions.py` uses deterministic local adapters (`expected`, `echo`, and `choice-baseline`) to create prediction JSONL files for smoke testing. These adapters do not load models, do not call external APIs, do not download benchmarks, and do not perform real model generation.
 
 ---
 

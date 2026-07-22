@@ -11,14 +11,22 @@ def _make_results() -> tuple[EvalResult, ...]:
             task_type="qa",
             expected="A",
             prediction="A",
-            scores={"exact_match": 1.0, "normalized_exact_match": 1.0, "token_f1": 1.0},
+            scores={
+                "exact_match": 1.0,
+                "normalized_exact_match": 1.0,
+                "token_f1": 1.0,
+            },
         ),
         EvalResult(
             example_id="qa_002",
             task_type="qa",
             expected="A",
             prediction="B",
-            scores={"exact_match": 0.0, "normalized_exact_match": 0.0, "token_f1": 0.0},
+            scores={
+                "exact_match": 0.0,
+                "normalized_exact_match": 0.0,
+                "token_f1": 0.0,
+            },
         ),
         EvalResult(
             example_id="cls_001",
