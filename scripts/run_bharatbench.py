@@ -21,7 +21,9 @@ def _is_remote_url(path: str) -> bool:
 
 def _load_jsonl(path: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    for line_num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_num, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         line = line.strip()
         if not line:
             continue
@@ -30,7 +32,9 @@ def _load_jsonl(path: Path) -> list[dict[str, object]]:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSONL at {path}:{line_num}: {e}") from e
         if not isinstance(record, dict):
-            raise ValueError(f"Invalid JSONL record at {path}:{line_num}: expected object")
+            raise ValueError(
+                f"Invalid JSONL record at {path}:{line_num}: expected object"
+            )
         records.append(record)
     return records
 
@@ -40,7 +44,7 @@ def _load_examples(path: Path) -> list[EvalExample]:
     examples: list[EvalExample] = []
     seen_ids: set[str] = set()
     for record in records:
-        example = EvalExample(**record)
+        example = EvalExample.from_dict(record)
         if example.example_id in seen_ids:
             raise ValueError(f"Duplicate example_id {example.example_id!r} in {path}")
         seen_ids.add(example.example_id)
@@ -53,9 +57,17 @@ def _load_predictions(path: Path) -> list[EvalPrediction]:
     predictions: list[EvalPrediction] = []
     seen_ids: set[str] = set()
     for record in records:
-        pred = EvalPrediction(**record)
+        example_id = record.get("example_id")
+        prediction = record.get("prediction")
+        if not isinstance(example_id, str):
+            raise ValueError("prediction example_id must be a string")
+        if not isinstance(prediction, str):
+            raise ValueError("prediction must be a string")
+        pred = EvalPrediction(example_id=example_id, prediction=prediction)
         if pred.example_id in seen_ids:
-            raise ValueError(f"Duplicate prediction example_id {pred.example_id!r} in {path}")
+            raise ValueError(
+                f"Duplicate prediction example_id {pred.example_id!r} in {path}"
+            )
         seen_ids.add(pred.example_id)
         predictions.append(pred)
     return predictions
@@ -81,7 +93,10 @@ def main() -> None:
         print(f"error: Remote examples path rejected: {examples_path}", file=sys.stderr)
         sys.exit(1)
     if _is_remote_url(str(predictions_path)):
-        print(f"error: Remote predictions path rejected: {predictions_path}", file=sys.stderr)
+        print(
+            f"error: Remote predictions path rejected: {predictions_path}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if not examples_path.exists():
