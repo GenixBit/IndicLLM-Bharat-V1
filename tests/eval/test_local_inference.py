@@ -53,7 +53,9 @@ class FakeTokenizer(BharatTokenizer):
         batch: list[list[int]],
         skip_special_tokens: bool = True,
     ) -> list[str]:
-        return [self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch]
+        return [
+            self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch
+        ]
 
     def get_metadata(self) -> dict[str, Any]:
         return {"tokenizer_type": self.tokenizer_type, "vocab_size": self.vocab_size}
