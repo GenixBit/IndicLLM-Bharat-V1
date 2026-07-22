@@ -42,9 +42,7 @@ class FakeTokenizer(BharatTokenizer):
         texts: list[str],
         add_special_tokens: bool = True,
     ) -> list[list[int]]:
-        return [
-            self.encode(text, add_special_tokens=add_special_tokens) for text in texts
-        ]
+        return [self.encode(text, add_special_tokens=add_special_tokens) for text in texts]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
         del skip_special_tokens
@@ -55,9 +53,7 @@ class FakeTokenizer(BharatTokenizer):
         batch: list[list[int]],
         skip_special_tokens: bool = True,
     ) -> list[str]:
-        return [
-            self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch
-        ]
+        return [self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch]
 
     def get_metadata(self) -> dict[str, Any]:
         return {"tokenizer_type": self.tokenizer_type, "vocab_size": self.vocab_size}
@@ -110,9 +106,7 @@ def test_local_inference_config_rejects_bad_max_new_tokens() -> None:
         )
 
 
-def test_local_causal_lm_adapter_decodes_generated_completion_only(
-    tmp_path: Path,
-) -> None:
+def test_local_causal_lm_adapter_decodes_generated_completion_only(tmp_path: Path) -> None:
     config = LocalInferenceConfig(
         checkpoint_path=tmp_path / "checkpoint",
         tokenizer_path=tmp_path / "tokenizer.json",
@@ -160,9 +154,7 @@ def test_local_causal_lm_adapter_rejects_empty_tokenization(tmp_path: Path) -> N
         )
 
 
-def test_load_local_causal_lm_adapter_rejects_missing_checkpoint(
-    tmp_path: Path,
-) -> None:
+def test_load_local_causal_lm_adapter_rejects_missing_checkpoint(tmp_path: Path) -> None:
     tokenizer_path = tmp_path / "tokenizer.json"
     tokenizer_path.write_text("{}", encoding="utf-8")
     config = LocalInferenceConfig(
