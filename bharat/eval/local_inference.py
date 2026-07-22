@@ -64,8 +64,7 @@ class LocalInferenceConfig:
         object.__setattr__(self, "tokenizer_path", tokenizer_path)
 
         if isinstance(self.max_new_tokens, bool) or not isinstance(
-            self.max_new_tokens,
-            int,
+            self.max_new_tokens, int
         ):
             raise TypeError(
                 "max_new_tokens must be an integer, "
