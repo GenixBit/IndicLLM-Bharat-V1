@@ -95,6 +95,15 @@ python scripts/generate_bharatbench_predictions.py \
   --adapter expected \
   --json
 
+# Generate BharatBench predictions from a local Bharat checkpoint
+python scripts/generate_bharatbench_local_predictions.py \
+  --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
+  --checkpoint checkpoints/bharat-smoke \
+  --tokenizer tokenizer/tokenizer.json \
+  --output predictions.jsonl \
+  --max-new-tokens 32 \
+  --json
+
 # Evaluate predictions with BharatBench
 python scripts/run_bharatbench.py \
   --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
@@ -106,6 +115,8 @@ python scripts/run_bharatbench.py \
 **Important:** BharatBench evaluates local prediction files only. No model training or benchmark downloads are included yet. The tiny fixtures under `eval_fixtures/bharatbench_tiny/` are synthetic smoke tests — see [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for details.
 
 **Milestone 4.2 note:** `scripts/generate_bharatbench_predictions.py` uses deterministic local adapters (`expected`, `echo`, and `choice-baseline`) to create prediction JSONL files for smoke testing. These adapters do not load models, do not call external APIs, do not download benchmarks, and do not perform real model generation.
+
+**Milestone 4.3 note:** `scripts/generate_bharatbench_local_predictions.py` loads a local Bharat checkpoint and tokenizer, rejects remote paths, and generates local prediction JSONL for approved local examples. It does not train models, download benchmarks, call external APIs, scrape, or upload results.
 
 ---
 
@@ -150,22 +161,3 @@ python scripts/run_bharatbench.py \
 | Evaluate | `python eval/benchmark.py --checkpoint checkpoints/...` |
 | Generate | `python inference/generate.py --checkpoint checkpoints/...` |
 | API Server | `python inference/api.py --checkpoint checkpoints/...` |
-| Run tests | `pytest tests/` |
-| Lint | `ruff check .` |
-| Type check | `mypy bharat/` |
-| Calculate params | `python scripts/calculate_params.py --all --weight-dtype bf16` |
-
----
-
-## Environment Variables
-
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `WANDB_API_KEY` | Recommended | Experiment tracking |
-| `HF_TOKEN` | Optional | Gated HF datasets, model push |
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.
