@@ -109,7 +109,9 @@ def _generate_with_bharat_model(
     pad_token_id: int | None,
 ) -> torch.Tensor:
     if not isinstance(model, BharatForCausalLM):
-        raise TypeError(f"model must be BharatForCausalLM, got {type(model).__name__}")
+        raise TypeError(
+            f"model must be BharatForCausalLM, got {type(model).__name__}"
+        )
     return generate(
         model,
         input_ids=input_ids,
