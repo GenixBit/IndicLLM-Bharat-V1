@@ -167,3 +167,5 @@ python scripts/run_bharatbench.py \
 ---
 
 ## License
+
+MIT — see [LICENSE](LICENSE) for details.
