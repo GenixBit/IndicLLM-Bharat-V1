@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from bharat.eval.metrics import choice_accuracy, exact_match, normalized_exact_match, token_f1
+from bharat.eval.metrics import (
+    choice_accuracy,
+    exact_match,
+    normalized_exact_match,
+    token_f1,
+)
 from bharat.eval.schema import EvalExample, EvalPrediction, EvalResult
 
 
@@ -55,13 +60,17 @@ class BharatBenchRunner:
         scores: dict[str, float] = {}
         if example.task_type == "qa":
             scores["exact_match"] = exact_match(example.expected, prediction)
-            scores["normalized_exact_match"] = normalized_exact_match(example.expected, prediction)
+            scores["normalized_exact_match"] = normalized_exact_match(
+                example.expected, prediction
+            )
             scores["token_f1"] = token_f1(example.expected, prediction)
         elif example.task_type == "classification":
             scores["choice_accuracy"] = choice_accuracy(
                 example.expected, prediction, example.choices
             )
         elif example.task_type == "generation":
-            scores["normalized_exact_match"] = normalized_exact_match(example.expected, prediction)
+            scores["normalized_exact_match"] = normalized_exact_match(
+                example.expected, prediction
+            )
             scores["token_f1"] = token_f1(example.expected, prediction)
         return scores
