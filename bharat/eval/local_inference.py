@@ -21,10 +21,10 @@ def _is_remote_url(path: str) -> bool:
 
 
 def _local_path(path: str | Path, *, field_name: str) -> Path:
-    candidate = Path(path)
-    if _is_remote_url(str(candidate)):
-        raise ValueError(f"Remote {field_name} path rejected: {candidate}")
-    return candidate
+    raw_path = str(path)
+    if _is_remote_url(raw_path):
+        raise ValueError(f"Remote {field_name} path rejected: {raw_path}")
+    return Path(path)
 
 
 class TokenGenerator(Protocol):
@@ -151,7 +151,9 @@ class LocalCausalLMAdapter:
             )
 
         if generated.dim() != 2 or generated.shape[0] != 1:
-            raise ValueError(f"Generated IDs must have shape (1, sequence), got {tuple(generated.shape)}")
+            raise ValueError(
+                f"Generated IDs must have shape (1, sequence), got {tuple(generated.shape)}"
+            )
         generated_ids = generated[0].detach().cpu().tolist()
         completion_ids = generated_ids[len(prompt_ids) :]
         return self.tokenizer.decode(
