@@ -8,10 +8,7 @@ import re
 import sys
 from pathlib import Path
 
-from bharat.eval.local_inference import (
-    LocalInferenceConfig,
-    load_local_causal_lm_adapter,
-)
+from bharat.eval.local_inference import LocalInferenceConfig, load_local_causal_lm_adapter
 from bharat.eval.prediction_runner import PredictionRunner, write_predictions_jsonl
 from bharat.eval.schema import EvalExample
 
@@ -24,10 +21,7 @@ def _is_remote_url(path: str) -> bool:
 
 def _load_jsonl(path: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    for line_num, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(),
-        1,
-    ):
+    for line_num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line:
             continue
@@ -36,9 +30,7 @@ def _load_jsonl(path: Path) -> list[dict[str, object]]:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSONL at {path}:{line_num}: {e}") from e
         if not isinstance(record, dict):
-            raise ValueError(
-                f"Invalid JSONL record at {path}:{line_num}: expected object"
-            )
+            raise ValueError(f"Invalid JSONL record at {path}:{line_num}: expected object")
         records.append(record)
     return records
 
@@ -66,16 +58,8 @@ def main() -> None:
     )
     parser.add_argument("--examples", required=True, help="Path to examples JSONL file")
     parser.add_argument("--output", required=True, help="Output predictions JSONL path")
-    parser.add_argument(
-        "--checkpoint",
-        required=True,
-        help="Local Bharat checkpoint directory",
-    )
-    parser.add_argument(
-        "--tokenizer",
-        required=True,
-        help="Local tokenizer path or directory",
-    )
+    parser.add_argument("--checkpoint", required=True, help="Local Bharat checkpoint directory")
+    parser.add_argument("--tokenizer", required=True, help="Local tokenizer path or directory")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--json", action="store_true", help="Output JSON only")
