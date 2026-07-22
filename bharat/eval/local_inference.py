@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -70,7 +70,8 @@ class LocalInferenceConfig:
         object.__setattr__(self, "tokenizer_path", tokenizer_path)
 
         if isinstance(self.max_new_tokens, bool) or not isinstance(
-            self.max_new_tokens, int
+            self.max_new_tokens,
+            int,
         ):
             raise TypeError(
                 "max_new_tokens must be an integer, "
@@ -126,12 +127,16 @@ def _generate_with_bharat_model(
     )
 
 
+def _default_token_generator() -> TokenGenerator:
+    return _generate_with_bharat_model
+
+
 @dataclass(frozen=True)
 class LocalCausalLMAdapter:
     model: object
     tokenizer: BharatTokenizer
     config: LocalInferenceConfig
-    generator: TokenGenerator = _generate_with_bharat_model
+    generator: TokenGenerator = field(default_factory=_default_token_generator)
 
     def predict(self, example: EvalExample) -> str:
         prompt_ids = self.tokenizer.encode(
