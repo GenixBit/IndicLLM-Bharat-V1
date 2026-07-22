@@ -58,14 +58,14 @@ class EvalExample:
         if not isinstance(expected, str):
             raise ValueError("expected must be a string")
 
-        if isinstance(choices_raw, list):
-            choices = tuple(choices_raw)
-        elif isinstance(choices_raw, tuple):
-            choices = choices_raw
-        else:
+        if not isinstance(choices_raw, (list, tuple)):
             raise ValueError("choices must be a list or tuple of strings")
-        if not all(isinstance(choice, str) for choice in choices):
-            raise ValueError("choices must contain strings only")
+        choices_list: list[str] = []
+        for choice in choices_raw:
+            if not isinstance(choice, str):
+                raise ValueError("choices must contain strings only")
+            choices_list.append(choice)
+        choices = tuple(choices_list)
 
         if not isinstance(metadata_raw, Mapping):
             raise ValueError("metadata must be an object")
