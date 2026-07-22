@@ -32,8 +32,8 @@ class PredictionRunner:
             prediction = adapter.predict(example)
             if not isinstance(prediction, str):
                 raise TypeError(
-                    f"Adapter returned non-string prediction for {example.example_id!r}: "
-                    f"{type(prediction).__name__}"
+                    "Adapter returned non-string prediction for "
+                    f"{example.example_id!r}: {type(prediction).__name__}"
                 )
             predictions.append(
                 EvalPrediction(example_id=example.example_id, prediction=prediction)
