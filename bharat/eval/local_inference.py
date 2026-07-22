@@ -58,38 +58,25 @@ class LocalInferenceConfig:
     add_special_tokens: bool = True
 
     def __post_init__(self) -> None:
-        checkpoint_path = _local_path(
-            self.checkpoint_path,
-            field_name="checkpoint",
-        )
-        tokenizer_path = _local_path(
-            self.tokenizer_path,
-            field_name="tokenizer",
-        )
+        checkpoint_path = _local_path(self.checkpoint_path, field_name="checkpoint")
+        tokenizer_path = _local_path(self.tokenizer_path, field_name="tokenizer")
         object.__setattr__(self, "checkpoint_path", checkpoint_path)
         object.__setattr__(self, "tokenizer_path", tokenizer_path)
 
-        if isinstance(self.max_new_tokens, bool) or not isinstance(
-            self.max_new_tokens,
-            int,
-        ):
+        if isinstance(self.max_new_tokens, bool) or not isinstance(self.max_new_tokens, int):
             raise TypeError(
                 "max_new_tokens must be an integer, "
                 f"got {type(self.max_new_tokens).__name__}"
             )
         if self.max_new_tokens < 0:
-            raise ValueError(
-                f"max_new_tokens must be non-negative, got {self.max_new_tokens}"
-            )
+            raise ValueError(f"max_new_tokens must be non-negative, got {self.max_new_tokens}")
         if not self.device:
             raise ValueError("device must be a non-empty string")
         if self.do_sample and self.temperature <= 0.0:
             raise ValueError("temperature must be positive when sampling")
         if self.top_k is not None:
             if isinstance(self.top_k, bool) or not isinstance(self.top_k, int):
-                raise TypeError(
-                    f"top_k must be an integer, got {type(self.top_k).__name__}"
-                )
+                raise TypeError(f"top_k must be an integer, got {type(self.top_k).__name__}")
             if self.top_k < 1:
                 raise ValueError(f"top_k must be at least 1, got {self.top_k}")
         if self.top_p is not None and not (0.0 < self.top_p <= 1.0):
@@ -110,9 +97,7 @@ def _generate_with_bharat_model(
     pad_token_id: int | None,
 ) -> torch.Tensor:
     if not isinstance(model, BharatForCausalLM):
-        raise TypeError(
-            f"model must be BharatForCausalLM, got {type(model).__name__}"
-        )
+        raise TypeError(f"model must be BharatForCausalLM, got {type(model).__name__}")
     return generate(
         model,
         input_ids=input_ids,
@@ -144,9 +129,7 @@ class LocalCausalLMAdapter:
             add_special_tokens=self.config.add_special_tokens,
         )
         if not prompt_ids:
-            raise ValueError(
-                f"Tokenizer produced no prompt IDs for {example.example_id!r}"
-            )
+            raise ValueError(f"Tokenizer produced no prompt IDs for {example.example_id!r}")
 
         device = torch.device(cast(str, self.config.device))
         input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=device)
@@ -182,9 +165,7 @@ def _as_int_sequence(values: Sequence[object]) -> list[int]:
     ids: list[int] = []
     for value in values:
         if not isinstance(value, int):
-            raise TypeError(
-                f"generated token IDs must be integers, got {type(value).__name__}"
-            )
+            raise TypeError(f"generated token IDs must be integers, got {type(value).__name__}")
         ids.append(value)
     return ids
 
@@ -197,14 +178,7 @@ def load_local_causal_lm_adapter(config: LocalInferenceConfig) -> LocalCausalLMA
     if not tokenizer_path.exists():
         raise FileNotFoundError(f"Tokenizer path not found: {tokenizer_path}")
 
-    model = BharatForCausalLM.from_pretrained(
-        str(checkpoint_path),
-        map_location=config.device,
-    )
+    model = BharatForCausalLM.from_pretrained(str(checkpoint_path), map_location=config.device)
     model.eval()
     tokenizer = load_tokenizer(tokenizer_path)
-    return LocalCausalLMAdapter(
-        model=model,
-        tokenizer=tokenizer,
-        config=config,
-    )
+    return LocalCausalLMAdapter(model=model, tokenizer=tokenizer, config=config)
