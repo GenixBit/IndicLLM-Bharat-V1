@@ -8,12 +8,7 @@ from pathlib import Path
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "scripts.generate_bharatbench_local_predictions",
-            *args,
-        ],
+        [sys.executable, "-m", "scripts.generate_bharatbench_local_predictions", *args],
         capture_output=True,
         text=True,
     )
