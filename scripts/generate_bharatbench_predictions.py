@@ -21,7 +21,9 @@ def _is_remote_url(path: str) -> bool:
 
 def _load_jsonl(path: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    for line_num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_num, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         line = line.strip()
         if not line:
             continue
@@ -30,7 +32,9 @@ def _load_jsonl(path: Path) -> list[dict[str, object]]:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSONL at {path}:{line_num}: {e}") from e
         if not isinstance(record, dict):
-            raise ValueError(f"Invalid JSONL record at {path}:{line_num}: expected object")
+            raise ValueError(
+                f"Invalid JSONL record at {path}:{line_num}: expected object"
+            )
         records.append(record)
     return records
 
@@ -40,7 +44,7 @@ def _load_examples(path: Path) -> list[EvalExample]:
     examples: list[EvalExample] = []
     seen_ids: set[str] = set()
     for record in records:
-        example = EvalExample(**record)
+        example = EvalExample.from_dict(record)
         if example.example_id in seen_ids:
             raise ValueError(f"Duplicate example_id {example.example_id!r} in {path}")
         seen_ids.add(example.example_id)
