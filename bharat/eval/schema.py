@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
 
 _SUPPORTED_TASK_TYPES = frozenset({"qa", "classification", "generation"})
 
@@ -41,13 +41,48 @@ class EvalExample:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, object]) -> EvalExample:
-        kwargs = dict(d)
-        choices = kwargs.pop("choices", ())
-        if isinstance(choices, list):
-            choices = tuple(choices)
-        kwargs["choices"] = choices
-        return cls(**kwargs)
+    def from_dict(cls, data: Mapping[str, object]) -> EvalExample:
+        example_id = data.get("example_id")
+        task_type = data.get("task_type")
+        prompt = data.get("prompt")
+        expected = data.get("expected")
+        choices_raw = data.get("choices", ())
+        metadata_raw = data.get("metadata", {})
+
+        if not isinstance(example_id, str):
+            raise ValueError("example_id must be a string")
+        if not isinstance(task_type, str):
+            raise ValueError("task_type must be a string")
+        if not isinstance(prompt, str):
+            raise ValueError("prompt must be a string")
+        if not isinstance(expected, str):
+            raise ValueError("expected must be a string")
+
+        if isinstance(choices_raw, list):
+            choices = tuple(choices_raw)
+        elif isinstance(choices_raw, tuple):
+            choices = choices_raw
+        else:
+            raise ValueError("choices must be a list or tuple of strings")
+        if not all(isinstance(choice, str) for choice in choices):
+            raise ValueError("choices must contain strings only")
+
+        if not isinstance(metadata_raw, Mapping):
+            raise ValueError("metadata must be an object")
+        metadata: dict[str, str] = {}
+        for key, value in metadata_raw.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise ValueError("metadata keys and values must be strings")
+            metadata[key] = value
+
+        return cls(
+            example_id=example_id,
+            task_type=task_type,
+            prompt=prompt,
+            expected=expected,
+            choices=choices,
+            metadata=metadata,
+        )
 
     def digest(self) -> str:
         canonical = json.dumps(
