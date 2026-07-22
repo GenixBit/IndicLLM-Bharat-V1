@@ -33,6 +33,7 @@ class FakeTokenizer(BharatTokenizer):
         return "fake"
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
+        del add_special_tokens
         assert text
         return [1]
 
@@ -46,6 +47,7 @@ class FakeTokenizer(BharatTokenizer):
         ]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
+        del skip_special_tokens
         return " ".join(f"tok_{token_id}" for token_id in ids)
 
     def decode_batch(
@@ -66,6 +68,7 @@ class FakeTokenizer(BharatTokenizer):
 
 class EmptyTokenizer(FakeTokenizer):
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
+        del text, add_special_tokens
         return []
 
 
@@ -82,6 +85,7 @@ def fake_generator(
     eos_token_id: int | None,
     pad_token_id: int | None,
 ) -> torch.Tensor:
+    del model, temperature, top_k, top_p, eos_token_id, pad_token_id
     assert attention_mask is not None
     assert max_new_tokens == 2
     assert do_sample is False
