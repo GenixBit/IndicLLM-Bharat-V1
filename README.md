@@ -161,3 +161,22 @@ python scripts/run_bharatbench.py \
 | Evaluate | `python eval/benchmark.py --checkpoint checkpoints/...` |
 | Generate | `python inference/generate.py --checkpoint checkpoints/...` |
 | API Server | `python inference/api.py --checkpoint checkpoints/...` |
+| Run tests | `pytest tests/` |
+| Lint | `ruff check .` |
+| Type check | `mypy bharat/` |
+| Calculate params | `python scripts/calculate_params.py --all --weight-dtype bf16` |
+
+---
+
+## Environment Variables
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `WANDB_API_KEY` | Recommended | Experiment tracking |
+| `HF_TOKEN` | Optional | Gated HF datasets, model push |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
