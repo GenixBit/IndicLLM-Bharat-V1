@@ -41,7 +41,9 @@ class FakeTokenizer(BharatTokenizer):
         texts: list[str],
         add_special_tokens: bool = True,
     ) -> list[list[int]]:
-        return [self.encode(text, add_special_tokens=add_special_tokens) for text in texts]
+        return [
+            self.encode(text, add_special_tokens=add_special_tokens) for text in texts
+        ]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
         return " ".join(f"tok_{token_id}" for token_id in ids)
@@ -102,7 +104,9 @@ def test_local_inference_config_rejects_bad_max_new_tokens() -> None:
         )
 
 
-def test_local_causal_lm_adapter_decodes_generated_completion_only(tmp_path: Path) -> None:
+def test_local_causal_lm_adapter_decodes_generated_completion_only(
+    tmp_path: Path,
+) -> None:
     config = LocalInferenceConfig(
         checkpoint_path=tmp_path / "checkpoint",
         tokenizer_path=tmp_path / "tokenizer.json",
@@ -116,7 +120,12 @@ def test_local_causal_lm_adapter_decodes_generated_completion_only(tmp_path: Pat
     )
 
     prediction = adapter.predict(
-        EvalExample(example_id="qa_001", task_type="qa", prompt="Question?", expected="Answer")
+        EvalExample(
+            example_id="qa_001",
+            task_type="qa",
+            prompt="Question?",
+            expected="Answer",
+        )
     )
 
     assert prediction == "tok_2 tok_3"
@@ -136,11 +145,18 @@ def test_local_causal_lm_adapter_rejects_empty_tokenization(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="produced no prompt IDs"):
         adapter.predict(
-            EvalExample(example_id="qa_001", task_type="qa", prompt="Question?", expected="Answer")
+            EvalExample(
+                example_id="qa_001",
+                task_type="qa",
+                prompt="Question?",
+                expected="Answer",
+            )
         )
 
 
-def test_load_local_causal_lm_adapter_rejects_missing_checkpoint(tmp_path: Path) -> None:
+def test_load_local_causal_lm_adapter_rejects_missing_checkpoint(
+    tmp_path: Path,
+) -> None:
     tokenizer_path = tmp_path / "tokenizer.json"
     tokenizer_path.write_text("{}", encoding="utf-8")
     config = LocalInferenceConfig(
