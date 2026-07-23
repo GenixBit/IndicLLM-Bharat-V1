@@ -1,0 +1,56 @@
+name: PR Maintenance Bot
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-maintenance-bot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  WANDB_MODE: disabled
+  TOKENIZERS_PARALLELISM: "false"
+
+jobs:
+  focused-pr-checks:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 14
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install local dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Ruff format check for Milestone 4.3 files
+        run: |
+          ruff format --check \
+            bharat/eval/__init__.py \
+            bharat/eval/local_inference.py \
+            scripts/generate_bharatbench_local_predictions.py \
+            tests/eval/test_local_inference.py \
+            tests/scripts/test_generate_bharatbench_local_predictions.py
+      - name: Ruff lint check for Milestone 4.3 files
+        run: |
+          ruff check \
+            bharat/eval/__init__.py \
+            bharat/eval/local_inference.py \
+            scripts/generate_bharatbench_local_predictions.py \
+            tests/eval/test_local_inference.py \
+            tests/scripts/test_generate_bharatbench_local_predictions.py
+      - name: Focused Milestone 4.3 tests
+        run: |
+          pytest \
+            tests/eval/test_local_inference.py \
+            tests/scripts/test_generate_bharatbench_local_predictions.py \
+            -vv
