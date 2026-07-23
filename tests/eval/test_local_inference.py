@@ -58,7 +58,10 @@ class FakeTokenizer(BharatTokenizer):
         ]
 
     def get_metadata(self) -> dict[str, Any]:
-        return {"tokenizer_type": self.tokenizer_type, "vocab_size": self.vocab_size}
+        return {
+            "tokenizer_type": self.tokenizer_type,
+            "vocab_size": self.vocab_size,
+        }
 
     def fingerprint(self) -> str:
         return "fake-tokenizer"
