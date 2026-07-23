@@ -38,10 +38,7 @@ class FakeTokenizer(BharatTokenizer):
         texts: list[str],
         add_special_tokens: bool = True,
     ) -> list[list[int]]:
-        return [
-            self.encode(text, add_special_tokens=add_special_tokens)
-            for text in texts
-        ]
+        return [self.encode(text, add_special_tokens=add_special_tokens) for text in texts]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
         assert isinstance(skip_special_tokens, bool)
@@ -53,8 +50,7 @@ class FakeTokenizer(BharatTokenizer):
         skip_special_tokens: bool = True,
     ) -> list[str]:
         return [
-            self.decode(ids, skip_special_tokens=skip_special_tokens)
-            for ids in batch
+            self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch
         ]
 
     def get_metadata(self) -> dict[str, Any]:
