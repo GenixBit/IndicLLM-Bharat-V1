@@ -39,8 +39,7 @@ class FakeTokenizer(BharatTokenizer):
         add_special_tokens: bool = True,
     ) -> list[list[int]]:
         return [
-            self.encode(text, add_special_tokens=add_special_tokens)
-            for text in texts
+            self.encode(text, add_special_tokens=add_special_tokens) for text in texts
         ]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
@@ -53,8 +52,7 @@ class FakeTokenizer(BharatTokenizer):
         skip_special_tokens: bool = True,
     ) -> list[str]:
         return [
-            self.decode(ids, skip_special_tokens=skip_special_tokens)
-            for ids in batch
+            self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch
         ]
 
     def get_metadata(self) -> dict[str, Any]:
@@ -122,6 +120,15 @@ def test_config_rejects_negative_max_new_tokens() -> None:
             checkpoint_path="checkpoint",
             tokenizer_path="tokenizer.json",
             max_new_tokens=-1,
+        )
+
+
+def test_config_rejects_boolean_top_k() -> None:
+    with pytest.raises(TypeError, match="top_k must be an integer"):
+        LocalInferenceConfig(
+            checkpoint_path="checkpoint",
+            tokenizer_path="tokenizer.json",
+            top_k=True,
         )
 
 
