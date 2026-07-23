@@ -1,29 +1,32 @@
 # Milestone 4.3 — Local Model Inference Adapter
 
-**Status:** Complete
+**Status:** In progress
 
 ## Objective
 
 Connect the existing BharatBench prediction pipeline to a locally stored
-Bharat checkpoint and tokenizer. The implementation is offline, safe by
-default, and rejects all remote paths.
+Bharat checkpoint and tokenizer. The implementation must remain offline,
+safe by default, and reject all remote paths.
 
-## Architecture
+## Implemented in this PR
 
-```
-bharat/eval/local_inference.py
-├── LocalInferenceConfig       — frozen dataclass (checkpoint, tokenizer, device, max_new_tokens)
-├── BatchGenerator             — Protocol for typed generation callables
-├── LocalCausalLMAdapter       — Predicts by stripping the prompt from generated text
-└── load_local_causal_lm_adapter() — Factory function
+- Local-only path validation for checkpoint, tokenizer, examples, and output.
+- `LocalInferenceConfig` and `LocalCausalLMAdapter` APIs.
+- A typed `BatchGenerator` protocol for deterministic tests and injected
+  generation implementations.
+- BharatBench prediction CLI wiring, duplicate-ID validation, and focused
+  offline tests using fake generation callables.
 
-scripts/generate_bharatbench_local_predictions.py
-├── Validates all paths (local only)
-├── Loads examples via EvalExample.from_dict
-├── Rejects duplicate example_ids before model loading
-├── Creates LocalInferenceConfig → adapter → PredictionRunner → write_predictions_jsonl
-└── Optional --json flag for machine-readable output
-```
+## Remaining acceptance requirement
+
+`load_local_causal_lm_adapter()` must still load the approved local Bharat
+checkpoint and tokenizer using the repository's existing local code paths and
+construct a working generation callable. Until that wiring exists, the default
+factory produces an adapter whose fallback generator raises
+`NotImplementedError`, so Milestone 4.3 is not complete.
+
+The final implementation must reuse the repository's local model, tokenizer,
+and generation APIs without downloading files or contacting external services.
 
 ## Safety
 
@@ -56,26 +59,16 @@ generate-bharatbench-local-predictions \
 
 ```python
 from bharat.eval.local_inference import (
-    LocalInferenceConfig,
-    LocalCausalLMAdapter,
     BatchGenerator,
+    LocalCausalLMAdapter,
+    LocalInferenceConfig,
     load_local_causal_lm_adapter,
 )
 ```
 
 `LocalCausalLMAdapter` implements the `PredictionAdapter` protocol and can
-be used with `PredictionRunner` or directly via `adapter.predict(example)`.
+be used with `PredictionRunner` or directly through `adapter.predict(example)`.
 
-Generation is delegated to a `BatchGenerator` callable. When `generate_fn`
-is not provided, `_default_generate` raises `NotImplementedError`. Inject a
-custom `generate_fn` to test without a real model, or use
-`load_local_causal_lm_adapter()` for production use.
-
-## Limitations
-
-- Real model loading (`BharatForCausalLM.from_pretrained`) is not yet wired
-  into `load_local_causal_lm_adapter`. The factory currently creates the
-  adapter without a generation function. Model weights must be provided
-  when they become available.
-- No GPU acceleration is configured beyond the `--device` flag.
-- Tokenization uses the existing `load_tokenizer()` infrastructure.
+For tests, generation may be supplied through a lightweight `BatchGenerator`
+callable. The production factory must be completed before this milestone is
+marked finished.
