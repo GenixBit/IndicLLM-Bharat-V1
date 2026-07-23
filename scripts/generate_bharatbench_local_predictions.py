@@ -30,8 +30,8 @@ def _load_jsonl(path: Path) -> list[dict[str, object]]:
             continue
         try:
             record = json.loads(line)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSONL at {path}:{line_num}: {e}") from e
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSONL at {path}:{line_num}: {exc}") from exc
         if not isinstance(record, dict):
             raise ValueError(f"Invalid JSONL record at {path}:{line_num}: expected object")
         records.append(record)
@@ -53,7 +53,7 @@ def _load_examples(path: Path) -> list[EvalExample]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=("Generate BharatBench predictions using a local model checkpoint")
+        description="Generate BharatBench predictions using a local model checkpoint"
     )
     parser.add_argument("--examples", required=True, help="Path to examples JSONL file")
     parser.add_argument("--output", required=True, help="Output predictions JSONL path")
@@ -116,8 +116,8 @@ def main() -> None:
 
     try:
         examples = _load_examples(examples_path)
-    except (TypeError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
+    except (TypeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     config = LocalInferenceConfig(
@@ -129,15 +129,15 @@ def main() -> None:
 
     try:
         adapter = load_local_causal_lm_adapter(config)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     try:
         predictions = PredictionRunner().run(examples, adapter)
         write_predictions_jsonl(predictions, output_path)
-    except (FileNotFoundError, TypeError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     result = {
@@ -150,7 +150,10 @@ def main() -> None:
     if args.json:
         print(json.dumps(result, sort_keys=True))
     else:
-        print(f"Generated {len(predictions)} predictions " f"using checkpoint={config.checkpoint}")
+        print(
+            f"Generated {len(predictions)} predictions "
+            f"using checkpoint={config.checkpoint}"
+        )
         print(f"Output: {output_path}")
 
 
