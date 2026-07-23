@@ -21,7 +21,50 @@ env:
   TOKENIZERS_PARALLELISM: "false"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      python: ${{ steps.scope.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        name: Detect Python-impacting changes
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          python_changes="$(printf '%s\n' "$changed_files" | grep -Ev '^(docs/|README\.md$|\.github/workflows/ci\.yml$)' || true)"
+          if [[ -n "$python_changes" ]]; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  docs-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate documentation-only change
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+
   format:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -39,6 +82,8 @@ jobs:
           args: "check ."
 
   lint:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -52,6 +97,8 @@ jobs:
           args: "check ."
 
   typecheck:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -74,6 +121,8 @@ jobs:
         run: mypy bharat/
 
   test:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
