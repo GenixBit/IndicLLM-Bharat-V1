@@ -8,7 +8,7 @@ from pathlib import Path
 from bharat.eval.adapters import PredictionAdapter
 from bharat.eval.schema import EvalExample, EvalPrediction
 
-_URL_RE = re.compile(r"^(https?|ftp|s3|gs)://", re.IGNORECASE)
+_URL_RE = re.compile(r"^(https?|ftp|s3|gs):/+", re.IGNORECASE)
 
 
 def _is_remote_url(path: str) -> bool:
@@ -35,9 +35,7 @@ class PredictionRunner:
                     "Adapter returned non-string prediction for "
                     f"{example.example_id!r}: {type(prediction).__name__}"
                 )
-            predictions.append(
-                EvalPrediction(example_id=example.example_id, prediction=prediction)
-            )
+            predictions.append(EvalPrediction(example_id=example.example_id, prediction=prediction))
 
         return tuple(predictions)
 
