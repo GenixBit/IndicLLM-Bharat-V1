@@ -41,8 +41,7 @@ class TokenGenerator(Protocol):
         top_p: float | None,
         eos_token_id: int | None,
         pad_token_id: int | None,
-    ) -> torch.Tensor:
-        ...
+    ) -> torch.Tensor: ...
 
 
 @dataclass(frozen=True)
@@ -58,20 +57,13 @@ class LocalInferenceConfig:
     add_special_tokens: bool = True
 
     def __post_init__(self) -> None:
-        checkpoint_path = _local_path(
-            self.checkpoint_path,
-            field_name="checkpoint",
-        )
-        tokenizer_path = _local_path(
-            self.tokenizer_path,
-            field_name="tokenizer",
-        )
+        checkpoint_path = _local_path(self.checkpoint_path, field_name="checkpoint")
+        tokenizer_path = _local_path(self.tokenizer_path, field_name="tokenizer")
         object.__setattr__(self, "checkpoint_path", checkpoint_path)
         object.__setattr__(self, "tokenizer_path", tokenizer_path)
 
         if isinstance(self.max_new_tokens, bool) or not isinstance(
-            self.max_new_tokens,
-            int,
+            self.max_new_tokens, int
         ):
             raise TypeError(
                 "max_new_tokens must be an integer, "
@@ -110,9 +102,7 @@ def _generate_with_bharat_model(
     pad_token_id: int | None,
 ) -> torch.Tensor:
     if not isinstance(model, BharatForCausalLM):
-        raise TypeError(
-            f"model must be BharatForCausalLM, got {type(model).__name__}"
-        )
+        raise TypeError(f"model must be BharatForCausalLM, got {type(model).__name__}")
     return generate(
         model,
         input_ids=input_ids,
@@ -191,9 +181,7 @@ def _as_int_sequence(values: Sequence[object]) -> list[int]:
     return ids
 
 
-def load_local_causal_lm_adapter(
-    config: LocalInferenceConfig,
-) -> LocalCausalLMAdapter:
+def load_local_causal_lm_adapter(config: LocalInferenceConfig) -> LocalCausalLMAdapter:
     checkpoint_path = cast(Path, config.checkpoint_path)
     tokenizer_path = cast(Path, config.tokenizer_path)
     if not checkpoint_path.exists():
