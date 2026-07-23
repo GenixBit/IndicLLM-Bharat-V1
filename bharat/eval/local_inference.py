@@ -37,7 +37,8 @@ class TokenGenerator(Protocol):
         top_p: float | None,
         eos_token_id: int | None,
         pad_token_id: int | None,
-    ) -> torch.Tensor: ...
+    ) -> torch.Tensor:
+        ...
 
 
 @dataclass(frozen=True)
@@ -73,8 +74,11 @@ class LocalInferenceConfig:
             raise ValueError("device must be a non-empty string")
         if self.do_sample and self.temperature <= 0:
             raise ValueError("temperature must be positive when sampling")
-        if self.top_k is not None and self.top_k < 1:
-            raise ValueError("top_k must be at least 1")
+        if self.top_k is not None:
+            if isinstance(self.top_k, bool) or not isinstance(self.top_k, int):
+                raise TypeError("top_k must be an integer")
+            if self.top_k < 1:
+                raise ValueError("top_k must be at least 1")
         if self.top_p is not None and not 0 < self.top_p <= 1:
             raise ValueError("top_p must be in (0, 1]")
 
