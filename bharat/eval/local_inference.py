@@ -37,7 +37,8 @@ class TokenGenerator(Protocol):
         top_p: float | None,
         eos_token_id: int | None,
         pad_token_id: int | None,
-    ) -> torch.Tensor: ...
+    ) -> torch.Tensor:
+        ...
 
 
 @dataclass(frozen=True)
