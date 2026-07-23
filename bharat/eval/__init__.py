@@ -7,7 +7,17 @@ from bharat.eval.adapters import (
     PredictionAdapter,
     build_prediction_adapter,
 )
-from bharat.eval.metrics import choice_accuracy, exact_match, normalized_exact_match, token_f1
+from bharat.eval.local_inference import (
+    LocalCausalLMAdapter,
+    LocalInferenceConfig,
+    load_local_causal_lm_adapter,
+)
+from bharat.eval.metrics import (
+    choice_accuracy,
+    exact_match,
+    normalized_exact_match,
+    token_f1,
+)
 from bharat.eval.prediction_runner import PredictionRunner, write_predictions_jsonl
 from bharat.eval.reporting import BharatBenchReport
 from bharat.eval.runner import BharatBenchRunner
@@ -22,11 +32,14 @@ __all__ = [
     "EvalPrediction",
     "EvalResult",
     "ExpectedPredictionAdapter",
+    "LocalCausalLMAdapter",
+    "LocalInferenceConfig",
     "PredictionAdapter",
     "PredictionRunner",
     "build_prediction_adapter",
     "choice_accuracy",
     "exact_match",
+    "load_local_causal_lm_adapter",
     "normalized_exact_match",
     "token_f1",
     "write_predictions_jsonl",
