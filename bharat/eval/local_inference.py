@@ -93,7 +93,9 @@ def _generate_with_bharat_model(
     pad_token_id: int | None,
 ) -> torch.Tensor:
     if not isinstance(model, BharatForCausalLM):
-        raise TypeError(f"model must be BharatForCausalLM, got {type(model).__name__}")
+        raise TypeError(
+            f"model must be BharatForCausalLM, got {type(model).__name__}"
+        )
     return generate(
         model,
         input_ids=input_ids,
@@ -162,7 +164,9 @@ def _as_int_sequence(values: Sequence[object]) -> list[int]:
     return result
 
 
-def load_local_causal_lm_adapter(config: LocalInferenceConfig) -> LocalCausalLMAdapter:
+def load_local_causal_lm_adapter(
+    config: LocalInferenceConfig,
+) -> LocalCausalLMAdapter:
     checkpoint_path = cast(Path, config.checkpoint_path)
     tokenizer_path = cast(Path, config.tokenizer_path)
     if not checkpoint_path.exists():
