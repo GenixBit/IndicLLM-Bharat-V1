@@ -33,7 +33,8 @@ class FakeTokenizer(BharatTokenizer):
         return "fake"
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
-        del add_special_tokens
+        if not isinstance(add_special_tokens, bool):
+            raise TypeError("add_special_tokens must be a boolean")
         assert text
         return [1]
 
@@ -48,7 +49,8 @@ class FakeTokenizer(BharatTokenizer):
         ]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
-        del skip_special_tokens
+        if not isinstance(skip_special_tokens, bool):
+            raise TypeError("skip_special_tokens must be a boolean")
         return " ".join(f"tok_{token_id}" for token_id in ids)
 
     def decode_batch(
@@ -62,7 +64,10 @@ class FakeTokenizer(BharatTokenizer):
         ]
 
     def get_metadata(self) -> dict[str, Any]:
-        return {"tokenizer_type": self.tokenizer_type, "vocab_size": self.vocab_size}
+        return {
+            "tokenizer_type": self.tokenizer_type,
+            "vocab_size": self.vocab_size,
+        }
 
     def fingerprint(self) -> str:
         return "fake-tokenizer"
@@ -70,7 +75,9 @@ class FakeTokenizer(BharatTokenizer):
 
 class EmptyTokenizer(FakeTokenizer):
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
-        del text, add_special_tokens
+        if not isinstance(add_special_tokens, bool):
+            raise TypeError("add_special_tokens must be a boolean")
+        assert isinstance(text, str)
         return []
 
 
@@ -87,10 +94,15 @@ def fake_generator(
     eos_token_id: int | None,
     pad_token_id: int | None,
 ) -> torch.Tensor:
-    del model, temperature, top_k, top_p, eos_token_id, pad_token_id
+    assert model is not None
     assert attention_mask is not None
     assert max_new_tokens == 2
     assert not do_sample
+    assert temperature == 1.0
+    assert top_k is None
+    assert top_p is None
+    assert eos_token_id == 7
+    assert pad_token_id == 0
     completion = torch.tensor([[2, 3]], dtype=torch.long, device=input_ids.device)
     return torch.cat([input_ids, completion], dim=-1)
 
@@ -139,7 +151,9 @@ def test_local_causal_lm_adapter_decodes_generated_completion_only(
     assert prediction == "tok_2 tok_3"
 
 
-def test_local_causal_lm_adapter_rejects_empty_tokenization(tmp_path: Path) -> None:
+def test_local_causal_lm_adapter_rejects_empty_tokenization(
+    tmp_path: Path,
+) -> None:
     config = LocalInferenceConfig(
         checkpoint_path=tmp_path / "checkpoint",
         tokenizer_path=tmp_path / "tokenizer.json",
