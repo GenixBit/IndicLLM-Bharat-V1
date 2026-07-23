@@ -20,7 +20,8 @@ class BatchGenerator(Protocol):
         prompts: list[str],
         max_new_tokens: int | None = None,
         device: str | None = None,
-    ) -> list[str]: ...
+    ) -> list[str]:
+        ...
 
 
 @dataclass(frozen=True)
