@@ -31,11 +31,12 @@ class LocalInferenceConfig:
     max_new_tokens: int = 256
 
     def __post_init__(self) -> None:
-        for name, val in [
+        paths = (
             ("checkpoint", self.checkpoint),
             ("tokenizer", self.tokenizer),
-        ]:
-            path_str = str(val)
+        )
+        for name, value in paths:
+            path_str = str(value)
             if _is_remote_url(path_str):
                 raise ValueError(f"Remote {name} path rejected: {path_str}")
         if self.max_new_tokens < 1:
@@ -65,8 +66,8 @@ class LocalCausalLMAdapter:
             max_new_tokens=self._config.max_new_tokens,
             device=self._config.device,
         )
-        full = full_texts[0]
-        return full[len(example.prompt) :]
+        full_text = full_texts[0]
+        return full_text[len(example.prompt) :]
 
 
 def _default_generate(
