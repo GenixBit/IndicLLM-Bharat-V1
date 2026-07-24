@@ -32,9 +32,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path]:
                         "dtype": "BF16",
                         "shard": shard.name,
                         "size_bytes": 8,
-                    }
+                    },
                 ],
-            }
+            },
         ),
         encoding="utf-8",
     )
