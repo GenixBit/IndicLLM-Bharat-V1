@@ -3,11 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from bharat.serving.export_inventory import build_checkpoint_inventory
+from bharat.serving.export_inventory import (
+    CheckpointInventory,
+    build_checkpoint_inventory,
+)
 from bharat.serving.safetensors_preflight import validate_safetensors_preflight
 
 
-def _checkpoint(tmp_path: Path) -> tuple[Path, object]:
+def _checkpoint(tmp_path: Path) -> tuple[Path, CheckpointInventory]:
     checkpoint = tmp_path / "checkpoint"
     checkpoint.mkdir()
     (checkpoint / "model-00001-of-00001.safetensors").write_bytes(b"local-shard-fixture")
@@ -51,8 +54,8 @@ def test_preflight_is_deterministic_and_sorts_tensors(tmp_path: Path) -> None:
         total=40,
     )
 
-    first = validate_safetensors_preflight(inventory, metadata)  # type: ignore[arg-type]
-    second = validate_safetensors_preflight(inventory, metadata)  # type: ignore[arg-type]
+    first = validate_safetensors_preflight(inventory, metadata)
+    second = validate_safetensors_preflight(inventory, metadata)
 
     assert first.to_json() == second.to_json()
     assert [tensor.name for tensor in first.tensors] == [
@@ -81,7 +84,7 @@ def test_missing_shard_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="missing shards"):
-        validate_safetensors_preflight(inventory, metadata)  # type: ignore[arg-type]
+        validate_safetensors_preflight(inventory, metadata)
 
 
 def test_duplicate_tensor_names_are_rejected(tmp_path: Path) -> None:
@@ -97,7 +100,7 @@ def test_duplicate_tensor_names_are_rejected(tmp_path: Path) -> None:
     _write_metadata(metadata, [tensor, tensor], total=8)
 
     with pytest.raises(ValueError, match="unique"):
-        validate_safetensors_preflight(inventory, metadata)  # type: ignore[arg-type]
+        validate_safetensors_preflight(inventory, metadata)
 
 
 def test_declared_total_must_match_tensor_sum(tmp_path: Path) -> None:
@@ -118,7 +121,7 @@ def test_declared_total_must_match_tensor_sum(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="does not match"):
-        validate_safetensors_preflight(inventory, metadata)  # type: ignore[arg-type]
+        validate_safetensors_preflight(inventory, metadata)
 
 
 def test_invalid_shape_and_dtype_are_rejected(tmp_path: Path) -> None:
@@ -139,4 +142,4 @@ def test_invalid_shape_and_dtype_are_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="shape dimensions"):
-        validate_safetensors_preflight(inventory, metadata)  # type: ignore[arg-type]
+        validate_safetensors_preflight(inventory, metadata)
