@@ -31,7 +31,11 @@ def main() -> None:
         required=True,
         help="Path to checkpoint directory",
     )
-    parser.add_argument("--output-path", required=True, help="Output file path")
+    parser.add_argument(
+        "--output-path",
+        required=True,
+        help="Output file path",
+    )
     parser.add_argument(
         "--format",
         required=True,
