@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from bharat.serving.export import ExportRequest, build_export_plan
+from bharat.serving.export_manifest import ExportManifest, write_export_manifest
 from bharat.serving.export_writer import ExportWriterRegistry
 
 _URL_RE = re.compile(r"^(https?|ftp|s3|gs)://", re.IGNORECASE)
@@ -32,16 +33,21 @@ def main() -> None:
         help="Export format",
     )
     parser.add_argument("--model-name", required=True, help="Model name for the export plan")
+    parser.add_argument(
+        "--manifest-path",
+        help="Optional local JSON manifest output path",
+    )
 
     args = parser.parse_args()
 
-    if _is_remote(args.checkpoint_path):
-        print(f"error: Remote checkpoint path rejected: {args.checkpoint_path}", file=sys.stderr)
-        sys.exit(1)
-
-    if _is_remote(args.output_path):
-        print(f"error: Remote output path rejected: {args.output_path}", file=sys.stderr)
-        sys.exit(1)
+    for label, value in (
+        ("checkpoint", args.checkpoint_path),
+        ("output", args.output_path),
+        ("manifest", args.manifest_path),
+    ):
+        if value is not None and _is_remote(value):
+            print(f"error: Remote {label} path rejected: {value}", file=sys.stderr)
+            sys.exit(1)
 
     try:
         request = ExportRequest(
@@ -50,17 +56,10 @@ def main() -> None:
             export_format=args.format,
             model_name=args.model_name,
         )
-    except ValueError as e:
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    plan = build_export_plan(request)
-
-    try:
-        registry = ExportWriterRegistry()
-        result = registry.write(plan)
-    except ValueError as e:
-        print(f"error: {e}", file=sys.stderr)
+        plan = build_export_plan(request)
+        result = ExportWriterRegistry().write(plan)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
         sys.exit(1)
 
     output = {
@@ -72,6 +71,13 @@ def main() -> None:
         "writer_name": result.writer_name,
         "bytes_written": result.bytes_written,
     }
+
+    if args.manifest_path is not None:
+        manifest = ExportManifest.from_plan_and_result(plan, result)
+        manifest_path = Path(args.manifest_path)
+        write_export_manifest(manifest, manifest_path)
+        output["manifest_path"] = str(manifest_path)
+        output["manifest_schema_version"] = manifest.schema_version
 
     print(json.dumps(output, indent=2, sort_keys=True))
 
