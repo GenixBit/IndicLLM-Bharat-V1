@@ -158,10 +158,7 @@ def main() -> None:
     if args.json:
         print(json.dumps(result, sort_keys=True))
     else:
-        print(
-            f"Generated {len(predictions)} predictions "
-            f"using checkpoint={config.checkpoint}"
-        )
+        print(f"Generated {len(predictions)} predictions " f"using checkpoint={config.checkpoint}")
         print(f"Output: {output_path}")
 
 
