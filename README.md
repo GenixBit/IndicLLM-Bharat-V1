@@ -121,6 +121,8 @@ python scripts/generate_bharatbench_local_predictions.py \
 
 **Milestone 4.4 note:** The `BenchmarkCatalog` registers five benchmark categories — language, reasoning, coding, knowledge, and safety — each with a `safety_boundary` and supported task types. Tiny synthetic fixtures live under `eval_fixtures/benchmarks/`. See [docs/MILESTONE_4_4_BENCHMARK_CATALOG.md](docs/MILESTONE_4_4_BENCHMARK_CATALOG.md) for details.
 
+**Milestone 4.5 note:** The `Leaderboard` aggregates BharatBench evaluation reports into ranked tables with JSON and Markdown export. The `build-leaderboard` CLI scans a directory of report JSON files. Synthetic fixtures live under `eval_fixtures/leaderboard/`. See [docs/MILESTONE_4_5_LEADERBOARD.md](docs/MILESTONE_4_5_LEADERBOARD.md) for details.
+
 ---
 
 ## Verified Results — GPT-2 10M (Training Complete)
