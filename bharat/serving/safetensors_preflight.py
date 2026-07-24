@@ -76,7 +76,13 @@ def _parse_tensor(value: object) -> TensorMetadata:
     shape_value = item.get("shape")
     if not isinstance(shape_value, list) or not shape_value:
         raise ValueError(f"tensor {name!r} shape must be a non-empty list")
-    if any(not isinstance(dimension, int) or isinstance(dimension, bool) or dimension <= 0 for dimension in shape_value):
+    invalid_dimension = any(
+        not isinstance(dimension, int)
+        or isinstance(dimension, bool)
+        or dimension <= 0
+        for dimension in shape_value
+    )
+    if invalid_dimension:
         raise ValueError(f"tensor {name!r} shape dimensions must be positive integers")
     shape = tuple(shape_value)
 
@@ -89,7 +95,11 @@ def _parse_tensor(value: object) -> TensorMetadata:
         raise ValueError(f"tensor {name!r} shard must be non-empty")
 
     size_bytes = item.get("size_bytes")
-    if not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes < 0:
+    if (
+        not isinstance(size_bytes, int)
+        or isinstance(size_bytes, bool)
+        or size_bytes < 0
+    ):
         raise ValueError(f"tensor {name!r} size_bytes must be a non-negative integer")
 
     return TensorMetadata(
@@ -125,23 +135,36 @@ def validate_safetensors_preflight(
     if not isinstance(tensors_value, list) or not tensors_value:
         raise ValueError("tensors must be a non-empty list")
 
-    tensors = tuple(sorted((_parse_tensor(item) for item in tensors_value), key=lambda item: item.name))
+    tensors = tuple(
+        sorted(
+            (_parse_tensor(item) for item in tensors_value),
+            key=lambda item: item.name,
+        )
+    )
     names = [tensor.name for tensor in tensors]
     if len(names) != len(set(names)):
         raise ValueError("tensor names must be unique")
 
     inventory_paths = {item.relative_path for item in inventory.files}
-    missing_shards = sorted({tensor.shard for tensor in tensors if tensor.shard not in inventory_paths})
+    missing_shards = sorted(
+        {tensor.shard for tensor in tensors if tensor.shard not in inventory_paths}
+    )
     if missing_shards:
-        raise ValueError(f"tensor metadata references missing shards: {', '.join(missing_shards)}")
+        missing = ", ".join(missing_shards)
+        raise ValueError(f"tensor metadata references missing shards: {missing}")
 
     total_tensor_bytes = sum(tensor.size_bytes for tensor in tensors)
     declared_total = root.get("total_tensor_bytes")
-    if not isinstance(declared_total, int) or isinstance(declared_total, bool) or declared_total < 0:
+    if (
+        not isinstance(declared_total, int)
+        or isinstance(declared_total, bool)
+        or declared_total < 0
+    ):
         raise ValueError("total_tensor_bytes must be a non-negative integer")
     if declared_total != total_tensor_bytes:
         raise ValueError(
-            f"declared total_tensor_bytes {declared_total} does not match tensor sum {total_tensor_bytes}"
+            f"declared total_tensor_bytes {declared_total} "
+            f"does not match tensor sum {total_tensor_bytes}"
         )
 
     return SafetensorsPreflightResult(
