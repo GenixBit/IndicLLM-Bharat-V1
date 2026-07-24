@@ -95,11 +95,7 @@ def _parse_tensor(value: object) -> TensorMetadata:
         raise ValueError(f"tensor {name!r} shard must be non-empty")
 
     size_bytes = item.get("size_bytes")
-    if (
-        not isinstance(size_bytes, int)
-        or isinstance(size_bytes, bool)
-        or size_bytes < 0
-    ):
+    if not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes < 0:
         raise ValueError(f"tensor {name!r} size_bytes must be a non-negative integer")
 
     return TensorMetadata(
