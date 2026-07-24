@@ -1,14 +1,14 @@
 # Milestone 4.3 — Local Model Inference Adapter
 
-**Status:** In progress
+**Status:** Complete
 
 ## Objective
 
 Connect the existing BharatBench prediction pipeline to a locally stored
-Bharat checkpoint and tokenizer. The implementation must remain offline,
-safe by default, and reject all remote paths.
+Bharat checkpoint and tokenizer. The implementation remains offline,
+safe by default, and rejects all remote paths.
 
-## Implemented in this PR
+## Implemented
 
 - Local-only path validation for checkpoint, tokenizer, examples, and output.
 - `LocalInferenceConfig` and `LocalCausalLMAdapter` APIs.
@@ -16,17 +16,10 @@ safe by default, and reject all remote paths.
   generation implementations.
 - BharatBench prediction CLI wiring, duplicate-ID validation, and focused
   offline tests using fake generation callables.
-
-## Remaining acceptance requirement
-
-`load_local_causal_lm_adapter()` must still load the approved local Bharat
-checkpoint and tokenizer using the repository's existing local code paths and
-construct a working generation callable. Until that wiring exists, the default
-factory produces an adapter whose fallback generator raises
-`NotImplementedError`, so Milestone 4.3 is not complete.
-
-The final implementation must reuse the repository's local model, tokenizer,
-and generation APIs without downloading files or contacting external services.
+- `load_local_causal_lm_adapter()` wires the approved local checkpoint and
+  tokenizer paths through the repository's local `BharatForCausalLM`,
+  `load_tokenizer()`, and `generate()` APIs without downloading files or
+  contacting external services.
 
 ## Safety
 
@@ -70,5 +63,5 @@ from bharat.eval.local_inference import (
 be used with `PredictionRunner` or directly through `adapter.predict(example)`.
 
 For tests, generation may be supplied through a lightweight `BatchGenerator`
-callable. The production factory must be completed before this milestone is
-marked finished.
+callable. Production use should provide approved local checkpoint and tokenizer
+paths only.
