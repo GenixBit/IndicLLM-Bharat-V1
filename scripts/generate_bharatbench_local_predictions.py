@@ -107,11 +107,19 @@ def main() -> None:
         )
         sys.exit(1)
 
+    checkpoint_path = Path(args.checkpoint)
+    tokenizer_path = Path(args.tokenizer)
     examples_path = Path(args.examples)
     output_path = Path(args.output)
 
     if not examples_path.exists():
         print(f"error: Examples file not found: {examples_path}", file=sys.stderr)
+        sys.exit(1)
+    if not checkpoint_path.exists():
+        print(f"error: Checkpoint not found: {checkpoint_path}", file=sys.stderr)
+        sys.exit(1)
+    if not tokenizer_path.exists():
+        print(f"error: Tokenizer not found: {tokenizer_path}", file=sys.stderr)
         sys.exit(1)
 
     try:

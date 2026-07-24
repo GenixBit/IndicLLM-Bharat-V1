@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -181,14 +182,25 @@ class TestLocalCausalLMAdapter:
         assert captured["device"] == "xla"
 
 
-class TestLoadLocalCausalLMAdapter:
-    def test_returns_adapter_with_valid_config(self, tmp_path: Path) -> None:
-        ckpt = _make_dirs(tmp_path / "checkpoint")
-        tok = _make_dirs(tmp_path / "tokenizer")
-        config = LocalInferenceConfig(checkpoint=ckpt, tokenizer=tok)
-        adapter = load_local_causal_lm_adapter(config)
-        assert isinstance(adapter, LocalCausalLMAdapter)
+class MockBharatTokenizer:
+    """Fake tokenizer that matches the BharatTokenizer interface for testing."""
 
+    def __init__(self) -> None:
+        self.vocab_size = 100
+        self.eos_token_id = 1
+        self.pad_token_id = 0
+
+    def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
+        return [[ord(c) for c in text] for text in texts]
+
+    def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
+        return "".join(chr(i) if 32 <= i < 127 else "?" for i in ids)
+
+    def fingerprint(self) -> str:
+        return "mock-fingerprint"
+
+
+class TestLoadLocalCausalLMAdapter:
     def test_rejects_remote_checkpoint(self) -> None:
         with pytest.raises(ValueError, match="Remote checkpoint path rejected"):
             load_local_causal_lm_adapter(
@@ -206,3 +218,76 @@ class TestLoadLocalCausalLMAdapter:
                     tokenizer="gs://bucket/tokenizer",
                 )
             )
+
+    def test_loads_model_and_tokenizer_and_generates(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        ckpt = _make_dirs(tmp_path / "checkpoint")
+        tok = _make_dirs(tmp_path / "tokenizer")
+
+        tokenizer = MockBharatTokenizer()
+
+        class MockModel:
+            config = type(
+                "Config",
+                (),
+                {
+                    "vocab_size": 100,
+                    "max_position_embeddings": 512,
+                },
+            )()
+
+            def eval(self) -> None:
+                pass
+
+            def forward(
+                self,
+                input_ids: Any = None,
+                attention_mask: Any = None,
+                use_cache: bool = False,
+                past_key_values: Any = None,
+                **kwargs: Any,
+            ) -> Any:
+                logits_data = [[0.0] * 100 for _ in range(input_ids.shape[0])]
+                for i in range(input_ids.shape[0]):
+                    logits_data[i][0] = 1.0
+                return type(
+                    "Output",
+                    (),
+                    {
+                        "logits": __import__("torch").tensor([logits_data]),
+                        "past_key_values": None,
+                    },
+                )()
+
+        monkeypatch.setattr(
+            "bharat.models.bharat_model.BharatForCausalLM",
+            type(
+                "FakeBharatForCausalLM",
+                (),
+                {
+                    "from_pretrained": staticmethod(lambda path, **kw: MockModel()),
+                },
+            ),
+        )
+        monkeypatch.setattr(
+            "bharat.tokenizer.load_tokenizer",
+            lambda source: tokenizer,
+        )
+        monkeypatch.setattr(
+            "bharat.models.generation.generate",
+            lambda model, input_ids, **kw: input_ids,
+        )
+
+        config = LocalInferenceConfig(checkpoint=str(ckpt), tokenizer=str(tok))
+        adapter = load_local_causal_lm_adapter(config)
+        assert isinstance(adapter, LocalCausalLMAdapter)
+
+        ex = EvalExample(
+            example_id="test_001",
+            task_type="qa",
+            prompt="Hi",
+            expected="",
+        )
+        result = adapter.predict(ex)
+        assert isinstance(result, str)

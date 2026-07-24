@@ -48,20 +48,13 @@ class TestTokenF1:
 
 class TestChoiceAccuracy:
     def test_correct_choice(self) -> None:
-        assert (
-            choice_accuracy("hindi", "hindi", ("hindi", "tamil", "bengali")) == 1.0
-        )
+        assert choice_accuracy("hindi", "hindi", ("hindi", "tamil", "bengali")) == 1.0
 
     def test_wrong_choice(self) -> None:
-        assert (
-            choice_accuracy("hindi", "tamil", ("hindi", "tamil", "bengali")) == 0.0
-        )
+        assert choice_accuracy("hindi", "tamil", ("hindi", "tamil", "bengali")) == 0.0
 
     def test_not_in_choices(self) -> None:
-        assert (
-            choice_accuracy("hindi", "malayalam", ("hindi", "tamil", "bengali"))
-            == 0.0
-        )
+        assert choice_accuracy("hindi", "malayalam", ("hindi", "tamil", "bengali")) == 0.0
 
     def test_empty_prediction(self) -> None:
         assert choice_accuracy("hindi", "", ("hindi", "tamil")) == 0.0

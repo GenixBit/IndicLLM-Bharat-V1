@@ -21,9 +21,7 @@ def _is_remote_url(path: str) -> bool:
 
 def _load_jsonl(path: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    for line_num, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), 1
-    ):
+    for line_num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line:
             continue
@@ -32,9 +30,7 @@ def _load_jsonl(path: Path) -> list[dict[str, object]]:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSONL at {path}:{line_num}: {e}") from e
         if not isinstance(record, dict):
-            raise ValueError(
-                f"Invalid JSONL record at {path}:{line_num}: expected object"
-            )
+            raise ValueError(f"Invalid JSONL record at {path}:{line_num}: expected object")
         records.append(record)
     return records
 
@@ -65,9 +61,7 @@ def _load_predictions(path: Path) -> list[EvalPrediction]:
             raise ValueError("prediction must be a string")
         pred = EvalPrediction(example_id=example_id, prediction=prediction)
         if pred.example_id in seen_ids:
-            raise ValueError(
-                f"Duplicate prediction example_id {pred.example_id!r} in {path}"
-            )
+            raise ValueError(f"Duplicate prediction example_id {pred.example_id!r} in {path}")
         seen_ids.add(pred.example_id)
         predictions.append(pred)
     return predictions

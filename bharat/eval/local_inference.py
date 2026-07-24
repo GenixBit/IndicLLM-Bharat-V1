@@ -84,7 +84,69 @@ def _default_generate(
     )
 
 
+def _build_real_generate_fn(
+    ckpt_path: str | Path,
+    tok_path: str | Path,
+    default_device: str,
+    default_max_new_tokens: int,
+) -> BatchGenerator:
+    import torch
+
+    from bharat.models.bharat_model import BharatForCausalLM
+    from bharat.models.generation import generate
+    from bharat.tokenizer import load_tokenizer
+
+    tokenizer = load_tokenizer(str(tok_path))
+    model = BharatForCausalLM.from_pretrained(str(ckpt_path), map_location=default_device)
+    model.eval()
+
+    def _generate(
+        prompts: list[str],
+        max_new_tokens: int | None = None,
+        device: str | None = None,
+    ) -> list[str]:
+        batch = tokenizer.encode_batch(prompts)
+        max_len = max(len(ids) for ids in batch)
+        input_ids_list: list[list[int]] = []
+        attention_mask_list: list[list[int]] = []
+        for ids in batch:
+            pad_len = max_len - len(ids)
+            input_ids_list.append(ids + [tokenizer.pad_token_id] * pad_len)
+            attention_mask_list.append([1] * len(ids) + [0] * pad_len)
+
+        input_ids = torch.tensor(input_ids_list, dtype=torch.long)
+        attention_mask = torch.tensor(attention_mask_list, dtype=torch.long)
+
+        use_device = device or default_device
+        if use_device:
+            input_ids = input_ids.to(use_device)
+            attention_mask = attention_mask.to(use_device)
+
+        output_ids = generate(
+            model,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens or default_max_new_tokens,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+        results = []
+        for i in range(len(prompts)):
+            new_ids_t = output_ids[i, max_len:]
+            results.append(tokenizer.decode(new_ids_t.tolist(), skip_special_tokens=True))
+        return results
+
+    return _generate
+
+
 def load_local_causal_lm_adapter(
     config: LocalInferenceConfig,
 ) -> LocalCausalLMAdapter:
-    return LocalCausalLMAdapter(config)
+    generate_fn = _build_real_generate_fn(
+        ckpt_path=config.checkpoint,
+        tok_path=config.tokenizer,
+        default_device=config.device,
+        default_max_new_tokens=config.max_new_tokens,
+    )
+    return LocalCausalLMAdapter(config, generate_fn=generate_fn)

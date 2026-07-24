@@ -7,8 +7,7 @@ from bharat.eval.schema import EvalExample
 
 
 class PredictionAdapter(Protocol):
-    def predict(self, example: EvalExample) -> str:
-        ...
+    def predict(self, example: EvalExample) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -50,6 +49,5 @@ def build_prediction_adapter(name: str) -> PredictionAdapter:
     if name == "choice-baseline":
         return ChoiceBaselineAdapter()
     raise ValueError(
-        "adapter must be one of ['choice-baseline', 'echo', 'expected'], "
-        f"got {name!r}"
+        "adapter must be one of ['choice-baseline', 'echo', 'expected'], " f"got {name!r}"
     )

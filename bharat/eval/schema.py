@@ -58,7 +58,7 @@ class EvalExample:
         if not isinstance(expected, str):
             raise ValueError("expected must be a string")
 
-        if not isinstance(choices_raw, (list, tuple)):
+        if not isinstance(choices_raw, list | tuple):
             raise ValueError("choices must be a list or tuple of strings")
         choices_list: list[str] = []
         for choice in choices_raw:
