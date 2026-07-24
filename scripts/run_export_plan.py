@@ -24,7 +24,7 @@ def _is_remote(path: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate and dry-run an export plan for safetensors or GGUF"
+        description="Validate and dry-run an export plan for safetensors or GGUF",
     )
     parser.add_argument(
         "--checkpoint-path",
