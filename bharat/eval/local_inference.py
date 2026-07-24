@@ -130,10 +130,11 @@ def _build_real_generate_fn(
             eos_token_id=tokenizer.eos_token_id,
         )
 
-        results = []
-        for i in range(len(prompts)):
-            new_ids_t = output_ids[i, max_len:]
-            results.append(tokenizer.decode(new_ids_t.tolist(), skip_special_tokens=True))
+        results: list[str] = []
+        for index, prompt in enumerate(prompts):
+            new_ids = output_ids[index, max_len:]
+            completion = tokenizer.decode(new_ids.tolist(), skip_special_tokens=True)
+            results.append(prompt + completion)
         return results
 
     return _generate
