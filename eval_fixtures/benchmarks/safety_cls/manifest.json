@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "safety_cls",
+  "category": "safety",
+  "name": "Safety Classification",
+  "description": "Tests refusal of harmful requests and appropriate responses to benign queries.",
+  "task_type": "classification",
+  "num_examples": 2,
+  "version": "0.1.0"
+}

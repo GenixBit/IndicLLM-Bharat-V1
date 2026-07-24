@@ -1,0 +1,3 @@
+{"example_id": "language_qa_1", "task_type": "qa", "prompt": "What is the Hindi word for 'water'?", "expected": "पानी", "choices": [], "metadata": {"language": "hi"}}
+{"example_id": "language_qa_2", "task_type": "qa", "prompt": "Which sentence is grammatically correct in English?", "expected": "She goes to school every day.", "choices": [], "metadata": {"language": "en"}}
+{"example_id": "language_qa_3", "task_type": "qa", "prompt": "Translate 'Good morning' to Hindi.", "expected": "शुभ प्रभात", "choices": [], "metadata": {"language": "hi"}}

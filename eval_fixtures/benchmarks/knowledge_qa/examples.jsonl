@@ -1,0 +1,3 @@
+{"example_id": "knowledge_qa_1", "task_type": "qa", "prompt": "What is the largest planet in our solar system?", "expected": "Jupiter", "choices": [], "metadata": {"domain": "astronomy"}}
+{"example_id": "knowledge_qa_2", "task_type": "qa", "prompt": "Who chaired the Indian Constitution Drafting Committee?", "expected": "B. R. Ambedkar", "choices": [], "metadata": {"domain": "history"}}
+{"example_id": "knowledge_qa_3", "task_type": "qa", "prompt": "What is the chemical symbol for water?", "expected": "H2O", "choices": [], "metadata": {"domain": "chemistry"}}

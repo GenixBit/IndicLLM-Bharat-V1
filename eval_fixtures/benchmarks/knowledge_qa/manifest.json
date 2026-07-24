@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "knowledge_qa",
+  "category": "knowledge",
+  "name": "Factual Knowledge QA",
+  "description": "Tests factual accuracy across science, history, and culture domains.",
+  "task_type": "qa",
+  "num_examples": 3,
+  "version": "0.1.0"
+}

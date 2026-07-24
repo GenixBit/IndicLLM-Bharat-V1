@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "language_qa",
+  "category": "language",
+  "name": "Language Understanding QA",
+  "description": "Tests basic language comprehension via question answering in Indian languages.",
+  "task_type": "qa",
+  "num_examples": 3,
+  "version": "0.1.0"
+}

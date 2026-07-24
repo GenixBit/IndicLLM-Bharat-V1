@@ -119,6 +119,8 @@ python scripts/generate_bharatbench_local_predictions.py \
 
 **Milestone 4.3 note:** `scripts/generate_bharatbench_local_predictions.py` uses the `LocalCausalLMAdapter` to connect BharatBench predictions to a local checkpoint and tokenizer. Only local filesystem paths are accepted. Remote URLs (`http://`, `https://`, `ftp://`, `s3://`, `gs://`) are rejected. See [docs/MILESTONE_4_3_LOCAL_INFERENCE.md](docs/MILESTONE_4_3_LOCAL_INFERENCE.md) for details.
 
+**Milestone 4.4 note:** The `BenchmarkCatalog` registers five benchmark categories — language, reasoning, coding, knowledge, and safety — each with a `safety_boundary` and supported task types. Tiny synthetic fixtures live under `eval_fixtures/benchmarks/`. See [docs/MILESTONE_4_4_BENCHMARK_CATALOG.md](docs/MILESTONE_4_4_BENCHMARK_CATALOG.md) for details.
+
 ---
 
 ## Verified Results — GPT-2 10M (Training Complete)
