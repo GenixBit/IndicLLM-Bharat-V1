@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 ExportFormat = Literal["safetensors", "gguf"]
 _REMOTE_PREFIXES = ("http://", "https://", "ftp://", "s3://", "gs://")
@@ -11,6 +11,80 @@ _SUFFIXES: dict[ExportFormat, str] = {
     "safetensors": ".safetensors",
     "gguf": ".gguf",
 }
+
+
+@dataclass(frozen=True)
+class ExportResult:
+    output_path: Path
+    export_format: ExportFormat
+    model_name: str
+    success: bool
+    message: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "output_path": str(self.output_path),
+            "export_format": self.export_format,
+            "model_name": self.model_name,
+            "success": self.success,
+            "message": self.message,
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
+
+
+class ExportWriter(Protocol):
+    def __init__(self, export_format: str) -> None: ...
+
+    def write(self, plan: ExportPlan) -> ExportResult: ...
+
+
+class DryRunExportWriter:
+    def __init__(self, export_format: ExportFormat) -> None:
+        self.export_format = export_format
+
+    def write(self, plan: ExportPlan) -> ExportResult:
+        valid_suffix = _SUFFIXES[plan.export_format]
+        if plan.output_path.suffix.lower() != valid_suffix:
+            return ExportResult(
+                output_path=plan.output_path,
+                export_format=plan.export_format,
+                model_name=plan.model_name,
+                success=False,
+                message=f"output_path must end with {valid_suffix!r}",
+            )
+        return ExportResult(
+            output_path=plan.output_path,
+            export_format=plan.export_format,
+            model_name=plan.model_name,
+            success=True,
+            message=f"Dry-run export of {plan.model_name} to {plan.output_path} [{plan.export_format}]",
+        )
+
+
+_WRITER_REGISTRY: dict[ExportFormat, type[ExportWriter]] = {}
+
+
+def register_writer(export_format: ExportFormat, writer_cls: type[ExportWriter]) -> None:
+    _WRITER_REGISTRY[export_format] = writer_cls
+
+
+def get_writer(export_format: ExportFormat) -> ExportWriter:
+    try:
+        cls = _WRITER_REGISTRY[export_format]
+    except KeyError:
+        raise ValueError(f"No writer registered for export format: {export_format!r}") from None
+    return cls(export_format)
+
+
+def run_export(plan: ExportPlan) -> ExportResult:
+    writer = get_writer(plan.export_format)
+    return writer.write(plan)
+
+
+register_writer("safetensors", DryRunExportWriter)
+register_writer("gguf", DryRunExportWriter)
 
 
 def _validate_local_path(path: Path, label: str) -> None:

@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from bharat.serving.auth import ApiKeyAuthenticator, AuthConfig, AuthResult
 from bharat.serving.controller import ServingController
-from bharat.serving.export import ExportFormat, ExportPlan, ExportRequest, build_export_plan
+from bharat.serving.export import (
+    DryRunExportWriter,
+    ExportFormat,
+    ExportPlan,
+    ExportRequest,
+    ExportResult,
+    ExportWriter,
+    build_export_plan,
+    get_writer,
+    register_writer,
+    run_export,
+)
 from bharat.serving.metrics import MetricsSnapshot, ServingMetrics
 from bharat.serving.rate_limit import InMemoryRateLimiter, RateLimitConfig, RateLimitResult
 from bharat.serving.streaming import (
@@ -19,10 +30,16 @@ __all__ = [
     "ApiKeyAuthenticator",
     "AuthConfig",
     "AuthResult",
+    "DryRunExportWriter",
     "ExportFormat",
     "ExportPlan",
     "ExportRequest",
+    "ExportResult",
+    "ExportWriter",
     "FunctionCall",
+    "get_writer",
+    "register_writer",
+    "run_export",
     "FunctionSpec",
     "InMemoryRateLimiter",
     "LocalStreamer",
