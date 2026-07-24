@@ -1,4 +1,3 @@
-# fmt: off
 from __future__ import annotations
 
 import json
@@ -134,5 +133,3 @@ def test_invalid_preflight_metadata_returns_nonzero(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "does not match tensor sum" in result.stderr
-
-# fmt: on
