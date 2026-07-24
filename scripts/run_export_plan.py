@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from bharat.serving.export import ExportRequest, build_export_plan
+from bharat.serving.export_inventory import build_checkpoint_inventory
 from bharat.serving.export_manifest import ExportManifest, write_export_manifest
 from bharat.serving.export_writer import ExportWriterRegistry
 
@@ -37,6 +38,11 @@ def main() -> None:
         "--manifest-path",
         help="Optional local JSON manifest output path",
     )
+    parser.add_argument(
+        "--include-inventory",
+        action="store_true",
+        help="Include deterministic local checkpoint inventory metadata",
+    )
 
     args = parser.parse_args()
 
@@ -58,6 +64,9 @@ def main() -> None:
         )
         plan = build_export_plan(request)
         result = ExportWriterRegistry().write(plan)
+        inventory = (
+            build_checkpoint_inventory(plan.checkpoint_path) if args.include_inventory else None
+        )
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(1)
@@ -71,6 +80,9 @@ def main() -> None:
         "writer_name": result.writer_name,
         "bytes_written": result.bytes_written,
     }
+
+    if inventory is not None:
+        output["checkpoint_inventory"] = inventory.to_dict()
 
     if args.manifest_path is not None:
         manifest = ExportManifest.from_plan_and_result(plan, result)
