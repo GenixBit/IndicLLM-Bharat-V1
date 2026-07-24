@@ -26,7 +26,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Validate and dry-run an export plan for safetensors or GGUF"
     )
-    parser.add_argument("--checkpoint-path", required=True, help="Path to checkpoint directory")
+    parser.add_argument(
+        "--checkpoint-path",
+        required=True,
+        help="Path to checkpoint directory",
+    )
     parser.add_argument("--output-path", required=True, help="Output file path")
     parser.add_argument(
         "--format",
@@ -34,7 +38,11 @@ def main() -> None:
         choices=["safetensors", "gguf"],
         help="Export format",
     )
-    parser.add_argument("--model-name", required=True, help="Model name for the export plan")
+    parser.add_argument(
+        "--model-name",
+        required=True,
+        help="Model name for the export plan",
+    )
     parser.add_argument(
         "--manifest-path",
         help="Optional local JSON manifest output path",
