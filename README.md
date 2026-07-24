@@ -123,6 +123,8 @@ python scripts/generate_bharatbench_local_predictions.py \
 
 **Milestone 4.5 note:** The `Leaderboard` aggregates BharatBench evaluation reports into ranked tables with JSON and Markdown export. The `build-leaderboard` CLI scans a directory of report JSON files. Synthetic fixtures live under `eval_fixtures/leaderboard/`. See [docs/MILESTONE_4_5_LEADERBOARD.md](docs/MILESTONE_4_5_LEADERBOARD.md) for details.
 
+**Milestone 5.1 note:** The `bharat.serving` module provides a streaming API foundation with typed `StreamEvent`, `StreamRequest`, `FunctionSpec`, and a deterministic `LocalStreamer`. The `stream-local` CLI generates synthetic streaming events in JSON or JSONL format. See [docs/MILESTONE_5_1_STREAMING_API.md](docs/MILESTONE_5_1_STREAMING_API.md) for details.
+
 ---
 
 ## Verified Results — GPT-2 10M (Training Complete)
