@@ -78,7 +78,9 @@ def main() -> None:
         plan = build_export_plan(request)
         result = ExportWriterRegistry().write(plan)
         requires_inventory = args.include_inventory or args.safetensors_metadata_path is not None
-        inventory = build_checkpoint_inventory(plan.checkpoint_path) if requires_inventory else None
+        inventory = (
+            build_checkpoint_inventory(plan.checkpoint_path) if requires_inventory else None
+        )
         preflight = (
             validate_safetensors_preflight(
                 inventory,
