@@ -12,6 +12,7 @@ from bharat.serving.export import ExportRequest, build_export_plan
 from bharat.serving.export_inventory import build_checkpoint_inventory
 from bharat.serving.export_manifest import ExportManifest, write_export_manifest
 from bharat.serving.export_writer import ExportWriterRegistry
+from bharat.serving.safetensors_preflight import validate_safetensors_preflight
 
 _URL_RE = re.compile(r"^(https?|ftp|s3|gs)://", re.IGNORECASE)
 _NORMALIZED_URL_RE = re.compile(r"^(https?|ftp|s3|gs):/", re.IGNORECASE)
@@ -43,6 +44,10 @@ def main() -> None:
         action="store_true",
         help="Include deterministic local checkpoint inventory metadata",
     )
+    parser.add_argument(
+        "--safetensors-metadata-path",
+        help="Optional local safetensors metadata JSON to validate before export",
+    )
 
     args = parser.parse_args()
 
@@ -50,10 +55,18 @@ def main() -> None:
         ("checkpoint", args.checkpoint_path),
         ("output", args.output_path),
         ("manifest", args.manifest_path),
+        ("safetensors metadata", args.safetensors_metadata_path),
     ):
         if value is not None and _is_remote(value):
             print(f"error: Remote {label} path rejected: {value}", file=sys.stderr)
             sys.exit(1)
+
+    if args.safetensors_metadata_path is not None and args.format != "safetensors":
+        print(
+            "error: --safetensors-metadata-path requires --format safetensors",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     try:
         request = ExportRequest(
@@ -64,8 +77,15 @@ def main() -> None:
         )
         plan = build_export_plan(request)
         result = ExportWriterRegistry().write(plan)
-        inventory = (
-            build_checkpoint_inventory(plan.checkpoint_path) if args.include_inventory else None
+        requires_inventory = args.include_inventory or args.safetensors_metadata_path is not None
+        inventory = build_checkpoint_inventory(plan.checkpoint_path) if requires_inventory else None
+        preflight = (
+            validate_safetensors_preflight(
+                inventory,
+                Path(args.safetensors_metadata_path),
+            )
+            if inventory is not None and args.safetensors_metadata_path is not None
+            else None
         )
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
@@ -81,8 +101,11 @@ def main() -> None:
         "bytes_written": result.bytes_written,
     }
 
-    if inventory is not None:
+    if args.include_inventory and inventory is not None:
         output["checkpoint_inventory"] = inventory.to_dict()
+
+    if preflight is not None:
+        output["safetensors_preflight"] = preflight.to_dict()
 
     if args.manifest_path is not None:
         manifest = ExportManifest.from_plan_and_result(plan, result)
