@@ -84,7 +84,7 @@ def _parse_tensor(value: object) -> TensorMetadata:
     )
     if invalid_dimension:
         raise ValueError(f"tensor {name!r} shape dimensions must be positive integers")
-    shape = tuple(shape_value)
+    shape = tuple(int(dimension) for dimension in shape_value)
 
     dtype = item.get("dtype")
     if not isinstance(dtype, str) or dtype not in _ALLOWED_DTYPES:
