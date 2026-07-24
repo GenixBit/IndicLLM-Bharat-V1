@@ -77,22 +77,17 @@ def main() -> None:
         )
         plan = build_export_plan(request)
         result = ExportWriterRegistry().write(plan)
-        requires_inventory = (
-            args.include_inventory or args.safetensors_metadata_path is not None
-        )
-        inventory = (
-            build_checkpoint_inventory(plan.checkpoint_path)
-            if requires_inventory
-            else None
-        )
-        preflight = (
-            validate_safetensors_preflight(
+
+        inventory = None
+        if args.include_inventory or args.safetensors_metadata_path is not None:
+            inventory = build_checkpoint_inventory(plan.checkpoint_path)
+
+        preflight = None
+        if inventory is not None and args.safetensors_metadata_path is not None:
+            preflight = validate_safetensors_preflight(
                 inventory,
                 Path(args.safetensors_metadata_path),
             )
-            if inventory is not None and args.safetensors_metadata_path is not None
-            else None
-        )
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(1)
