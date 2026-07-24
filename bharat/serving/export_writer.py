@@ -50,9 +50,7 @@ class DryRunExportWriter:
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         if plan.export_format != self.export_format:
-            raise ValueError(
-                f"writer {self.name!r} does not support format {plan.export_format!r}"
-            )
+            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
         if not plan.dry_run:
             raise ValueError("dry-run writer requires a dry-run export plan")
         return ExportWriteResult(
@@ -64,10 +62,13 @@ class DryRunExportWriter:
 
 class ExportWriterRegistry:
     def __init__(self, writers: tuple[ExportWriter, ...] | None = None) -> None:
-        selected = writers or (
-            DryRunExportWriter(name="safetensors-dry-run", export_format="safetensors"),
-            DryRunExportWriter(name="gguf-dry-run", export_format="gguf"),
-        )
+        if writers is None:
+            selected: tuple[ExportWriter, ...] = (  # type: ignore[assignment]
+                DryRunExportWriter(name="safetensors-dry-run", export_format="safetensors"),
+                DryRunExportWriter(name="gguf-dry-run", export_format="gguf"),
+            )
+        else:
+            selected = writers
         self._writers: dict[ExportFormat, ExportWriter] = {}
         for writer in selected:
             if writer.export_format in self._writers:
