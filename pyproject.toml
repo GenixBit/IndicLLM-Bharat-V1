@@ -41,6 +41,7 @@ generate-bharatbench-local-predictions = "scripts.generate_bharatbench_local_pre
 build-leaderboard = "scripts.build_leaderboard:main"
 stream-local = "scripts.stream_local:main"
 run-serving-control-smoke = "scripts.run_serving_control_smoke:main"
+run-export-plan = "scripts.run_export_plan:main"
 
 [project.optional-dependencies]
 dev = [
