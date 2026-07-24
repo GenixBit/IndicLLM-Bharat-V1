@@ -81,7 +81,9 @@ def main() -> None:
             args.include_inventory or args.safetensors_metadata_path is not None
         )
         inventory = (
-            build_checkpoint_inventory(plan.checkpoint_path) if requires_inventory else None
+            build_checkpoint_inventory(plan.checkpoint_path)
+            if requires_inventory
+            else None
         )
         preflight = (
             validate_safetensors_preflight(
