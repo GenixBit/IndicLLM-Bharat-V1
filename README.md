@@ -125,6 +125,8 @@ python scripts/generate_bharatbench_local_predictions.py \
 
 **Milestone 5.1 note:** The `bharat.serving` module provides a streaming API foundation with typed `StreamEvent`, `StreamRequest`, `FunctionSpec`, and a deterministic `LocalStreamer`. The `stream-local` CLI generates synthetic streaming events in JSON or JSONL format. See [docs/MILESTONE_5_1_STREAMING_API.md](docs/MILESTONE_5_1_STREAMING_API.md) for details.
 
+**Milestone 5.2 note:** Authentication, rate limiting, and metrics are available via `bharat.serving.auth`, `bharat.serving.rate_limit`, `bharat.serving.metrics`, and the `ServingController`. The `run-serving-control-smoke` CLI exercises the full control layer. See [docs/MILESTONE_5_2_AUTH_RATE_METRICS.md](docs/MILESTONE_5_2_AUTH_RATE_METRICS.md) for details.
+
 ---
 
 ## Verified Results — GPT-2 10M (Training Complete)

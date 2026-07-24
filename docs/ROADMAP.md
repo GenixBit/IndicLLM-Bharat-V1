@@ -45,7 +45,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 ### Milestone 5 — Production Serving
 
 - [x] Streaming API foundation: typed events, function specs, local streamer (Milestone 5.1)
-- [ ] Authentication, rate limiting, metrics
+- [x] Authentication, rate limiting, metrics (Milestone 5.2)
 - [ ] Export (safetensors, GGUF)
 
 ### Milestone 6 — Bharat-350M Validation
