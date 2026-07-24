@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "reasoning_cls",
+  "category": "reasoning",
+  "name": "Reasoning Classification",
+  "description": "Tests logical reasoning through argument validity classification.",
+  "task_type": "classification",
+  "num_examples": 2,
+  "version": "0.1.0"
+}

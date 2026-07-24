@@ -1,0 +1,2 @@
+{"example_id": "coding_gen_1", "task_type": "generation", "prompt": "Write a Python function to check if a string is a palindrome.", "expected": "def is_palindrome(s): return s == s[::-1]", "choices": [], "metadata": {"language": "python"}}
+{"example_id": "coding_gen_2", "task_type": "generation", "prompt": "Write a function to compute the nth Fibonacci number using recursion.", "expected": "def fib(n): return n if n < 2 else fib(n-1) + fib(n-2)", "choices": [], "metadata": {"language": "python"}}

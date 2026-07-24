@@ -5,7 +5,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-_SUPPORTED_TASK_TYPES = frozenset({"qa", "classification", "generation"})
+SUPPORTED_TASK_TYPES = frozenset({"qa", "classification", "generation"})
+_SUPPORTED_TASK_TYPES = SUPPORTED_TASK_TYPES
 
 
 @dataclass(frozen=True)

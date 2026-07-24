@@ -7,6 +7,15 @@ from bharat.eval.adapters import (
     PredictionAdapter,
     build_prediction_adapter,
 )
+from bharat.eval.catalog import (
+    BenchmarkCatalog,
+    BenchmarkCategory,
+    BenchmarkManifest,
+    create_builtin_catalog,
+    discover_benchmarks,
+    validate_benchmark_registration,
+    validate_manifest,
+)
 from bharat.eval.local_inference import (
     BatchGenerator,
     LocalCausalLMAdapter,
@@ -17,10 +26,13 @@ from bharat.eval.metrics import choice_accuracy, exact_match, normalized_exact_m
 from bharat.eval.prediction_runner import PredictionRunner, write_predictions_jsonl
 from bharat.eval.reporting import BharatBenchReport
 from bharat.eval.runner import BharatBenchRunner
-from bharat.eval.schema import EvalExample, EvalPrediction, EvalResult
+from bharat.eval.schema import SUPPORTED_TASK_TYPES, EvalExample, EvalPrediction, EvalResult
 
 __all__ = [
     "BatchGenerator",
+    "BenchmarkCatalog",
+    "BenchmarkCategory",
+    "BenchmarkManifest",
     "BharatBenchReport",
     "BharatBenchRunner",
     "ChoiceBaselineAdapter",
@@ -33,11 +45,16 @@ __all__ = [
     "LocalInferenceConfig",
     "PredictionAdapter",
     "PredictionRunner",
+    "SUPPORTED_TASK_TYPES",
     "build_prediction_adapter",
     "choice_accuracy",
+    "create_builtin_catalog",
+    "discover_benchmarks",
     "exact_match",
     "load_local_causal_lm_adapter",
     "normalized_exact_match",
     "token_f1",
+    "validate_benchmark_registration",
+    "validate_manifest",
     "write_predictions_jsonl",
 ]

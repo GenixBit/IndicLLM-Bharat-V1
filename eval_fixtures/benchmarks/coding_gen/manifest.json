@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "coding_gen",
+  "category": "coding",
+  "name": "Code Generation",
+  "description": "Tests ability to generate correct code from natural language descriptions.",
+  "task_type": "generation",
+  "num_examples": 2,
+  "version": "0.1.0"
+}
