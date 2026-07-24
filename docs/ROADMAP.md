@@ -40,7 +40,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 - [x] Deterministic local model-to-evaluation prediction adapters and prediction JSONL generator (Milestone 4.2)
 - [x] Local model inference adapter for approved checkpoints (Milestone 4.3)
 - [x] Language, reasoning, coding, knowledge, safety benchmark category catalog (Milestone 4.4)
-- [ ] Leaderboard for cross-checkpoint comparison
+- [x] Leaderboard for cross-checkpoint comparison (Milestone 4.5)
 
 ### Milestone 5 — Production Serving
 

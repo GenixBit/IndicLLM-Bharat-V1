@@ -38,6 +38,7 @@ prepare-local-data = "scripts.prepare_local_data:main"
 build-dataset-release = "scripts.build_dataset_release:main"
 run-bharatbench = "scripts.run_bharatbench:main"
 generate-bharatbench-local-predictions = "scripts.generate_bharatbench_local_predictions:main"
+build-leaderboard = "scripts.build_leaderboard:main"
 
 [project.optional-dependencies]
 dev = [

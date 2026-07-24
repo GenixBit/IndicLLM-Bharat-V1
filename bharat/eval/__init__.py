@@ -16,6 +16,12 @@ from bharat.eval.catalog import (
     validate_benchmark_registration,
     validate_manifest,
 )
+from bharat.eval.leaderboard import (
+    Leaderboard,
+    LeaderboardEntry,
+    load_leaderboard,
+    load_report,
+)
 from bharat.eval.local_inference import (
     BatchGenerator,
     LocalCausalLMAdapter,
@@ -41,6 +47,8 @@ __all__ = [
     "EvalPrediction",
     "EvalResult",
     "ExpectedPredictionAdapter",
+    "Leaderboard",
+    "LeaderboardEntry",
     "LocalCausalLMAdapter",
     "LocalInferenceConfig",
     "PredictionAdapter",
@@ -51,7 +59,9 @@ __all__ = [
     "create_builtin_catalog",
     "discover_benchmarks",
     "exact_match",
+    "load_leaderboard",
     "load_local_causal_lm_adapter",
+    "load_report",
     "normalized_exact_match",
     "token_f1",
     "validate_benchmark_registration",

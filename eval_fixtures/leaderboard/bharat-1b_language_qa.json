@@ -1,0 +1,19 @@
+{
+  "checkpoint_name": "bharat-1b",
+  "benchmark_id": "language_qa",
+  "category": "language",
+  "run_id": "bharatbench-2026-07-24",
+  "example_count": 3,
+  "task_counts": {"qa": 3},
+  "aggregate_scores": {
+    "qa_exact_match": 0.6667,
+    "qa_normalized_exact_match": 0.6667,
+    "qa_token_f1": 0.3333,
+    "overall_exact_match": 0.6667,
+    "overall_normalized_exact_match": 0.6667,
+    "overall_token_f1": 0.3333
+  },
+  "results": [],
+  "created_at": "2026-07-24T00:00:00Z",
+  "metadata": {"params": "1B"}
+}

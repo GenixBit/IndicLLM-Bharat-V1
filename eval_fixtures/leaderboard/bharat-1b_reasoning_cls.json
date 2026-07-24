@@ -1,0 +1,15 @@
+{
+  "checkpoint_name": "bharat-1b",
+  "benchmark_id": "reasoning_cls",
+  "category": "reasoning",
+  "run_id": "bharatbench-2026-07-24",
+  "example_count": 2,
+  "task_counts": {"classification": 2},
+  "aggregate_scores": {
+    "classification_choice_accuracy": 1.0,
+    "overall_choice_accuracy": 1.0
+  },
+  "results": [],
+  "created_at": "2026-07-24T00:00:00Z",
+  "metadata": {"params": "1B"}
+}
