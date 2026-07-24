@@ -15,8 +15,13 @@ _SUFFIXES: dict[ExportFormat, str] = {
 
 def _validate_local_path(path: Path, label: str) -> None:
     raw = str(path)
-    if raw.lower().startswith(_REMOTE_PREFIXES):
+    lowered = raw.lower()
+    if lowered.startswith(_REMOTE_PREFIXES):
         raise ValueError(f"{label} must be a local filesystem path")
+    for prefix in _REMOTE_PREFIXES:
+        normalized_prefix = prefix.replace("://", ":/")
+        if lowered.startswith(normalized_prefix):
+            raise ValueError(f"{label} must be a local filesystem path")
 
 
 @dataclass(frozen=True)
