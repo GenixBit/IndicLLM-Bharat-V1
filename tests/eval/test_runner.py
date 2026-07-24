@@ -46,18 +46,14 @@ class TestBharatBenchRunner:
 
     def test_missing_prediction_fails(self) -> None:
         runner = BharatBenchRunner()
-        exs = [
-            EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")
-        ]
+        exs = [EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")]
         preds: list[EvalPrediction] = []
         with pytest.raises(ValueError, match="Missing prediction"):
             runner.run(exs, preds)
 
     def test_duplicate_prediction_fails(self) -> None:
         runner = BharatBenchRunner()
-        exs = [
-            EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")
-        ]
+        exs = [EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")]
         preds = [
             EvalPrediction(example_id="ex_001", prediction="A"),
             EvalPrediction(example_id="ex_001", prediction="B"),
@@ -67,9 +63,7 @@ class TestBharatBenchRunner:
 
     def test_unknown_prediction_fails(self) -> None:
         runner = BharatBenchRunner()
-        exs = [
-            EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")
-        ]
+        exs = [EvalExample(example_id="ex_001", task_type="qa", prompt="Q?", expected="A")]
         preds = [
             EvalPrediction(example_id="ex_001", prediction="A"),
             EvalPrediction(example_id="unknown", prediction="B"),

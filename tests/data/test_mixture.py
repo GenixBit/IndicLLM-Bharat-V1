@@ -61,7 +61,7 @@ class TestMixturePlanner:
         )
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
-        big_plan = [p for p in plans if p.source_id == "big_source"][0]
+        big_plan = next(p for p in plans if p.source_id == "big_source")
         assert abs(big_plan.weight - 0.5) < 1e-9
         assert "capped" in big_plan.note.lower()
         assert abs(sum(p.weight for p in plans) - 1.0) < 1e-9
@@ -167,10 +167,10 @@ class TestMixturePlannerHardening:
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
         assert len(plans) == 2
-        big_plan = [p for p in plans if p.source_id == "big_source"][0]
+        big_plan = next(p for p in plans if p.source_id == "big_source")
         assert "capped" in big_plan.note.lower()
         assert abs(big_plan.weight - 0.5) < 1e-9
-        small_plan = [p for p in plans if p.source_id == "small_source"][0]
+        small_plan = next(p for p in plans if p.source_id == "small_source")
         assert abs(small_plan.weight - 0.5) < 1e-9
 
     def test_impossible_source_cap_raises(self):
@@ -211,7 +211,7 @@ class TestMixturePlannerHardening:
         )
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
-        missing_plan = [p for p in plans if p.source_id == "missing_src"][0]
+        missing_plan = next(p for p in plans if p.source_id == "missing_src")
         assert missing_plan.weight == 0.0
         assert "excluded" in missing_plan.note.lower()
 
@@ -349,8 +349,8 @@ class TestSourceCap:
         )
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
-        a = [p for p in plans if p.source_id == "src_a"][0]
-        b = [p for p in plans if p.source_id == "src_b"][0]
+        a = next(p for p in plans if p.source_id == "src_a")
+        b = next(p for p in plans if p.source_id == "src_b")
         assert abs(a.weight - 0.6) < 1e-9
         assert abs(b.weight - 0.4) < 1e-9
         assert "capped" in a.note.lower()
@@ -386,8 +386,8 @@ class TestSourceCap:
         )
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
-        b = [p for p in plans if p.source_id == "src_b"][0]
-        c = [p for p in plans if p.source_id == "src_c"][0]
+        b = next(p for p in plans if p.source_id == "src_b")
+        c = next(p for p in plans if p.source_id == "src_c")
         ratio = b.weight / c.weight
         assert abs(ratio - 3.0) < 1e-6
 
@@ -513,7 +513,7 @@ class TestZeroWeight:
         )
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
-        zero_plan = [p for p in plans if p.source_id == "zero_src"][0]
+        zero_plan = next(p for p in plans if p.source_id == "zero_src")
         assert zero_plan.weight == 0.0
         assert zero_plan.estimated_records == 0
         assert "excluded" in zero_plan.note.lower()
@@ -534,9 +534,9 @@ class TestStableCapRedistribution:
         )
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
-        a = [p for p in plans if p.source_id == "src_a"][0]
-        b = [p for p in plans if p.source_id == "src_b"][0]
-        c = [p for p in plans if p.source_id == "src_c"][0]
+        a = next(p for p in plans if p.source_id == "src_a")
+        b = next(p for p in plans if p.source_id == "src_b")
+        c = next(p for p in plans if p.source_id == "src_c")
         assert abs(a.weight - 0.50) < 1e-9, f"A={a.weight}"
         assert abs(b.weight - 1.0 / 3.0) < 1e-6, f"B={b.weight}"
         assert abs(c.weight - 1.0 / 6.0) < 1e-6, f"C={c.weight}"
@@ -556,9 +556,9 @@ class TestStableCapRedistribution:
         )
         planner = MixturePlanner()
         plans = planner.plan(manifests, constraint)
-        a = [p for p in plans if p.source_id == "src_a"][0]
-        b = [p for p in plans if p.source_id == "src_b"][0]
-        c = [p for p in plans if p.source_id == "src_c"][0]
+        a = next(p for p in plans if p.source_id == "src_a")
+        b = next(p for p in plans if p.source_id == "src_b")
+        c = next(p for p in plans if p.source_id == "src_c")
         assert abs(a.weight - 0.40) < 1e-9, f"A={a.weight}"
         assert abs(b.weight - 0.40) < 1e-9, f"B={b.weight}"
         assert abs(c.weight - 0.20) < 1e-9, f"C={c.weight}"

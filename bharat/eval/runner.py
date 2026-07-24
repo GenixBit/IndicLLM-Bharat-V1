@@ -60,17 +60,13 @@ class BharatBenchRunner:
         scores: dict[str, float] = {}
         if example.task_type == "qa":
             scores["exact_match"] = exact_match(example.expected, prediction)
-            scores["normalized_exact_match"] = normalized_exact_match(
-                example.expected, prediction
-            )
+            scores["normalized_exact_match"] = normalized_exact_match(example.expected, prediction)
             scores["token_f1"] = token_f1(example.expected, prediction)
         elif example.task_type == "classification":
             scores["choice_accuracy"] = choice_accuracy(
                 example.expected, prediction, example.choices
             )
         elif example.task_type == "generation":
-            scores["normalized_exact_match"] = normalized_exact_match(
-                example.expected, prediction
-            )
+            scores["normalized_exact_match"] = normalized_exact_match(example.expected, prediction)
             scores["token_f1"] = token_f1(example.expected, prediction)
         return scores

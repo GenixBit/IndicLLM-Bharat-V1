@@ -101,11 +101,23 @@ python scripts/run_bharatbench.py \
   --predictions predictions.jsonl \
   --output-dir eval_out \
   --json
+
+# Generate predictions using a local model checkpoint
+python scripts/generate_bharatbench_local_predictions.py \
+  --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
+  --output predictions.jsonl \
+  --checkpoint /path/to/checkpoint \
+  --tokenizer /path/to/tokenizer \
+  --max-new-tokens 256 \
+  --device cpu \
+  --json
 ```
 
 **Important:** BharatBench evaluates local prediction files only. No model training or benchmark downloads are included yet. The tiny fixtures under `eval_fixtures/bharatbench_tiny/` are synthetic smoke tests — see [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for details.
 
 **Milestone 4.2 note:** `scripts/generate_bharatbench_predictions.py` uses deterministic local adapters (`expected`, `echo`, and `choice-baseline`) to create prediction JSONL files for smoke testing. These adapters do not load models, do not call external APIs, do not download benchmarks, and do not perform real model generation.
+
+**Milestone 4.3 note:** `scripts/generate_bharatbench_local_predictions.py` uses the `LocalCausalLMAdapter` to connect BharatBench predictions to a local checkpoint and tokenizer. Only local filesystem paths are accepted. Remote URLs (`http://`, `https://`, `ftp://`, `s3://`, `gs://`) are rejected. See [docs/MILESTONE_4_3_LOCAL_INFERENCE.md](docs/MILESTONE_4_3_LOCAL_INFERENCE.md) for details.
 
 ---
 

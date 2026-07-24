@@ -25,9 +25,7 @@ class BharatBenchReport:
         if not self.run_id:
             raise ValueError("run_id must be a non-empty string")
         if self.example_count < 0:
-            raise ValueError(
-                f"example_count must be non-negative, got {self.example_count}"
-            )
+            raise ValueError(f"example_count must be non-negative, got {self.example_count}")
         if not _ISO_UTC_RE.match(self.created_at):
             raise ValueError(
                 f"created_at must be ISO-8601 UTC (YYYY-MM-DDTHH:MM:SSZ), "
