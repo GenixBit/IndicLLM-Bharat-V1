@@ -163,7 +163,14 @@ def _atomic_write(
         if output_path.exists():
             raise FileExistsError(f"output path was created concurrently: {output_path}")
 
-        os.rename(tmp_path, str(output_path))
+        try:
+            os.link(tmp_path, output_path)
+        except FileExistsError as exc:
+            raise FileExistsError(
+                f"output path was created concurrently: {output_path}"
+            ) from exc
+        os.unlink(tmp_path)
+        tmp_path = None
         return file_size
     except BaseException:
         if tmp_path is not None and os.path.exists(tmp_path):
