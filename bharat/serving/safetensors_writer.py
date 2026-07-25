@@ -126,14 +126,18 @@ def _build_metadata(
     if caller_metadata:
         for key, value in caller_metadata.items():
             if not isinstance(key, str) or not key:
-                raise ValueError(f"metadata key must be a non-empty string, got {key!r}")
+                raise ValueError(
+                    f"metadata key must be a non-empty string, got {key!r}"
+                )
             if not isinstance(value, str):
                 raise ValueError(
                     f"metadata value for {key!r} must be a string, "
                     f"got {type(value).__name__}"
                 )
             if key in _RESERVED_METADATA_KEYS:
-                raise ValueError(f"metadata key {key!r} is reserved and cannot be overridden")
+                raise ValueError(
+                    f"metadata key {key!r} is reserved and cannot be overridden"
+                )
             meta[key] = value
 
     return dict(sorted(meta.items()))
@@ -162,7 +166,9 @@ def _atomic_write(
             raise RuntimeError("temporary safetensors file is empty after write")
 
         if output_path.exists():
-            raise FileExistsError(f"output path was created concurrently: {output_path}")
+            raise FileExistsError(
+                f"output path was created concurrently: {output_path}"
+            )
 
         try:
             os.link(tmp_path, output_path)
@@ -207,7 +213,9 @@ def write_safetensors_checkpoint(
             f"output parent is not a directory: {resolved_output.parent}"
         )
 
-    if resolved_checkpoint.is_dir() and _is_subpath(resolved_output, resolved_checkpoint):
+    if resolved_checkpoint.is_dir() and _is_subpath(
+        resolved_output, resolved_checkpoint
+    ):
         raise ValueError(
             f"output path must not be inside the checkpoint directory: {resolved_output}"
         )
