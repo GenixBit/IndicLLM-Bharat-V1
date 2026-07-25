@@ -75,7 +75,11 @@ jobs:
       - uses: astral-sh/ruff-action@v4.1.0
         with:
           version: "0.5.0"
-          args: "format --check ."
+          args: "format ."
+      - name: Show exact Ruff formatting diff
+        run: |
+          git diff -- scripts/run_export_plan.py tests/scripts/test_run_export_preflight.py
+          exit 1
       - uses: astral-sh/ruff-action@v4.1.0
         with:
           version: "0.5.0"
