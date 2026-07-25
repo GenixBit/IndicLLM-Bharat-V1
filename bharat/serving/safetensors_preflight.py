@@ -77,9 +77,7 @@ def _parse_tensor(value: object) -> TensorMetadata:
     if not isinstance(shape_value, list) or not shape_value:
         raise ValueError(f"tensor {name!r} shape must be a non-empty list")
     invalid_dimension = any(
-        not isinstance(dimension, int)
-        or isinstance(dimension, bool)
-        or dimension <= 0
+        not isinstance(dimension, int) or isinstance(dimension, bool) or dimension <= 0
         for dimension in shape_value
     )
     if invalid_dimension:
