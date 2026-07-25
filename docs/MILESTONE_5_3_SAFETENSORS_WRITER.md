@@ -49,7 +49,7 @@ def write_safetensors_checkpoint(
 7. Validate state dict (non-empty, valid names, tensor values, strided layout).
 8. Build deterministic metadata.
 9. Prepare tensors (detach, CPU, contiguous, sort by name).
-10. Write atomically via temp-file-and-rename.
+10. Write to a same-directory temporary file and atomically publish it with a no-replace hard link.
 11. Return `SafetensorsWriteResult`.
 
 ## State-dict extraction rules
@@ -82,17 +82,18 @@ Metadata is sorted deterministically.
 
 1. Create a uniquely named temporary file in the output directory via `tempfile.mkstemp`.
 2. Write the safetensors payload to the temporary file.
-3. Verify the temporary file exists and is non-empty.
-4. Double-check that the output path does not exist (handles concurrent-creation race).
-5. Atomically rename the temporary file to the output path via `os.rename` (atomic on Unix; raises `FileExistsError` if target exists).
-6. If any step fails, remove the temporary file.
+3. Verify the temporary file is non-empty.
+4. Double-check that the output path does not exist.
+5. Atomically create the destination as a hard link to the completed temporary file with `os.link`.
+6. If another process created the destination first, `os.link` raises `FileExistsError` and the existing file is preserved.
+7. Remove the temporary link after successful publication, or clean it up on failure.
 
 ## No-overwrite guarantee
 
 - The output path is checked for existence before writing begins.
-- After writing to the temporary file, the output path is checked again before rename.
-- `os.rename` on Unix raises `FileExistsError` if the target already exists.
-- This provides a strong no-overwrite guarantee for practical concurrent scenarios. The fundamental limitation is that `os.rename` is atomic on the same filesystem but may not be atomic across filesystems or on all platforms; however, since the temporary file is created in the same directory as the output, cross-filesystem renaming is not required.
+- After writing to the temporary file, the output path is checked again before publication.
+- `os.link` creates the destination only when it does not already exist; it never replaces an existing destination.
+- The temporary file is created in the output directory, so publication remains on the same filesystem.
 
 ## Failure-cleanup behaviour
 
