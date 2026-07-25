@@ -32,9 +32,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path]:
                         "dtype": "BF16",
                         "shard": shard.name,
                         "size_bytes": 8,
-                    },
+                    }
                 ],
-            },
+            }
         ),
         encoding="utf-8",
     )
@@ -55,7 +55,7 @@ def test_safetensors_preflight_is_included(tmp_path: Path) -> None:
             "bharat-local",
             "--safetensors-metadata-path",
             str(metadata),
-        ],
+        ]
     )
 
     assert result.returncode == 0
@@ -80,7 +80,7 @@ def test_safetensors_preflight_rejects_gguf(tmp_path: Path) -> None:
             "bharat-local",
             "--safetensors-metadata-path",
             str(metadata),
-        ],
+        ]
     )
 
     assert result.returncode != 0
@@ -103,7 +103,7 @@ def test_remote_safetensors_metadata_path_is_rejected(tmp_path: Path) -> None:
             "bharat-local",
             "--safetensors-metadata-path",
             "https://example.com/metadata.json",
-        ],
+        ]
     )
 
     assert result.returncode != 0
@@ -128,7 +128,7 @@ def test_invalid_preflight_metadata_returns_nonzero(tmp_path: Path) -> None:
             "bharat-local",
             "--safetensors-metadata-path",
             str(metadata),
-        ],
+        ]
     )
 
     assert result.returncode != 0
