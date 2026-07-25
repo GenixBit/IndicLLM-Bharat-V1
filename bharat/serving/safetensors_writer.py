@@ -91,7 +91,7 @@ def _load_state_dict(pt_path: Path) -> dict[str, Any]:
             return obj["model"]
         return obj
 
-    raise ValueError(f"unsupported checkpoint structure in {pt_path}. " "Expected a dict.")
+    raise ValueError(f"unsupported checkpoint structure in {pt_path}. Expected a dict.")
 
 
 def _validate_state_dict(state_dict: dict[str, torch.Tensor]) -> None:
@@ -129,7 +129,8 @@ def _build_metadata(
                 raise ValueError(f"metadata key must be a non-empty string, got {key!r}")
             if not isinstance(value, str):
                 raise ValueError(
-                    f"metadata value for {key!r} must be a string, " f"got {type(value).__name__}"
+                    f"metadata value for {key!r} must be a string, "
+                    f"got {type(value).__name__}"
                 )
             if key in _RESERVED_METADATA_KEYS:
                 raise ValueError(f"metadata key {key!r} is reserved and cannot be overridden")
@@ -198,13 +199,17 @@ def write_safetensors_checkpoint(
     if resolved_output.exists():
         raise FileExistsError(f"output path already exists: {resolved_output}")
     if not resolved_output.parent.exists():
-        raise FileNotFoundError(f"output parent directory does not exist: {resolved_output.parent}")
+        raise FileNotFoundError(
+            f"output parent directory does not exist: {resolved_output.parent}"
+        )
     if not resolved_output.parent.is_dir():
-        raise NotADirectoryError(f"output parent is not a directory: {resolved_output.parent}")
+        raise NotADirectoryError(
+            f"output parent is not a directory: {resolved_output.parent}"
+        )
 
     if resolved_checkpoint.is_dir() and _is_subpath(resolved_output, resolved_checkpoint):
         raise ValueError(
-            f"output path must not be inside the checkpoint directory: " f"{resolved_output}"
+            f"output path must not be inside the checkpoint directory: {resolved_output}"
         )
 
     state_dict = _load_state_dict(pt_path)
