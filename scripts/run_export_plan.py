@@ -12,6 +12,7 @@ from bharat.serving.export import ExportRequest, build_export_plan
 from bharat.serving.export_inventory import build_checkpoint_inventory
 from bharat.serving.export_manifest import ExportManifest, write_export_manifest
 from bharat.serving.export_writer import ExportWriterRegistry
+from bharat.serving.export_writer_readiness import validate_export_writer_readiness
 from bharat.serving.gguf_preflight import validate_gguf_preflight
 from bharat.serving.safetensors_preflight import validate_safetensors_preflight
 
@@ -65,6 +66,11 @@ def main() -> None:
         "--gguf-metadata-path",
         help="Optional local GGUF metadata JSON to validate before export",
     )
+    parser.add_argument(
+        "--validate-writer-readiness",
+        action="store_true",
+        help="Run writer readiness validation before the export dry-run",
+    )
 
     args = parser.parse_args()
 
@@ -101,14 +107,15 @@ def main() -> None:
             model_name=args.model_name,
         )
         plan = build_export_plan(request)
-        result = ExportWriterRegistry().write(plan)
 
         inventory = None
-        if (
+        needs_inventory = (
             args.include_inventory
             or args.safetensors_metadata_path is not None
             or args.gguf_metadata_path is not None
-        ):
+            or args.validate_writer_readiness
+        )
+        if needs_inventory:
             inventory = build_checkpoint_inventory(plan.checkpoint_path)
 
         safetensors_preflight = None
@@ -124,6 +131,12 @@ def main() -> None:
                 inventory,
                 Path(args.gguf_metadata_path),
             )
+
+        writer_readiness = None
+        if args.validate_writer_readiness:
+            writer_readiness = validate_export_writer_readiness(plan, inventory)
+
+        result = ExportWriterRegistry().write(plan)
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(1)
@@ -146,6 +159,9 @@ def main() -> None:
 
     if gguf_preflight is not None:
         output["gguf_preflight"] = gguf_preflight.to_dict()
+
+    if writer_readiness is not None:
+        output["writer_readiness"] = writer_readiness.to_dict()
 
     if args.manifest_path is not None:
         manifest = ExportManifest.from_plan_and_result(plan, result)
