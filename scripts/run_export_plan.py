@@ -12,6 +12,7 @@ from bharat.serving.export import ExportRequest, build_export_plan
 from bharat.serving.export_inventory import build_checkpoint_inventory
 from bharat.serving.export_manifest import ExportManifest, write_export_manifest
 from bharat.serving.export_manifest_readiness import validate_export_manifest_readiness
+from bharat.serving.export_path_readiness import validate_export_path_readiness
 from bharat.serving.export_writer import ExportWriterRegistry
 from bharat.serving.export_writer_readiness import validate_export_writer_readiness
 from bharat.serving.gguf_preflight import validate_gguf_preflight
@@ -109,6 +110,23 @@ def main() -> None:
         )
         plan = build_export_plan(request)
 
+        metadata_paths = tuple(
+            Path(path)
+            for path in (
+                args.safetensors_metadata_path,
+                args.gguf_metadata_path,
+            )
+            if path is not None
+        )
+        has_path_targets = args.manifest_path is not None or len(metadata_paths) > 0
+        export_path_readiness = None
+        if has_path_targets:
+            export_path_readiness = validate_export_path_readiness(
+                plan,
+                manifest_path=(None if args.manifest_path is None else Path(args.manifest_path)),
+                metadata_paths=metadata_paths,
+            )
+
         inventory = None
         needs_inventory = (
             args.include_inventory
@@ -158,6 +176,9 @@ def main() -> None:
         "writer_name": result.writer_name,
         "bytes_written": result.bytes_written,
     }
+
+    if export_path_readiness is not None:
+        output["export_path_readiness"] = export_path_readiness.to_dict()
 
     if args.include_inventory and inventory is not None:
         output["checkpoint_inventory"] = inventory.to_dict()
