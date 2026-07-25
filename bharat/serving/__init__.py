@@ -11,6 +11,10 @@ from bharat.serving.export_writer import (
 )
 from bharat.serving.metrics import MetricsSnapshot, ServingMetrics
 from bharat.serving.rate_limit import InMemoryRateLimiter, RateLimitConfig, RateLimitResult
+from bharat.serving.safetensors_writer import (
+    SafetensorsWriteResult,
+    write_safetensors_checkpoint,
+)
 from bharat.serving.streaming import (
     FunctionCall,
     FunctionSpec,
@@ -39,11 +43,13 @@ __all__ = [
     "MetricsSnapshot",
     "RateLimitConfig",
     "RateLimitResult",
+    "SafetensorsWriteResult",
     "ServingController",
     "ServingMetrics",
     "StreamEvent",
     "StreamRequest",
     "build_export_plan",
+    "write_safetensors_checkpoint",
     "stream_events_to_json",
     "stream_events_to_jsonl",
 ]

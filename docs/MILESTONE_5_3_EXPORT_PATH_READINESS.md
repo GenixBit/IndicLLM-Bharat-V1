@@ -141,4 +141,4 @@ All writers remain dry-run only.
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete. The repository still does not contain a real safetensors or GGUF weight writer. This gate reduces overwrite risk before a later approved local writer implementation.
+Milestone 5.3 remains incomplete. A real safetensors writer now exists (see [MILESTONE_5_3_SAFETENSORS_WRITER.md](MILESTONE_5_3_SAFETENSORS_WRITER.md)) but is not yet integrated into the export CLI. GGUF writing remains unimplemented.
