@@ -11,6 +11,7 @@ from pathlib import Path
 from bharat.serving.export import ExportRequest, build_export_plan
 from bharat.serving.export_inventory import build_checkpoint_inventory
 from bharat.serving.export_manifest import ExportManifest, write_export_manifest
+from bharat.serving.export_manifest_readiness import validate_export_manifest_readiness
 from bharat.serving.export_writer import ExportWriterRegistry
 from bharat.serving.export_writer_readiness import validate_export_writer_readiness
 from bharat.serving.gguf_preflight import validate_gguf_preflight
@@ -136,6 +137,13 @@ def main() -> None:
         if args.validate_writer_readiness:
             writer_readiness = validate_export_writer_readiness(plan, inventory)
 
+        manifest_readiness = None
+        if args.manifest_path is not None:
+            manifest_readiness = validate_export_manifest_readiness(
+                plan,
+                Path(args.manifest_path),
+            )
+
         result = ExportWriterRegistry().write(plan)
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
@@ -162,6 +170,9 @@ def main() -> None:
 
     if writer_readiness is not None:
         output["writer_readiness"] = writer_readiness.to_dict()
+
+    if manifest_readiness is not None:
+        output["manifest_readiness"] = manifest_readiness.to_dict()
 
     if args.manifest_path is not None:
         manifest = ExportManifest.from_plan_and_result(plan, result)
