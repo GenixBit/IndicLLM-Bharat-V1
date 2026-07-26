@@ -1,6 +1,6 @@
 # Milestone 5.3 — GGUF Metadata Preflight
 
-**Status:** Implemented foundation
+**Status:** Complete
 
 ## Objective
 
@@ -21,4 +21,4 @@ Add deterministic, offline validation for a planned local GGUF export before a m
 
 ## Safety boundary
 
-This validator reads local JSON metadata and checkpoint inventory records only. It does not parse GGUF binary headers, read tensor payloads, convert checkpoints, serialize model weights, call external tools, use network access, download data, upload files, or publish workflow artifacts. Milestone 5.3 remains incomplete until a real local GGUF model-weight writer is implemented and tested.
+This validator reads local JSON metadata and checkpoint inventory records only. It does not parse GGUF binary headers, read tensor payloads, convert checkpoints, serialize model weights, call external tools, use network access, download data, upload files, or publish workflow artifacts. Milestone 5.3 is now complete. A real local GGUF F32 model-weight writer is implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

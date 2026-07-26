@@ -120,4 +120,4 @@ All writers remain dry-run only.
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete. The repository still uses dry-run writers and does not contain real safetensors or GGUF model-weight serialization.
+Milestone 5.3 is now complete. Both local safetensors and GGUF F32 writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

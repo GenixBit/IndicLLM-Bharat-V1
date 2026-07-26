@@ -1,6 +1,6 @@
 # Milestone 5.3 — Safetensors Preflight CLI Integration
 
-**Status:** Implemented foundation
+**Status:** Complete
 
 ## Objective
 
@@ -18,4 +18,4 @@ Expose the local safetensors metadata preflight validator through the existing d
 
 ## Safety boundary
 
-This integration reads local JSON metadata and checkpoint file inventory records only. It does not parse tensor payloads, load tensors, convert checkpoints, serialize model weights, call external tools, use network access, upload files, or publish workflow artifacts. Milestone 5.3 remains incomplete until real local safetensors and GGUF writers are implemented and tested.
+This integration reads local JSON metadata and checkpoint file inventory records only. It does not parse tensor payloads, load tensors, convert checkpoints, serialize model weights, call external tools, use network access, upload files, or publish workflow artifacts. Milestone 5.3 is now complete. Both local safetensors and GGUF F32 writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

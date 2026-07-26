@@ -1,6 +1,6 @@
 # Milestone 5.3 — Local Export Manifest
 
-**Status:** Foundation extension implemented
+**Status:** Complete
 
 ## Objective
 
@@ -29,4 +29,4 @@ Record validated local export plans and dry-run writer results in a deterministi
 
 ## Safety boundary
 
-This extension writes metadata only. It does not load, convert, serialize, upload, or publish model weights. It performs no network calls, downloads, external conversions, or artifact uploads. Milestone 5.3 remains incomplete until actual local safetensors and GGUF weight writers are implemented and tested.
+This extension writes metadata only. It does not load, convert, serialize, upload, or publish model weights. It performs no network calls, downloads, external conversions, or artifact uploads. Milestone 5.3 is now complete. Both local safetensors and GGUF F32 writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

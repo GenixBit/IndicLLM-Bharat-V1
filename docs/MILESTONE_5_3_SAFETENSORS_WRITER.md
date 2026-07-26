@@ -1,6 +1,6 @@
 # Milestone 5.3 — Local Safetensors Writer
 
-**Status:** Implemented
+**Status:** Complete
 
 ## Objective
 
@@ -235,5 +235,4 @@ This writer does not:
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete. GGUF export still does not exist.
-The roadmap Export checkbox must remain unchecked.
+Milestone 5.3 is now complete. GGUF F32 export is implemented and integrated into the export CLI alongside the safetensors writer. The roadmap Export checkbox is now checked. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for the full closure review.

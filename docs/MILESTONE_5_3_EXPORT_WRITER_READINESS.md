@@ -115,4 +115,4 @@ All writers remain dry-run only.
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete. The repository still does not contain a real safetensors or GGUF weight writer. This readiness gate establishes deterministic preconditions for a later approved local writer implementation.
+Milestone 5.3 is now complete. Both local safetensors and GGUF F32 weight writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

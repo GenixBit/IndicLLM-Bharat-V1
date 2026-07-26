@@ -1,6 +1,6 @@
 # Milestone 5.3 — GGUF F32 Tensor Payload Writing
 
-**Status:** Implemented as a local deterministic F32-only writer slice
+**Status:** Complete
 
 ## Objective
 

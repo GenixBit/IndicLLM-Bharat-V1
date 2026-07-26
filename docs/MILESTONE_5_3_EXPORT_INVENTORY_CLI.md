@@ -1,6 +1,6 @@
 # Milestone 5.3 — Export Inventory CLI Integration
 
-**Status:** Foundation extension implemented
+**Status:** Complete
 
 ## Objective
 
@@ -17,4 +17,4 @@ Expose deterministic local checkpoint inventory metadata through the existing dr
 
 ## Safety boundary
 
-This extension hashes local checkpoint files but does not load, interpret, convert, serialize, upload, or publish model weights. It performs no network calls, downloads, external conversions, scraping, or artifact uploads. Milestone 5.3 remains incomplete until actual local safetensors and GGUF writers are implemented and tested.
+This extension hashes local checkpoint files but does not load, interpret, convert, serialize, upload, or publish model weights. It performs no network calls, downloads, external conversions, scraping, or artifact uploads. Milestone 5.3 is now complete. Both local safetensors and GGUF F32 writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

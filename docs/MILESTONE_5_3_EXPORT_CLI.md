@@ -1,6 +1,6 @@
 # Milestone 5.3 — Export CLI (Foundation Extension)
 
-**Status:** Dry-run and real export CLI implemented for safetensors and GGUF F32
+**Status:** Complete
 
 ## Objective
 

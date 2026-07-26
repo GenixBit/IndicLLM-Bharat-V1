@@ -141,4 +141,4 @@ All writers remain dry-run only.
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete. A real safetensors writer now exists (see [MILESTONE_5_3_SAFETENSORS_WRITER.md](MILESTONE_5_3_SAFETENSORS_WRITER.md)) but is not yet integrated into the export CLI. GGUF writing remains unimplemented.
+Milestone 5.3 is now complete. Both local safetensors and GGUF F32 writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

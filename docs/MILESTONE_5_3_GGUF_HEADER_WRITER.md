@@ -21,4 +21,4 @@ No training, checkpoint loading, model/dataset/benchmark downloads, external API
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete until real local GGUF tensor descriptors and model-weight payload serialization are implemented and verified alongside the existing safetensors export path.
+Milestone 5.3 is now complete. Real local GGUF tensor descriptors, model-weight payload serialization, and safetensors export are all implemented and verified. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

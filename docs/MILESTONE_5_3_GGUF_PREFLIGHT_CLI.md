@@ -27,4 +27,4 @@ This increment does not:
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete. This is metadata validation and CLI plumbing only; a real local safetensors or GGUF writer is not implemented here.
+Milestone 5.3 is now complete. Both local safetensors and GGUF F32 writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.
