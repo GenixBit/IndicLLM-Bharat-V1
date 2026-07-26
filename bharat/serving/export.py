@@ -30,6 +30,7 @@ class ExportRequest:
     output_path: Path
     export_format: ExportFormat
     model_name: str
+    dry_run: bool = True
 
     def __post_init__(self) -> None:
         _validate_local_path(self.checkpoint_path, "checkpoint_path")
@@ -65,10 +66,11 @@ class ExportPlan:
 
 
 def build_export_plan(request: ExportRequest) -> ExportPlan:
-    """Build a deterministic local export plan without reading or writing weights."""
+    """Build a deterministic local export plan."""
     return ExportPlan(
         checkpoint_path=request.checkpoint_path,
         output_path=request.output_path,
         export_format=request.export_format,
         model_name=request.model_name,
+        dry_run=request.dry_run,
     )
