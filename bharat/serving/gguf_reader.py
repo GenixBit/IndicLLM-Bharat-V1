@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from bharat.serving.gguf_writer import GGML_TYPE_F32
+from bharat.serving.gguf_quant_writer import BLOCK_Q8_0_SIZE, QK8_0
+from bharat.serving.gguf_writer import GGML_TYPE_F32, GGML_TYPE_Q8_0
 
 _GGUF_MAGIC = b"GGUF"
+_GGUF_SUPPORTED_GGML_TYPES = frozenset({GGML_TYPE_F32, GGML_TYPE_Q8_0})
 _GGUF_VERSION = 3
 _GGUF_TYPE_BOOL = 7
 _GGUF_TYPE_STRING = 8
@@ -98,10 +100,10 @@ def _read_metadata_value(
 def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
     """Read the deterministic GGUF v3 subset emitted by this repository.
 
-    This local-only reader validates the header, scalar metadata, F32 tensor
-    descriptors, alignment, descriptor ordering, offsets, and file bounds. It
-    does not interpret tensor values or claim compatibility with every GGUF
-    feature.
+    This local-only reader validates the header, scalar metadata, tensor
+    descriptors (F32 and Q8_0), alignment, descriptor ordering, offsets,
+    and file bounds. It does not interpret tensor values or claim
+    compatibility with every GGUF feature.
     """
     if alignment <= 0 or alignment & (alignment - 1) != 0:
         raise ValueError("alignment must be a positive power of two")
@@ -148,8 +150,17 @@ def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
         if any(dim == 0 for dim in shape):
             raise ValueError(f"tensor {name!r} dimensions must be positive")
         ggml_type = cursor.unpack("<I")
-        if ggml_type != GGML_TYPE_F32:
+        if ggml_type not in _GGUF_SUPPORTED_GGML_TYPES:
             raise ValueError(f"unsupported GGML tensor type: {ggml_type}")
+        if ggml_type == GGML_TYPE_Q8_0:
+            element_count = 1
+            for dim in shape:
+                element_count *= dim
+            if element_count % QK8_0 != 0:
+                raise ValueError(
+                    f"Q8_0 tensor {name!r} element count ({element_count}) "
+                    f"must be a multiple of {QK8_0}"
+                )
         offset = cursor.unpack("<Q")
         if offset % alignment != 0 or offset <= previous_offset:
             raise ValueError("GGUF tensor offsets must be increasing and aligned")
@@ -176,7 +187,15 @@ def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
         element_count = 1
         for dim in tensor.shape:
             element_count *= dim
-        tensor_end = tensor.offset + element_count * 4
+        if tensor.ggml_type == GGML_TYPE_Q8_0:
+            if element_count % QK8_0 != 0:
+                raise ValueError(
+                    f"Q8_0 tensor {tensor.name!r} element count ({element_count}) "
+                    f"must be a multiple of {QK8_0}"
+                )
+            tensor_end = tensor.offset + (element_count // QK8_0) * BLOCK_Q8_0_SIZE
+        else:
+            tensor_end = tensor.offset + element_count * 4
         relative_payload_end = max(relative_payload_end, tensor_end)
         if data_start + tensor_end > len(payload):
             raise ValueError(f"tensor {tensor.name!r} payload exceeds file bounds")
