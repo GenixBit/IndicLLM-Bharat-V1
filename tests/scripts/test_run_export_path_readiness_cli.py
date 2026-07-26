@@ -63,7 +63,7 @@ def _gguf_metadata(tmp_path: Path) -> Path:
                 "tensor_count": 0,
                 "output_file": "model.gguf",
                 "metadata": [
-                    {"key": "general.name", "value_type": "string"},
+                    {"key": "general.name", "value_type": "string", "value": "test"},
                 ],
             }
         ),

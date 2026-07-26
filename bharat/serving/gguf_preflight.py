@@ -14,9 +14,10 @@ _ALLOWED_VALUE_TYPES = frozenset({"bool", "float", "int", "string"})
 class GGUFMetadataEntry:
     key: str
     value_type: str
+    value: bool | float | int | str
 
-    def to_dict(self) -> dict[str, str]:
-        return {"key": self.key, "value_type": self.value_type}
+    def to_dict(self) -> dict[str, Any]:
+        return {"key": self.key, "value_type": self.value_type, "value": self.value}
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,30 @@ def _require_mapping(value: object, field: str) -> dict[str, object]:
     return {str(key): item for key, item in value.items()}
 
 
+def _validate_metadata_value(
+    key: str,
+    value_type: str,
+    value: object,
+) -> bool | float | int | str:
+    if value_type == "bool":
+        if not isinstance(value, bool):
+            raise ValueError(f"metadata {key!r} value must be bool")
+        return value
+    if value_type == "float":
+        if not isinstance(value, float):
+            raise ValueError(f"metadata {key!r} value must be float")
+        return value
+    if value_type == "int":
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"metadata {key!r} value must be int")
+        return value
+    if value_type == "string":
+        if not isinstance(value, str):
+            raise ValueError(f"metadata {key!r} value must be string")
+        return value
+    raise ValueError(f"metadata {key!r} has unsupported value_type {value_type!r}")
+
+
 def _parse_metadata_entry(value: object) -> GGUFMetadataEntry:
     item = _require_mapping(value, "metadata entry")
     key = item.get("key")
@@ -57,8 +82,11 @@ def _parse_metadata_entry(value: object) -> GGUFMetadataEntry:
     value_type = item.get("value_type")
     if not isinstance(value_type, str) or value_type not in _ALLOWED_VALUE_TYPES:
         raise ValueError(f"metadata {key!r} has unsupported value_type {value_type!r}")
+    if "value" not in item:
+        raise ValueError(f"metadata {key!r} must include value")
 
-    return GGUFMetadataEntry(key=key, value_type=value_type)
+    parsed_value = _validate_metadata_value(key, value_type, item["value"])
+    return GGUFMetadataEntry(key=key, value_type=value_type, value=parsed_value)
 
 
 def validate_gguf_preflight(
