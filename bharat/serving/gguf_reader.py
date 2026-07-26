@@ -152,9 +152,7 @@ def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
             raise ValueError(f"unsupported GGML tensor type: {ggml_type}")
         offset = cursor.unpack("<Q")
         if offset % alignment != 0 or offset <= previous_offset:
-            raise ValueError(
-                "GGUF tensor offsets must be increasing and aligned"
-            )
+            raise ValueError("GGUF tensor offsets must be increasing and aligned")
         previous_offset = offset
         tensors.append(
             GGUFReadTensor(
@@ -181,13 +179,11 @@ def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
         tensor_end = tensor.offset + element_count * 4
         relative_payload_end = max(relative_payload_end, tensor_end)
         if data_start + tensor_end > len(payload):
-            raise ValueError(
-                f"tensor {tensor.name!r} payload exceeds file bounds"
-            )
+            raise ValueError(f"tensor {tensor.name!r} payload exceeds file bounds")
 
     expected_file_size = data_start + _align(relative_payload_end, alignment)
     if len(payload) < expected_file_size:
-        raise ValueError("truncated GGUF tensor payload or final padding")
+        raise ValueError("GGUF tensor payload exceeds file bounds or final padding is truncated")
     if len(payload) > expected_file_size:
         raise ValueError("GGUF payload contains trailing bytes")
     final_padding_start = data_start + relative_payload_end
