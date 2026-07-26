@@ -1,7 +1,7 @@
 # GGUF Quantization Architecture
 
-**Status:** Draft — Planning / Milestone 5.4  
-**Date:** 2026-07-27  
+**Status:** Draft — Planning / Milestone 5.4
+**Date:** 2026-07-27
 **Branch:** `docs/gguf-quantization-architecture`
 
 ## 1. Objective
