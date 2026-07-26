@@ -55,9 +55,7 @@ class DryRunExportWriter:
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         if plan.export_format != self.export_format:
-            raise ValueError(
-                f"writer {self.name!r} does not support format {plan.export_format!r}"
-            )
+            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
         if not plan.dry_run:
             raise ValueError("dry-run writer requires a dry-run export plan")
         return ExportWriteResult(
@@ -74,9 +72,7 @@ class LocalSafetensorsExportWriter:
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         if plan.export_format != self.export_format:
-            raise ValueError(
-                f"writer {self.name!r} does not support format {plan.export_format!r}"
-            )
+            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
         if plan.dry_run:
             raise ValueError("real safetensors writer requires a non-dry-run export plan")
         result = write_safetensors_checkpoint(
@@ -134,16 +130,12 @@ class LocalGGUFF32ExportWriter:
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         if plan.export_format != self.export_format:
-            raise ValueError(
-                f"writer {self.name!r} does not support format {plan.export_format!r}"
-            )
+            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
         if plan.dry_run:
             raise ValueError("real GGUF writer requires a non-dry-run export plan")
         tensors = _load_f32_state_dict(plan.checkpoint_path)
         result = write_gguf_f32_tensors(
-            self.preflight,
-            tensors,
-            plan.output_path.resolve(),
+            self.preflight, tensors, plan.output_path.resolve()
         )
         return ExportWriteResult(
             output_path=result.output_path,
@@ -192,9 +184,7 @@ class ExportWriterRegistry:
                 raise ValueError(
                     f"no execute writer registered for format {export_format!r}"
                 ) from exc
-            raise ValueError(
-                f"no writer registered for format {export_format!r}"
-            ) from exc
+            raise ValueError(f"no writer registered for format {export_format!r}") from exc
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         return self.get(plan.export_format, dry_run=plan.dry_run).write(plan)
