@@ -10,6 +10,18 @@ from bharat.serving.export_writer import (
     ExportWriterRegistry,
     LocalSafetensorsExportWriter,
 )
+from bharat.serving.gguf_writer import (
+    GGML_TYPE_F32,
+    GGUFDescriptorResult,
+    GGUFTensorDescriptor,
+    GGUFTensorInventoryEntry,
+    GGUFWriteResult,
+    build_gguf_header,
+    build_gguf_header_and_descriptors,
+    build_gguf_tensor_descriptors,
+    write_gguf_header,
+    write_gguf_header_and_descriptors,
+)
 from bharat.serving.metrics import MetricsSnapshot, ServingMetrics
 from bharat.serving.rate_limit import InMemoryRateLimiter, RateLimitConfig, RateLimitResult
 from bharat.serving.safetensors_writer import (
@@ -37,6 +49,11 @@ __all__ = [
     "ExportWriteResult",
     "ExportWriter",
     "ExportWriterRegistry",
+    "GGML_TYPE_F32",
+    "GGUFDescriptorResult",
+    "GGUFTensorDescriptor",
+    "GGUFTensorInventoryEntry",
+    "GGUFWriteResult",
     "LocalSafetensorsExportWriter",
     "FunctionCall",
     "FunctionSpec",
@@ -51,6 +68,11 @@ __all__ = [
     "StreamEvent",
     "StreamRequest",
     "build_export_plan",
+    "build_gguf_header",
+    "build_gguf_header_and_descriptors",
+    "build_gguf_tensor_descriptors",
+    "write_gguf_header",
+    "write_gguf_header_and_descriptors",
     "write_safetensors_checkpoint",
     "stream_events_to_json",
     "stream_events_to_jsonl",
