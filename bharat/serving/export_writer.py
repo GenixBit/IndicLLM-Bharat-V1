@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+import torch
+
 from bharat.serving.export import ExportFormat, ExportPlan
+from bharat.serving.gguf_preflight import GGUFPreflightResult
+from bharat.serving.gguf_tensor_writer import write_gguf_f32_tensors
 from bharat.serving.safetensors_writer import write_safetensors_checkpoint
 
 
@@ -85,8 +89,64 @@ class LocalSafetensorsExportWriter:
         )
 
 
+def _resolve_checkpoint_file(checkpoint_path: Path) -> Path:
+    resolved = checkpoint_path.resolve()
+    if resolved.is_dir():
+        model_path = resolved / "model.pt"
+        if not model_path.is_file():
+            raise FileNotFoundError(f"checkpoint directory {resolved} does not contain model.pt")
+        return model_path
+    if resolved.is_file() and resolved.suffix.lower() in (".pt", ".pth"):
+        return resolved
+    raise FileNotFoundError(f"checkpoint path is not a local .pt/.pth file: {resolved}")
+
+
+def _load_f32_state_dict(checkpoint_path: Path) -> dict[str, torch.Tensor]:
+    model_path = _resolve_checkpoint_file(checkpoint_path)
+    try:
+        loaded = torch.load(model_path, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        raise ValueError(
+            f"failed to load checkpoint {model_path} with weights_only=True: {exc}"
+        ) from exc
+
+    state_dict: object = (
+        loaded.get("model") if isinstance(loaded, dict) and "model" in loaded else loaded
+    )
+    if not isinstance(state_dict, dict):
+        raise ValueError("checkpoint must contain a state-dict mapping")
+    return {str(name): tensor for name, tensor in state_dict.items()}
+
+
+@dataclass(frozen=True)
+class LocalGGUFF32ExportWriter:
+    preflight: GGUFPreflightResult
+    name: str = "gguf-f32-local"
+    export_format: ExportFormat = "gguf"
+
+    def write(self, plan: ExportPlan) -> ExportWriteResult:
+        if plan.export_format != self.export_format:
+            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
+        if plan.dry_run:
+            raise ValueError("real GGUF writer requires a non-dry-run export plan")
+        tensors = _load_f32_state_dict(plan.checkpoint_path)
+        result = write_gguf_f32_tensors(self.preflight, tensors, plan.output_path.resolve())
+        return ExportWriteResult(
+            output_path=result.output_path,
+            export_format=self.export_format,
+            writer_name=self.name,
+            dry_run=False,
+            bytes_written=result.bytes_written,
+        )
+
+
 class ExportWriterRegistry:
-    def __init__(self, writers: tuple[ExportWriter, ...] | None = None) -> None:
+    def __init__(
+        self,
+        writers: tuple[ExportWriter, ...] | None = None,
+        *,
+        gguf_preflight: GGUFPreflightResult | None = None,
+    ) -> None:
         self._writers: dict[tuple[ExportFormat, bool], ExportWriter] = {}
         if writers is None:
             self._writers[("safetensors", True)] = DryRunExportWriter(  # type: ignore[assignment]
@@ -98,6 +158,10 @@ class ExportWriterRegistry:
                 name="gguf-dry-run",
                 export_format="gguf",
             )
+            if gguf_preflight is not None:
+                self._writers[("gguf", False)] = LocalGGUFF32ExportWriter(  # type: ignore[assignment]
+                    preflight=gguf_preflight,
+                )
         else:
             for writer in writers:
                 key = (writer.export_format, True)
