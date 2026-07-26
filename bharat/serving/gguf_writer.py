@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from bharat.serving.gguf_preflight import GGUFMetadataEntry, GGUFPreflightResult
+from bharat.serving.gguf_quant_writer import BLOCK_Q8_0_SIZE, QK8_0
 
 _GGUF_MAGIC = b"GGUF"
 _GGUF_VERSION = 3
@@ -18,7 +19,8 @@ _GGUF_TYPE_INT64 = 11
 _GGUF_TYPE_FLOAT64 = 12
 
 GGML_TYPE_F32 = 0
-_SUPPORTED_GGML_TYPES = frozenset({GGML_TYPE_F32})
+GGML_TYPE_Q8_0 = 8
+_SUPPORTED_GGML_TYPES = frozenset({GGML_TYPE_F32, GGML_TYPE_Q8_0})
 
 
 @dataclass(frozen=True)
@@ -173,6 +175,19 @@ def _f32_byte_size(shape: tuple[int, ...]) -> int:
     return total * 4
 
 
+def _tensor_byte_size(shape: tuple[int, ...], ggml_type: int = GGML_TYPE_F32) -> int:
+    total = 1
+    for dim in shape:
+        total *= dim
+    if ggml_type == GGML_TYPE_F32:
+        return total * 4
+    if ggml_type == GGML_TYPE_Q8_0:
+        if total % QK8_0 != 0:
+            raise ValueError(f"Q8_0 requires element count ({total}) to be a multiple of {QK8_0}")
+        return (total // QK8_0) * BLOCK_Q8_0_SIZE
+    raise ValueError(f"unsupported GGML type for byte size: {ggml_type}")
+
+
 def build_gguf_header(preflight: GGUFPreflightResult) -> bytes:
     """Build a deterministic GGUF v3 header containing scalar metadata only."""
     if preflight.tensor_count != 0:
@@ -195,15 +210,20 @@ def build_gguf_tensor_descriptors(
     tensors: Iterable[GGUFTensorInventoryEntry],
     *,
     alignment: int,
+    ggml_type: int = GGML_TYPE_F32,
 ) -> tuple[GGUFTensorDescriptor, ...]:
     """Build deterministic tensor descriptors with computed offsets.
 
     Descriptors are sorted by name.  Offsets are relative to the start of
     the tensor-data section.  Each tensor payload begins at the aligned end
     of the previous payload.
+
+    The *ggml_type* is applied uniformly to every descriptor.
     """
     if alignment <= 0 or alignment & (alignment - 1) != 0:
         raise ValueError("alignment must be a positive power of two")
+    if ggml_type not in _SUPPORTED_GGML_TYPES:
+        raise ValueError(f"unsupported GGML type: {ggml_type}")
 
     entries = sorted(tensors, key=lambda t: t.name)
     names = [t.name for t in entries]
@@ -213,12 +233,12 @@ def build_gguf_tensor_descriptors(
     descriptors: list[GGUFTensorDescriptor] = []
     offset = 0
     for entry in entries:
-        byte_size = _f32_byte_size(entry.shape)
+        byte_size = _tensor_byte_size(entry.shape, ggml_type=ggml_type)
         descriptors.append(
             GGUFTensorDescriptor(
                 name=entry.name,
                 shape=entry.shape,
-                ggml_type=GGML_TYPE_F32,
+                ggml_type=ggml_type,
                 offset=offset,
             )
         )
@@ -305,7 +325,10 @@ def write_gguf_header_and_descriptors(
 
     if descriptors:
         last = descriptors[-1]
-        projected = _align(last.offset + _f32_byte_size(last.shape), preflight.alignment)
+        projected = _align(
+            last.offset + _tensor_byte_size(last.shape, ggml_type=last.ggml_type),
+            preflight.alignment,
+        )
     else:
         projected = 0
 

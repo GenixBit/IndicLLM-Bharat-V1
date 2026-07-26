@@ -11,7 +11,9 @@ from typing import Any
 import torch
 
 from bharat.serving.gguf_preflight import GGUFPreflightResult
+from bharat.serving.gguf_quant_writer import QK8_0, quantize_q8_0
 from bharat.serving.gguf_writer import (
+    GGML_TYPE_Q8_0,
     GGUFTensorInventoryEntry,
     build_gguf_header_and_descriptors,
     build_gguf_tensor_descriptors,
@@ -67,6 +69,88 @@ def _normalize_f32_tensors(tensors: Mapping[str, torch.Tensor]) -> dict[str, tor
             raise ValueError(f"tensor {name!r} dimensions must be positive")
         normalized[name] = tensor.detach().to(device="cpu").contiguous()
     return normalized
+
+
+def _validate_q8_0_shapes(tensors: dict[str, torch.Tensor]) -> None:
+    for name, tensor in tensors.items():
+        total = tensor.numel()
+        if total % QK8_0 != 0:
+            raise ValueError(
+                f"Q8_0 requires tensor {name!r} element count ({total}) "
+                f"to be a multiple of {QK8_0}"
+            )
+
+
+def build_gguf_q8_0_payload(
+    preflight: GGUFPreflightResult,
+    tensors: Mapping[str, torch.Tensor],
+) -> bytes:
+    """Build a deterministic GGUF v3 payload with Q8_0 quantized tensor data."""
+    normalized = _normalize_f32_tensors(tensors)
+    if preflight.tensor_count != len(normalized):
+        raise ValueError(
+            f"tensor mapping count {len(normalized)} does not match "
+            f"preflight tensor_count {preflight.tensor_count}"
+        )
+    _validate_q8_0_shapes(normalized)
+
+    inventory = tuple(
+        GGUFTensorInventoryEntry(name=name, shape=tuple(tensor.shape))
+        for name, tensor in normalized.items()
+    )
+    descriptors = build_gguf_tensor_descriptors(
+        inventory, alignment=preflight.alignment, ggml_type=GGML_TYPE_Q8_0
+    )
+    prefix = build_gguf_header_and_descriptors(preflight, descriptors)
+
+    parts = [prefix]
+    relative_offset = 0
+    for descriptor in descriptors:
+        if descriptor.offset < relative_offset:
+            raise ValueError(f"tensor {descriptor.name!r} descriptor offset overlaps prior payload")
+        padding = descriptor.offset - relative_offset
+        if padding:
+            parts.append(b"\x00" * padding)
+
+        tensor = normalized[descriptor.name]
+        values = tensor.reshape(-1).tolist()
+        tensor_bytes = quantize_q8_0(values)
+        parts.append(tensor_bytes)
+        relative_offset = descriptor.offset + len(tensor_bytes)
+
+    final_padding = _align(relative_offset, preflight.alignment) - relative_offset
+    if final_padding:
+        parts.append(b"\x00" * final_padding)
+    return b"".join(parts)
+
+
+def write_gguf_q8_0_tensors(
+    preflight: GGUFPreflightResult,
+    tensors: Mapping[str, torch.Tensor],
+    output_path: Path,
+) -> GGUFTensorWriteResult:
+    """Write a complete local GGUF v3 file with Q8_0 quantized tensors."""
+    payload = build_gguf_q8_0_payload(preflight, tensors)
+    normalized = _normalize_f32_tensors(tensors)
+    inventory = tuple(
+        GGUFTensorInventoryEntry(name=name, shape=tuple(tensor.shape))
+        for name, tensor in normalized.items()
+    )
+    descriptors = build_gguf_tensor_descriptors(
+        inventory, alignment=preflight.alignment, ggml_type=GGML_TYPE_Q8_0
+    )
+    prefix = build_gguf_header_and_descriptors(preflight, descriptors)
+    _write_payload(payload, output_path)
+
+    return GGUFTensorWriteResult(
+        output_path=output_path,
+        bytes_written=len(payload),
+        metadata_count=len(preflight.metadata),
+        tensor_count=len(normalized),
+        alignment=preflight.alignment,
+        tensor_data_start_offset=len(prefix),
+        tensor_data_bytes=len(payload) - len(prefix),
+    )
 
 
 def build_gguf_f32_payload(
