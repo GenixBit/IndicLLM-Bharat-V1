@@ -1,6 +1,6 @@
 # Milestone 5.3 — Local Export Writer Contracts
 
-**Status:** Implemented foundation
+**Status:** Complete
 
 ## Objective
 
@@ -19,8 +19,8 @@ Extend the validated export plan with framework-independent local writer contrac
 
 A local safetensors model-weight writer is now implemented in `bharat/serving/safetensors_writer.py`. See [MILESTONE_5_3_SAFETENSORS_WRITER.md](MILESTONE_5_3_SAFETENSORS_WRITER.md) for details.
 
-This writer is a standalone library — it is not yet integrated into the export registry or CLI. Integration (with explicit real-write mode) is planned for the next PR.
+This writer is now fully integrated into the export registry and CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.
 
 ## Safety boundary
 
-This foundation does not read, convert, serialize, upload, or publish model weights. It performs no network calls, downloads, external conversions, or artifact uploads. The roadmap item remains incomplete until GGUF writing is implemented and safetensors CLI integration is complete.
+This foundation does not read, convert, serialize, upload, or publish model weights. It performs no network calls, downloads, external conversions, or artifact uploads. Milestone 5.3 is now complete. Both GGUF writing and safetensors CLI integration are implemented. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

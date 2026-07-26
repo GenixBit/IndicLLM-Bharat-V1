@@ -1,6 +1,6 @@
 # Milestone 5.3 — Local Export Format Planning
 
-**Status:** Implemented foundation
+**Status:** Complete
 
 ## Objective
 

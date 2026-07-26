@@ -1,6 +1,6 @@
 # Milestone 5.3 — GGUF Tensor Descriptor Encoding
 
-**Status:** Implemented (descriptors only — no tensor payload bytes)
+**Status:** Complete
 
 ## Objective
 
@@ -241,5 +241,4 @@ descriptors = build_gguf_tensor_descriptors(tensors, alignment=32)
 
 ## Milestone status
 
-Milestone 5.3 remains incomplete.  GGUF tensor payload serialization is
-not implemented.  GGUF real CLI execution is not implemented.
+Milestone 5.3 is now complete. GGUF tensor payload serialization and GGUF real CLI execution are both implemented. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.

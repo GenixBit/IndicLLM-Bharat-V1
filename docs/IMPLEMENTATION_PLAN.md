@@ -221,13 +221,13 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Revert to legacy `inference/api.py`
 - **Acceptance:** Unauthenticated requests rejected; CORS configurable; metrics at `/metrics`
 
-#### PR 18: Export + quantization
-- **Files:** `bharat/serving/export.py` (new), update `inference/export_ollama.py`
-- **Content:** safetensors export, GGUF/Ollama export, quantization support
-- **Tests:** Export round trip
+#### PR 18: Export (safetensors + GGUF F32) ✅ COMPLETED (Milestone 5.3)
+- **Files:** `bharat/serving/safetensors_writer.py`, `bharat/serving/gguf_writer.py`, `bharat/serving/gguf_tensor_writer.py`, `bharat/serving/gguf_preflight.py`, `bharat/serving/gguf_reader.py`, `bharat/serving/export_writer.py`, `bharat/serving/export_manifest.py`, `bharat/serving/export_path_readiness.py`, `bharat/serving/export_writer_readiness.py`, `bharat/serving/export_manifest_readiness.py`, `bharat/serving/export_checkpoint_inventory.py`, `scripts/run_export_plan.py`, `scripts/run_export_execute.py`, 15 milestone docs, 168+ tests
+- **Content:** Local PyTorch-to-safetensors writer, local PyTorch-to-GGUF-F32 writer (header + tensor descriptors + F32 payload), GGUF compatibility reader, preflight validators, path/writer/manifest readiness gates, checkpoint inventory, CLI with dry-run/execute, deterministic manifests
+- **Tests:** 168 export tests (safetensors 41, GGUF writer 6, GGUF preflight 10, GGUF tensor writer 6, GGUF reader 6, export writer 5, CLI execute ~80, CLI plan 10, manifest 6, readiness 6)
 - **Depends on:** PR 8
-- **Rollback:** Revert to legacy export
-- **Acceptance:** Models export to safetensors and GGUF correctly
+- **Rollback:** Delete `bharat/serving/safetensors_writer.py`, `gguf_writer.py`, `gguf_tensor_writer.py`, `gguf_preflight.py`, `gguf_reader.py`, `export_writer.py`, `export_manifest*.py`, `export_path_readiness*.py`, `export_writer_readiness*.py`, `export_checkpoint_inventory*.py`, `scripts/run_export_plan.py`; revert CLI integrations
+- **Acceptance:** Models export to safetensors and GGUF F32 correctly; all existing tests pass; offline/CPU-only; no overwrite; `--execute` controlled by explicit flag; quantization out of scope
 
 ### Milestone 6 — Bharat-350M Validation (PRs 19–20)
 
@@ -292,7 +292,7 @@ IndicLLM-Bharat-V1/
 | 15 | feat: Leaderboard and comparison reporting | Updates to `reporting.py` | PR 14 | 1-2 days |
 | 16 | feat: Streaming API and function calling | `bharat/serving/api.py`, `schemas.py`, `engine.py`, `streaming.py` | PR 2, 8 | 2-3 days |
 | 17 | feat: Auth, rate limiting, metrics | `bharat/serving/authentication.py`, `rate_limit.py`, `metrics.py` | PR 16 | 1-2 days |
-| 18 | feat: Export improvements (safetensors, quantization) | `bharat/serving/export.py` | PR 8 | 1-2 days |
+| 18 | feat: Export (safetensors + GGUF F32) | `bharat/serving/safetensors_writer.py`, `gguf_writer.py`, `gguf_tensor_writer.py`, `gguf_preflight.py`, `gguf_reader.py`, `export_writer.py`, `export_manifest*.py`, `export_writer_readiness*.py`, `export_path_readiness*.py`, `scripts/run_export_plan.py`, 15 milestone docs, 168 tests | PR 8 | 2 weeks | ✅ |
 | 19 | feat: Bharat 64K tokenizer training and validation | `bharat/tokenizer/train.py`, `evaluate.py` | PR 2 | 2-3 days |
 | 20 | test: Bharat-350M smoke test and benchmark | Training/eval configs | PR 9, 15, 19 | 1-2 weeks |
 | 21 | feat: Bharat-1B data mixture and compute plan | `bharat/data/mixture.py`, plan doc | PR 12 | 1 week |

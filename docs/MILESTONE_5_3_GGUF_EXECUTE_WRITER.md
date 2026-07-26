@@ -1,6 +1,6 @@
 # Milestone 5.3 — Local GGUF Execute Writer
 
-**Status:** Integrated — registry selection, CLI wiring, and tests complete
+**Status:** Complete
 
 ## Objective
 

@@ -1,6 +1,6 @@
 # Milestone 5.3 — Safetensors Metadata Preflight
 
-**Status:** Implemented foundation
+**Status:** Complete
 
 ## Objective
 
@@ -36,4 +36,4 @@ Validate an approved, local tensor-metadata document against the deterministic c
 
 ## Safety boundary
 
-This implementation reads JSON metadata and checkpoint inventory records only. It does not parse safetensors payloads, load tensors, convert checkpoints, serialize model weights, call external tools, use network access, upload files, or publish artifacts. Milestone 5.3 remains incomplete until real local safetensors and GGUF writers are implemented and tested.
+This implementation reads JSON metadata and checkpoint inventory records only. It does not parse safetensors payloads, load tensors, convert checkpoints, serialize model weights, call external tools, use network access, upload files, or publish artifacts. Milestone 5.3 is now complete. Both local safetensors and GGUF F32 writers are implemented, tested, and integrated into the export CLI. See [MILESTONE_5_3_EXPORT_CLOSURE.md](MILESTONE_5_3_EXPORT_CLOSURE.md) for details.
