@@ -53,6 +53,12 @@ def _float16_to_float32(bits: int) -> float:
     return struct.unpack("<f", struct.pack("<I", f32))[0]  # type: ignore[no-any-return]
 
 
+def _round_half_away_from_zero(x: float) -> int:
+    if x >= 0:
+        return int(math.floor(x + 0.5))
+    return int(math.ceil(x - 0.5))
+
+
 def quantize_q8_0(data: Sequence[float]) -> bytes:
     if not data:
         raise ValueError("data must not be empty")
@@ -75,7 +81,7 @@ def quantize_q8_0(data: Sequence[float]) -> bytes:
         if d > 0:
             id_ = 1.0 / d
             for j in range(QK8_0):
-                q = round(data[block_start + j] * id_)
+                q = _round_half_away_from_zero(data[block_start + j] * id_)
                 q = max(-128, min(127, q))
                 block[2 + j] = q & 0xFF
         blocks.append(bytes(block))

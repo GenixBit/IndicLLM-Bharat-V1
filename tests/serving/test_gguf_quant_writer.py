@@ -7,6 +7,7 @@ from bharat.serving.gguf_quant_writer import (
     QK8_0,
     _float16_to_float32,
     _float32_to_float16,
+    _round_half_away_from_zero,
     dequantize_q8_0,
     quantize_q8_0,
 )
@@ -131,6 +132,22 @@ class TestQuantize:
         first = quantize_q8_0(data)
         second = quantize_q8_0(list(data))
         assert first == second
+
+    def test_round_half_away_from_zero(self) -> None:
+        assert _round_half_away_from_zero(0.0) == 0
+        assert _round_half_away_from_zero(0.5) == 1
+        assert _round_half_away_from_zero(1.5) == 2
+        assert _round_half_away_from_zero(-0.5) == -1
+        assert _round_half_away_from_zero(-1.5) == -2
+        assert _round_half_away_from_zero(62.5) == 63
+        assert _round_half_away_from_zero(-62.5) == -63
+        assert _round_half_away_from_zero(127.0) == 127
+        assert _round_half_away_from_zero(-128.0) == -128
+        assert _round_half_away_from_zero(0.4999) == 0
+
+    def test_tie_breaking_differs_from_python_round(self) -> None:
+        assert _round_half_away_from_zero(62.5) != round(62.5)
+        assert _round_half_away_from_zero(-62.5) != round(-62.5)
 
     def test_reverse_data_changes_output(self) -> None:
         data = _mixed_block()
