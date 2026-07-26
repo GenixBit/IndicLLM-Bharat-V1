@@ -60,7 +60,7 @@ class _Cursor:
         end = self.offset + size
         if size < 0 or end > len(self.payload):
             raise ValueError("truncated GGUF payload")
-        value = self.payload[self.offset:end]
+        value = self.payload[self.offset : end]
         self.offset = end
         return value
 
@@ -168,7 +168,7 @@ def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
     data_start = _align(cursor.offset, alignment)
     if data_start > len(payload):
         raise ValueError("truncated GGUF alignment padding")
-    if any(payload[cursor.offset:data_start]):
+    if any(payload[cursor.offset : data_start]):
         raise ValueError("GGUF alignment padding must be zero-filled")
 
     relative_payload_end = 0
@@ -183,9 +183,7 @@ def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
 
     expected_file_size = data_start + _align(relative_payload_end, alignment)
     if len(payload) < expected_file_size:
-        raise ValueError(
-            "GGUF tensor payload exceeds file bounds or final padding is truncated"
-        )
+        raise ValueError("GGUF tensor payload exceeds file bounds or final padding is truncated")
     if len(payload) > expected_file_size:
         raise ValueError("GGUF payload contains trailing bytes")
     final_padding_start = data_start + relative_payload_end
