@@ -104,9 +104,7 @@ def _resolve_checkpoint_file(checkpoint_path: Path) -> Path:
         return model_path
     if resolved.is_file() and resolved.suffix.lower() in (".pt", ".pth"):
         return resolved
-    raise FileNotFoundError(
-        f"checkpoint path is not a local .pt/.pth file: {resolved}"
-    )
+    raise FileNotFoundError(f"checkpoint path is not a local .pt/.pth file: {resolved}")
 
 
 def _load_f32_state_dict(checkpoint_path: Path) -> dict[str, torch.Tensor]:
@@ -176,15 +174,13 @@ class ExportWriterRegistry:
             )
             if gguf_preflight is not None:
                 self._writers[("gguf", False)] = LocalGGUFF32ExportWriter(  # type: ignore[assignment]
-                    preflight=gguf_preflight
+                    preflight=gguf_preflight,
                 )
         else:
             for writer in writers:
                 key = (writer.export_format, True)
                 if key in self._writers:
-                    raise ValueError(
-                        f"duplicate writer for format {writer.export_format!r}"
-                    )
+                    raise ValueError(f"duplicate writer for format {writer.export_format!r}")
                 self._writers[key] = writer
 
     def get(self, export_format: ExportFormat, dry_run: bool = True) -> ExportWriter:
