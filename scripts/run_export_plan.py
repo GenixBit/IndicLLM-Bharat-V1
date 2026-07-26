@@ -106,9 +106,9 @@ def main() -> None:
         )
         sys.exit(1)
 
-    if args.execute and args.format == "gguf":
+    if args.execute and args.format == "gguf" and args.gguf_metadata_path is None:
         print(
-            "error: real GGUF export is not implemented; " "omit --execute for a dry-run",
+            "error: --gguf-metadata-path is required for real GGUF execution",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -178,7 +178,18 @@ def main() -> None:
                 Path(args.manifest_path),
             )
 
-        result = ExportWriterRegistry().write(plan)
+        registry = ExportWriterRegistry(gguf_preflight=gguf_preflight)
+        result = registry.write(plan)
+
+        if not plan.dry_run:
+            if not result.output_path.exists():
+                raise ValueError("export output not found after successful writer")
+            actual_size = result.output_path.stat().st_size
+            if result.bytes_written != actual_size:
+                raise ValueError(
+                    f"bytes_written {result.bytes_written} does not match "
+                    f"actual output size {actual_size}"
+                )
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(1)
