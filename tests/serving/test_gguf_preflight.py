@@ -132,9 +132,7 @@ def test_metadata_value_type_mismatch_is_rejected(
     checkpoint, metadata = _fixture(tmp_path)
     inventory = build_checkpoint_inventory(checkpoint)
     payload = json.loads(metadata.read_text(encoding="utf-8"))
-    payload["metadata"] = [
-        {"key": "general.value", "value_type": value_type, "value": value}
-    ]
+    payload["metadata"] = [{"key": "general.value", "value_type": value_type, "value": value}]
     metadata.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match=expected):
