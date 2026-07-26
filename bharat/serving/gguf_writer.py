@@ -38,16 +38,25 @@ def _pack_string(value: str) -> bytes:
 
 
 def _pack_metadata_value(entry: GGUFMetadataEntry) -> tuple[int, bytes]:
+    value = entry.value
     if entry.value_type == "bool":
-        return _GGUF_TYPE_BOOL, struct.pack("<?", entry.value)
+        if not isinstance(value, bool):
+            raise ValueError(f"metadata {entry.key!r} value must be bool")
+        return _GGUF_TYPE_BOOL, struct.pack("<?", value)
     if entry.value_type == "float":
-        return _GGUF_TYPE_FLOAT64, struct.pack("<d", entry.value)
+        if not isinstance(value, float):
+            raise ValueError(f"metadata {entry.key!r} value must be float")
+        return _GGUF_TYPE_FLOAT64, struct.pack("<d", value)
     if entry.value_type == "int":
-        if entry.value < -(2**63) or entry.value > 2**63 - 1:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"metadata {entry.key!r} value must be int")
+        if value < -(2**63) or value > 2**63 - 1:
             raise ValueError(f"metadata {entry.key!r} integer is outside signed 64-bit range")
-        return _GGUF_TYPE_INT64, struct.pack("<q", entry.value)
+        return _GGUF_TYPE_INT64, struct.pack("<q", value)
     if entry.value_type == "string":
-        return _GGUF_TYPE_STRING, _pack_string(entry.value)
+        if not isinstance(value, str):
+            raise ValueError(f"metadata {entry.key!r} value must be string")
+        return _GGUF_TYPE_STRING, _pack_string(value)
     raise ValueError(f"metadata {entry.key!r} has unsupported value_type {entry.value_type!r}")
 
 
