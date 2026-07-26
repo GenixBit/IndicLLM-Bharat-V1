@@ -27,7 +27,7 @@ def _plan(checkpoint_path: Path, output_path: Path):
             export_format="gguf",
             model_name="bharat-local",
             dry_run=False,
-        )
+        ),
     )
 
 
@@ -44,7 +44,7 @@ def test_registry_executes_local_gguf_f32_writer(tmp_path: Path) -> None:
     )
 
     result = ExportWriterRegistry(gguf_preflight=_preflight()).write(
-        _plan(checkpoint, output)
+        _plan(checkpoint, output),
     )
 
     assert result.writer_name == "gguf-f32-local"
@@ -81,7 +81,7 @@ def test_writer_loads_checkpoint_directory_model_file(tmp_path: Path) -> None:
 
     output = tmp_path / "model.gguf"
     result = LocalGGUFF32ExportWriter(_preflight()).write(
-        _plan(checkpoint_dir, output)
+        _plan(checkpoint_dir, output),
     )
 
     assert result.bytes_written > 0
