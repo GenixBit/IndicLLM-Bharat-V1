@@ -75,11 +75,11 @@ jobs:
       - uses: astral-sh/ruff-action@v4.1.0
         with:
           version: "0.5.0"
-          args: "format --check ."
-      - uses: astral-sh/ruff-action@v4.1.0
-        with:
-          version: "0.5.0"
-          args: "check ."
+          args: "format ."
+      - name: Show exact Ruff formatting diff
+        run: |
+          git diff -- bharat/serving/safetensors_writer.py
+          exit 1
 
   lint:
     needs: changes
