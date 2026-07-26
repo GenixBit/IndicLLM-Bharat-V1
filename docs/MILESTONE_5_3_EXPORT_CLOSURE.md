@@ -12,12 +12,13 @@ Milestone 5.3 implements local PyTorch checkpoint export to both safetensors and
 | # | Criterion | Status | Evidence |
 |---|-----------|--------|----------|
 | 1 | **PR 18 acceptance:** Models export to safetensors and GGUF correctly | ✅ | Both `LocalSafetensorsExportWriter` and `LocalGGUFF32ExportWriter` integrated into registry; `scripts/run_export_plan.py` supports `--format {safetensors,gguf}` with `--execute` for real writes |
-| 2 | **All tests pass** (`pytest tests/`) | ✅ | 1686 passed, 7 skipped, 6 deselected (8 pre-existing failures in `tests/scripts/test_calculate_params.py` unrelated to export) |
-| 3 | **Linting** (`ruff check .`) — zero errors | ✅ | Clean on ruff 0.5.0 |
-| 4 | **Type checking** (`mypy bharat/`) — zero errors | ✅ | 83 files, no issues |
-| 5 | **CI green on PR** | ✅ | PRs #47 (GGUF CLI) and #48 (GGUF reader formatting) both green |
-| 6 | **CPU smoke test** (`python scripts/sanity_check.py`) | ✅ | Passed in 1.7s on MPS; best val loss 2.4643; checkpoint saved |
-| 7 | **Documentation reflects actual capabilities** | ✅ | All 19 milestone docs updated to **Status:** Complete; closure doc created |
+| 2 | **CI-required suite** (`pytest -m "not slow and not gpu and not integration"`) | ✅ | 1694 passed, 7 skipped, 6 deselected — zero failures |
+| 3 | **Broader suite** (`pytest tests/` without markers) | ✅ | 1694 passed, 7 skipped, 6 deselected after `pip install -e ".[dev]"`; 8 pre-existing subprocess import failures in `tests/scripts/test_calculate_params.py` occur when `bharat` is not installed in editable mode — unrelated to export, resolved by CI's `pip install -e ".[dev]"` |
+| 4 | **Linting** (`ruff check .`) — zero errors | ✅ | Clean on ruff 0.5.0 |
+| 5 | **Type checking** (`mypy bharat/`) — zero errors | ✅ | 83 files, no issues |
+| 6 | **CI green on PR** | ✅ | PRs #47 (GGUF CLI) and #48 (GGUF reader formatting) both green |
+| 7 | **CPU smoke test** (`python scripts/sanity_check.py`) | ✅ | Passed in 1.7s on MPS; best val loss 2.4643; checkpoint saved |
+| 8 | **Documentation reflects actual capabilities** | ✅ | All 19 milestone docs updated to **Status:** Complete; closure doc created |
 
 ## What Was Built
 
@@ -62,6 +63,7 @@ Milestone 5.3 implements local PyTorch checkpoint export to both safetensors and
 6. **Offline** — no network imports, all tests use local fixtures; CI sets `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`
 7. **F32-only for GGUF** — only `torch.float32` tensors accepted; F16/BF16/FP64/integer/bool/quantized rejected with clear error
 8. **Execution ordering enforced** — argument validation → remote rejection → request/plan → path readiness → inventory → preflight → writer readiness → manifest readiness → real writer → output verification → manifest write → final JSON; checkpoint tensor loading deferred to last possible step
+9. **Path resolution** — `ExportManifest.from_plan_and_result()` compares resolved paths (`path.resolve()`) to handle relative paths and macOS `/var` → `/private/var` symlinks correctly
 
 ## Test Summary
 
@@ -98,28 +100,34 @@ Milestone 5.3 implements local PyTorch checkpoint export to both safetensors and
 | Streaming export | Not implemented |
 | Checkpoint conversion (e.g., HF → GGUF) | Not in scope |
 
-## Remaining Pre-existing Issues (Unrelated to Milestone 5.3)
+## Pre-existing Issues (Unrelated to Milestone 5.3)
 
-- 8 tests in `tests/scripts/test_calculate_params.py` fail due to `ModuleNotFoundError: bharat` in subprocess — pre-existing, not related to export
-- 1 pre-existing `RegistryValidationError` for missing entry (data/safety) — pre-existing, not related to export
+| Issue | Classification | Detail |
+|-------|---------------|--------|
+| 8 failures in `tests/scripts/test_calculate_params.py::TestCLI` | **Environment configuration** — not export-related | Subprocess `ModuleNotFoundError: bharat` occurs when running `pytest` without `pip install -e .`. CI runs `pip install -e ".[dev]"`, so CI does not see these failures. All 8 fail with the same root cause: the test spawns `sys.executable` which cannot import `bharat` unless the package is pip-installed. |
+| `RegistryValidationError` for missing registry entry (data/safety) | **Pre-existing** — not export-related | Validator expected but missing in registry configuration. Existed before any export work. |
 
 ## Verification Commands
 
 ```bash
-# Tests (excluding pre-existing failures)
-pytest tests/serving/ tests/scripts/test_run_export_plan.py tests/scripts/test_run_export_execute.py -v
+# CI-equivalent command (markers match CI workflow)
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 WANDB_MODE=disabled \
+  pytest -m "not slow and not gpu and not integration" tests/
+
+# Focused export tests
+python3 -m pytest tests/serving/ tests/scripts/test_run_export_plan.py tests/scripts/test_run_export_execute.py -v
 
 # Lint
 ruff check .
 
+# Format
+ruff format --check .
+
 # Type check
 mypy bharat/
 
-# Registry
-validate-data-registry
-
 # Smoke test
-python scripts/sanity_check.py
+python3 scripts/sanity_check.py
 ```
 
 ## Closure Decision

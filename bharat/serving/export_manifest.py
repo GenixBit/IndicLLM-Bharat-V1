@@ -28,7 +28,7 @@ class ExportManifest:
         plan: ExportPlan,
         result: ExportWriteResult,
     ) -> ExportManifest:
-        if plan.output_path != result.output_path:
+        if plan.output_path.resolve() != result.output_path.resolve():
             raise ValueError("plan and result output paths must match")
         if plan.export_format != result.export_format:
             raise ValueError("plan and result export formats must match")
