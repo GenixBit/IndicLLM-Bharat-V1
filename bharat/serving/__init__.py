@@ -8,6 +8,8 @@ from bharat.serving.export_writer import (
     ExportWriter,
     ExportWriteResult,
     ExportWriterRegistry,
+    LocalGGUFF32ExportWriter,
+    LocalGGUFQ8_0ExportWriter,
     LocalSafetensorsExportWriter,
 )
 from bharat.serving.gguf_reader import GGUFReadResult, GGUFReadTensor, read_gguf_subset
@@ -67,6 +69,8 @@ __all__ = [
     "GGUFTensorInventoryEntry",
     "GGUFTensorWriteResult",
     "GGUFWriteResult",
+    "LocalGGUFF32ExportWriter",
+    "LocalGGUFQ8_0ExportWriter",
     "LocalSafetensorsExportWriter",
     "FunctionCall",
     "FunctionSpec",

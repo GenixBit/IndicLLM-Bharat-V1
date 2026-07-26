@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from bharat.serving.export import GGUF_TENSOR_TYPE_VALUES
 from bharat.serving.export_inventory import CheckpointInventory
 
 _ALLOWED_VALUE_TYPES = frozenset({"bool", "float", "int", "string"})
@@ -28,6 +29,14 @@ class GGUFPreflightResult:
     tensor_count: int
     output_file: str
     metadata: tuple[GGUFMetadataEntry, ...]
+    gguf_tensor_type: str = "f32"
+
+    def __post_init__(self) -> None:
+        if self.gguf_tensor_type not in GGUF_TENSOR_TYPE_VALUES:
+            raise ValueError(
+                f"gguf_tensor_type must be one of {sorted(GGUF_TENSOR_TYPE_VALUES)}, "
+                f"got {self.gguf_tensor_type!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -37,6 +46,7 @@ class GGUFPreflightResult:
             "tensor_count": self.tensor_count,
             "output_file": self.output_file,
             "metadata": [entry.to_dict() for entry in self.metadata],
+            "gguf_tensor_type": self.gguf_tensor_type,
         }
 
     def to_json(self, indent: int = 2) -> str:
@@ -92,8 +102,14 @@ def _parse_metadata_entry(value: object) -> GGUFMetadataEntry:
 def validate_gguf_preflight(
     inventory: CheckpointInventory,
     metadata_path: Path,
+    gguf_tensor_type: str = "f32",
 ) -> GGUFPreflightResult:
     """Validate local GGUF export metadata without reading tensor payloads."""
+    if gguf_tensor_type not in GGUF_TENSOR_TYPE_VALUES:
+        raise ValueError(
+            f"gguf_tensor_type must be one of {sorted(GGUF_TENSOR_TYPE_VALUES)}, "
+            f"got {gguf_tensor_type!r}"
+        )
     if not metadata_path.exists():
         raise ValueError(f"metadata path does not exist: {metadata_path}")
     if not metadata_path.is_file():
@@ -155,4 +171,5 @@ def validate_gguf_preflight(
         tensor_count=tensor_count,
         output_file=output_file,
         metadata=metadata,
+        gguf_tensor_type=gguf_tensor_type,
     )

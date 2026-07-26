@@ -78,6 +78,12 @@ def main() -> None:
         action="store_true",
         help="Execute a real local export. Without this flag, the command remains a dry-run.",
     )
+    parser.add_argument(
+        "--gguf-tensor-type",
+        default="f32",
+        choices=["f32", "q8_0"],
+        help="GGUF tensor type (default: f32)",
+    )
 
     args = parser.parse_args()
 
@@ -106,9 +112,23 @@ def main() -> None:
         )
         sys.exit(1)
 
+    if args.gguf_tensor_type != "f32" and args.format != "gguf":
+        print(
+            "error: --gguf-tensor-type q8_0 requires --format gguf",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if args.execute and args.format == "gguf" and args.gguf_metadata_path is None:
         print(
             "error: --gguf-metadata-path is required for real GGUF execution",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if args.execute and args.gguf_tensor_type == "q8_0" and args.gguf_metadata_path is None:
+        print(
+            "error: --gguf-metadata-path is required for Q8_0 GGUF execution",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -122,6 +142,7 @@ def main() -> None:
             export_format=args.format,
             model_name=args.model_name,
             dry_run=dry_run,
+            gguf_tensor_type=args.gguf_tensor_type,
         )
         plan = build_export_plan(request)
 
@@ -165,6 +186,7 @@ def main() -> None:
             gguf_preflight = validate_gguf_preflight(
                 inventory,
                 Path(args.gguf_metadata_path),
+                gguf_tensor_type=args.gguf_tensor_type,
             )
 
         writer_readiness = None
@@ -178,7 +200,10 @@ def main() -> None:
                 Path(args.manifest_path),
             )
 
-        registry = ExportWriterRegistry(gguf_preflight=gguf_preflight)
+        registry = ExportWriterRegistry(
+            gguf_preflight=gguf_preflight,
+            gguf_tensor_type=args.gguf_tensor_type,
+        )
         result = registry.write(plan)
 
         if not plan.dry_run:
@@ -203,6 +228,13 @@ def main() -> None:
         "writer_name": result.writer_name,
         "bytes_written": result.bytes_written,
     }
+
+    if result.gguf_tensor_type is not None:
+        output["gguf_tensor_type"] = result.gguf_tensor_type
+    if result.f32_tensor_count is not None:
+        output["f32_tensor_count"] = result.f32_tensor_count
+    if result.q8_0_tensor_count is not None:
+        output["q8_0_tensor_count"] = result.q8_0_tensor_count
 
     if export_path_readiness is not None:
         output["export_path_readiness"] = export_path_readiness.to_dict()

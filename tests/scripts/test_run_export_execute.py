@@ -9,7 +9,9 @@ import pytest
 import torch
 
 from bharat.serving.export import ExportRequest, build_export_plan
-from bharat.serving.export_writer import ExportWriterRegistry
+from bharat.serving.export_writer import ExportWriteResult, ExportWriterRegistry
+from bharat.serving.gguf_preflight import GGUFPreflightResult
+from bharat.serving.gguf_writer import GGML_TYPE_Q8_0
 
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -1214,3 +1216,889 @@ class TestRegistrySelection:
         )
         with pytest.raises(ValueError, match="duplicate writer"):
             ExportWriterRegistry(writers)
+
+
+# ===================================================================
+# Q8_0 Integration Tests
+# ===================================================================
+
+
+def _q8_0_checkpoint(
+    tmp_path: Path,
+    tensors: dict[str, tuple[tuple[int, ...], torch.dtype, list[float]]] | None = None,
+) -> Path:
+    cp = tmp_path / "checkpoint"
+    cp.mkdir(parents=True, exist_ok=True)
+    if tensors is None:
+        tensors = {
+            "weight": ((32,), torch.float32, [float(i + 1) for i in range(32)]),
+            "bias": ((32,), torch.float32, [0.1 * i for i in range(32)]),
+        }
+    torch.save(_make_state_dict(tensors), cp / "model.pt")
+    (cp / "model.gguf").write_bytes(b"placeholder")
+    return cp
+
+
+def _q8_0_metadata(tensor_count: int = 2) -> dict:
+    return {
+        "schema_version": 1,
+        "architecture": "bharat",
+        "alignment": 32,
+        "tensor_count": tensor_count,
+        "output_file": "model.gguf",
+        "metadata": [{"key": "general.name", "value_type": "string", "value": "Bharat"}],
+    }
+
+
+# ---------------------------------------------------------------------------
+# 10. Backward compatibility (Q8_0 flag must not affect existing behavior)
+# ---------------------------------------------------------------------------
+
+
+class TestQ80BackwardCompat:
+    def test_gguf_defaults_to_f32(self) -> None:
+        assert (
+            ExportRequest(
+                checkpoint_path=Path("ckpt"),
+                output_path=Path("out.gguf"),
+                export_format="gguf",
+                model_name="m",
+            ).gguf_tensor_type
+            == "f32"
+        )
+
+    def test_existing_f32_dry_run_json_unchanged(self, tmp_path: Path) -> None:
+        cp = _gguf_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+            ]
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["dry_run"] is True
+        assert data["writer_name"] == "gguf-dry-run"
+        assert data["bytes_written"] == 0
+        assert data.get("gguf_tensor_type") == "f32"
+
+    def test_existing_f32_execute_path_unchanged(self, tmp_path: Path) -> None:
+        cp = _gguf_checkpoint(tmp_path)
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_gguf_metadata()))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--execute",
+            ]
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["writer_name"] == "gguf-f32-local"
+        assert data["dry_run"] is False
+        assert data["gguf_tensor_type"] == "f32"
+
+    def test_safetensors_dry_run_unchanged(self, tmp_path: Path) -> None:
+        cp = _bharat_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.safetensors"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "safetensors",
+                "--model-name",
+                "bharat-local",
+            ]
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["writer_name"] == "safetensors-dry-run"
+        assert "gguf_tensor_type" not in data
+
+    def test_safetensors_execution_unchanged(self, tmp_path: Path) -> None:
+        cp = _bharat_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.safetensors"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "safetensors",
+                "--model-name",
+                "bharat-local",
+                "--execute",
+            ]
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["writer_name"] == "safetensors-local"
+        assert "gguf_tensor_type" not in data
+
+
+# ---------------------------------------------------------------------------
+# 11. Argument handling
+# ---------------------------------------------------------------------------
+
+
+class TestQ80ArgumentHandling:
+    def test_q8_0_requires_gguf_format(self, tmp_path: Path) -> None:
+        cp = _bharat_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.safetensors"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "safetensors",
+                "--model-name",
+                "bharat-local",
+                "--gguf-tensor-type",
+                "q8_0",
+            ]
+        )
+        assert result.returncode != 0
+        assert "requires --format gguf" in result.stderr
+
+    def test_unknown_tensor_type_rejected(self, tmp_path: Path) -> None:
+        cp = _bharat_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-tensor-type",
+                "q4_0",
+            ]
+        )
+        assert result.returncode != 0
+        # argparse rejects invalid choices before our handler runs
+
+    def test_q8_0_execute_requires_metadata(self, tmp_path: Path) -> None:
+        cp = _q8_0_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        assert result.returncode != 0
+        assert "metadata-path" in result.stderr
+
+    def test_q8_0_dry_run_creates_no_output(self, tmp_path: Path) -> None:
+        cp = _q8_0_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-tensor-type",
+                "q8_0",
+            ]
+        )
+        assert result.returncode == 0
+        assert not out.exists()
+        data = json.loads(result.stdout)
+        assert data["gguf_tensor_type"] == "q8_0"
+        assert data["dry_run"] is True
+        assert data["bytes_written"] == 0
+
+    def test_q8_0_not_selected_implicitly(self, tmp_path: Path) -> None:
+        cp = _gguf_checkpoint(tmp_path)
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir()
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+            ]
+        )
+        data = json.loads(result.stdout)
+        assert data.get("gguf_tensor_type") == "f32"
+        assert data["writer_name"] == "gguf-dry-run"
+
+
+# ---------------------------------------------------------------------------
+# 12. Registry selection
+# ---------------------------------------------------------------------------
+
+
+class TestQ80RegistrySelection:
+    def test_f32_plan_selects_f32_writer(self) -> None:
+        build_export_plan(
+            ExportRequest(
+                checkpoint_path=Path("checkpoints/bharat"),
+                output_path=Path("exports/bharat.gguf"),
+                export_format="gguf",
+                model_name="bharat-local",
+                dry_run=False,
+                gguf_tensor_type="f32",
+            )
+        )
+        preflight = GGUFPreflightResult(
+            schema_version=1,
+            architecture="bharat",
+            alignment=32,
+            tensor_count=2,
+            output_file="model.gguf",
+            metadata=(),
+            gguf_tensor_type="f32",
+        )
+        registry = ExportWriterRegistry(gguf_preflight=preflight, gguf_tensor_type="f32")
+        writer = registry.get("gguf", dry_run=False)
+        assert writer.name == "gguf-f32-local"
+
+    def test_q8_0_plan_selects_q8_0_writer(self) -> None:
+        build_export_plan(
+            ExportRequest(
+                checkpoint_path=Path("checkpoints/bharat"),
+                output_path=Path("exports/bharat.gguf"),
+                export_format="gguf",
+                model_name="bharat-local",
+                dry_run=False,
+                gguf_tensor_type="q8_0",
+            )
+        )
+        preflight = GGUFPreflightResult(
+            schema_version=1,
+            architecture="bharat",
+            alignment=32,
+            tensor_count=2,
+            output_file="model.gguf",
+            metadata=(),
+            gguf_tensor_type="q8_0",
+        )
+        registry = ExportWriterRegistry(gguf_preflight=preflight, gguf_tensor_type="q8_0")
+        writer = registry.get("gguf", dry_run=False)
+        assert writer.name == "gguf-q8_0-local"
+
+    def test_dry_run_selects_dry_run_writer(self) -> None:
+        build_export_plan(
+            ExportRequest(
+                checkpoint_path=Path("checkpoints/bharat"),
+                output_path=Path("exports/bharat.gguf"),
+                export_format="gguf",
+                model_name="bharat-local",
+                gguf_tensor_type="q8_0",
+            )
+        )
+        registry = ExportWriterRegistry(gguf_tensor_type="q8_0")
+        writer = registry.get("gguf", dry_run=True)
+        assert writer.name == "gguf-dry-run"
+
+    def test_missing_q8_0_preflight_fails(self) -> None:
+        plan = build_export_plan(
+            ExportRequest(
+                checkpoint_path=Path("checkpoints/bharat"),
+                output_path=Path("exports/bharat.gguf"),
+                export_format="gguf",
+                model_name="bharat-local",
+                dry_run=False,
+                gguf_tensor_type="q8_0",
+            )
+        )
+        registry = ExportWriterRegistry(gguf_tensor_type="q8_0")
+        with pytest.raises(ValueError, match="no execute writer registered"):
+            registry.write(plan)
+
+    def test_no_global_state_leaks(self) -> None:
+        reg1 = ExportWriterRegistry(gguf_tensor_type="f32")
+        reg2 = ExportWriterRegistry(gguf_tensor_type="q8_0")
+        assert reg1.get("gguf", dry_run=True).name == "gguf-dry-run"
+        assert reg2.get("gguf", dry_run=True).name == "gguf-dry-run"
+
+
+# ---------------------------------------------------------------------------
+# 13. Successful Q8_0 execution
+# ---------------------------------------------------------------------------
+
+
+class TestQ80SuccessfulExecution:
+    def _run(self, tmp_path: Path, tensors: dict | None = None, tensor_count: int = 2):
+        cp = _q8_0_checkpoint(tmp_path, tensors)
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata(tensor_count=tensor_count)))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        return result, out
+
+    def test_tiny_32_element_tensor_exports(self, tmp_path: Path) -> None:
+        tensors = {
+            "weight": ((32,), torch.float32, [float(i + 1) for i in range(32)]),
+        }
+        result, out = self._run(tmp_path, tensors, tensor_count=1)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert out.exists()
+
+    def test_multi_block_tensor_exports(self, tmp_path: Path) -> None:
+        tensors = {
+            "weight": ((64,), torch.float32, [float(i + 1) for i in range(64)]),
+        }
+        result, out = self._run(tmp_path, tensors, tensor_count=1)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert out.exists()
+
+    def test_plain_state_dict_works(self, tmp_path: Path) -> None:
+        cp = tmp_path / "plain_q8"
+        cp.mkdir()
+        torch.save(
+            {"weight": torch.tensor([float(i + 1) for i in range(32)], dtype=torch.float32)},
+            cp / "model.pt",
+        )
+        (cp / "model.gguf").write_bytes(b"placeholder")
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata(tensor_count=1)))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert out.exists()
+
+    def test_model_state_dict_works(self, tmp_path: Path) -> None:
+        cp = tmp_path / "model_dict_q8"
+        cp.mkdir()
+        torch.save(
+            {
+                "model": {
+                    "weight": torch.tensor([float(i + 1) for i in range(32)], dtype=torch.float32)
+                }
+            },
+            cp / "model.pt",
+        )
+        (cp / "model.gguf").write_bytes(b"placeholder")
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata(tensor_count=1)))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert out.exists()
+
+    def test_output_starts_with_gguf_magic(self, tmp_path: Path) -> None:
+        result, out = self._run(tmp_path)
+        assert result.returncode == 0
+        payload = out.read_bytes()
+        assert _parse_gguf_magic(payload)
+
+    def test_reader_reports_q8_0_type(self, tmp_path: Path) -> None:
+        result, out = self._run(tmp_path)
+        assert result.returncode == 0
+        from bharat.serving.gguf_reader import read_gguf_subset
+
+        read_result = read_gguf_subset(out)
+        for tensor in read_result.tensors:
+            assert tensor.ggml_type == GGML_TYPE_Q8_0, f"{tensor.name} is {tensor.ggml_type}"
+
+    def test_descriptor_count_matches_tensor_count(self, tmp_path: Path) -> None:
+        result, out = self._run(tmp_path)
+        assert result.returncode == 0
+        from bharat.serving.gguf_reader import read_gguf_subset
+
+        read_result = read_gguf_subset(out)
+        assert len(read_result.tensors) == 2
+
+    def test_tensor_names_preserved(self, tmp_path: Path) -> None:
+        result, out = self._run(tmp_path)
+        assert result.returncode == 0
+        from bharat.serving.gguf_reader import read_gguf_subset
+
+        read_result = read_gguf_subset(out)
+        names = {t.name for t in read_result.tensors}
+        assert "weight" in names
+        assert "bias" in names
+
+    def test_bytes_written_equals_file_size(self, tmp_path: Path) -> None:
+        result, out = self._run(tmp_path)
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["bytes_written"] == out.stat().st_size
+
+    def test_writer_name_is_q8_0_specific(self, tmp_path: Path) -> None:
+        result, out = self._run(tmp_path)
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["writer_name"] == "gguf-q8_0-local"
+
+    def test_json_reports_q8_0(self, tmp_path: Path) -> None:
+        result, out = self._run(tmp_path)
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["gguf_tensor_type"] == "q8_0"
+
+    def test_repeated_exports_byte_identical(self, tmp_path: Path) -> None:
+        tensors = {
+            "weight": ((32,), torch.float32, [float(i + 1) for i in range(32)]),
+            "bias": ((32,), torch.float32, [0.1 * i for i in range(32)]),
+        }
+        (tmp_path / "cp1").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "cp2").mkdir(parents=True, exist_ok=True)
+        cp1 = _q8_0_checkpoint(tmp_path / "cp1", tensors)
+        cp2 = _q8_0_checkpoint(tmp_path / "cp2", tensors)
+        meta1 = tmp_path / "meta1.json"
+        meta1.write_text(json.dumps(_q8_0_metadata()))
+        meta2 = tmp_path / "meta2.json"
+        meta2.write_text(json.dumps(_q8_0_metadata()))
+        out1 = tmp_path / "out1.gguf"
+        out2 = tmp_path / "out2.gguf"
+
+        def _run(cp, meta, out):
+            return run_cli(
+                [
+                    "--checkpoint-path",
+                    str(cp),
+                    "--output-path",
+                    str(out),
+                    "--format",
+                    "gguf",
+                    "--model-name",
+                    "bharat-local",
+                    "--gguf-metadata-path",
+                    str(meta),
+                    "--gguf-tensor-type",
+                    "q8_0",
+                    "--execute",
+                ]
+            )
+
+        r1 = _run(cp1, meta1, out1)
+        assert r1.returncode == 0
+        r2 = _run(cp2, meta2, out2)
+        assert r2.returncode == 0
+
+        assert out1.read_bytes() == out2.read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# 14. Manifest with Q8_0
+# ---------------------------------------------------------------------------
+
+
+class TestQ80Manifest:
+    def test_manifest_records_q8_0(self, tmp_path: Path) -> None:
+        cp = _q8_0_checkpoint(tmp_path)
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata()))
+        out = tmp_path / "exports" / "bharat.gguf"
+        manifest = tmp_path / "manifest.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--manifest-path",
+                str(manifest),
+                "--execute",
+            ]
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        manifest_data = json.loads(manifest.read_text())
+        assert manifest_data["gguf_tensor_type"] == "q8_0"
+        assert manifest_data["q8_0_tensor_count"] == 2
+        assert manifest_data["f32_tensor_count"] == 0
+        assert manifest_data["writer_name"] == "gguf-q8_0-local"
+        assert manifest_data["dry_run"] is False
+
+    def test_manifest_not_written_on_q8_0_failure(self, tmp_path: Path) -> None:
+        cp = _q8_0_checkpoint(tmp_path)
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata(tensor_count=99)))
+        out = tmp_path / "exports" / "bharat.gguf"
+        manifest = tmp_path / "manifest.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--manifest-path",
+                str(manifest),
+                "--execute",
+            ]
+        )
+        assert result.returncode != 0
+        assert not manifest.exists()
+
+
+# ---------------------------------------------------------------------------
+# 15. Failure tests
+# ---------------------------------------------------------------------------
+
+
+class TestQ80Failure:
+    def _run_failing(self, tmp_path: Path, tensors, tensor_count: int = 1):
+        cp = tmp_path / "failing_cp"
+        cp.mkdir()
+        torch.save(tensors, cp / "model.pt")
+        (cp / "model.gguf").write_bytes(b"placeholder")
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata(tensor_count=tensor_count)))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        return result, out
+
+    def test_f16_rejected(self, tmp_path: Path) -> None:
+        result, out = self._run_failing(
+            tmp_path, {"weight": torch.tensor([1.0], dtype=torch.float16)}
+        )
+        assert result.returncode != 0
+        assert not out.exists()
+
+    def test_empty_tensor_rejected(self, tmp_path: Path) -> None:
+        result, out = self._run_failing(tmp_path, {"weight": torch.tensor([], dtype=torch.float32)})
+        assert result.returncode != 0
+        assert not out.exists()
+
+    def test_partial_block_rejected(self, tmp_path: Path) -> None:
+        result, out = self._run_failing(
+            tmp_path, {"weight": torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32)}
+        )
+        assert result.returncode != 0
+        assert not out.exists()
+
+    def test_nan_rejected(self, tmp_path: Path) -> None:
+        result, out = self._run_failing(
+            tmp_path,
+            {"weight": torch.tensor([float("nan")] + [1.0] * 31, dtype=torch.float32)},
+            tensor_count=1,
+        )
+        assert result.returncode != 0
+        assert not out.exists()
+
+    def test_inf_rejected(self, tmp_path: Path) -> None:
+        result, out = self._run_failing(
+            tmp_path,
+            {"weight": torch.tensor([float("inf")] + [1.0] * 31, dtype=torch.float32)},
+            tensor_count=1,
+        )
+        assert result.returncode != 0
+        assert not out.exists()
+
+    def test_existing_output_rejected(self, tmp_path: Path) -> None:
+        cp = _q8_0_checkpoint(tmp_path)
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata()))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("existing")
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        assert result.returncode != 0
+        assert out.read_text() == "existing"
+
+    def test_no_partial_success_json(self, tmp_path: Path) -> None:
+        cp = _q8_0_checkpoint(tmp_path)
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata(tensor_count=99)))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        assert result.returncode != 0
+        assert result.stdout.strip() == ""
+
+    def test_no_f32_fallback(self, tmp_path: Path) -> None:
+        cp = _q8_0_checkpoint(tmp_path)
+        meta = tmp_path / "meta.json"
+        meta.write_text(json.dumps(_q8_0_metadata(tensor_count=99)))
+        out = tmp_path / "exports" / "bharat.gguf"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result = run_cli(
+            [
+                "--checkpoint-path",
+                str(cp),
+                "--output-path",
+                str(out),
+                "--format",
+                "gguf",
+                "--model-name",
+                "bharat-local",
+                "--gguf-metadata-path",
+                str(meta),
+                "--gguf-tensor-type",
+                "q8_0",
+                "--execute",
+            ]
+        )
+        assert result.returncode != 0
+        assert not out.exists()
+
+
+# ---------------------------------------------------------------------------
+# 16. GGUF tensor type in preflight
+# ---------------------------------------------------------------------------
+
+
+class TestGGUFPreflightTensorType:
+    def test_gguf_tensor_type_in_preflight(self, tmp_path: Path) -> None:
+        result = GGUFPreflightResult(
+            schema_version=1,
+            architecture="bharat",
+            alignment=32,
+            tensor_count=2,
+            output_file="model.gguf",
+            metadata=(),
+            gguf_tensor_type="q8_0",
+        )
+        d = result.to_dict()
+        assert d["gguf_tensor_type"] == "q8_0"
+
+    def test_unsupported_tensor_type_rejected(self) -> None:
+        with pytest.raises(ValueError, match="gguf_tensor_type must be one of"):
+            GGUFPreflightResult(
+                schema_version=1,
+                architecture="bharat",
+                alignment=32,
+                tensor_count=2,
+                output_file="model.gguf",
+                metadata=(),
+                gguf_tensor_type="q4_0",
+            )
+
+    def test_preflight_f32_default(self) -> None:
+        result = GGUFPreflightResult(
+            schema_version=1,
+            architecture="bharat",
+            alignment=32,
+            tensor_count=2,
+            output_file="model.gguf",
+            metadata=(),
+        )
+        assert result.gguf_tensor_type == "f32"
+
+
+# ---------------------------------------------------------------------------
+# 17. ExportRequest validation
+# ---------------------------------------------------------------------------
+
+
+class TestExportRequestValidation:
+    def test_gguf_tensor_type_valid(self) -> None:
+        ExportRequest(
+            checkpoint_path=Path("ckpt"),
+            output_path=Path("out.gguf"),
+            export_format="gguf",
+            model_name="m",
+            gguf_tensor_type="q8_0",
+        )
+
+    def test_gguf_tensor_type_invalid(self) -> None:
+        with pytest.raises(ValueError, match="gguf_tensor_type must be one of"):
+            ExportRequest(
+                checkpoint_path=Path("ckpt"),
+                output_path=Path("out.gguf"),
+                export_format="gguf",
+                model_name="m",
+                gguf_tensor_type="q4_0",
+            )
+
+    def test_q8_0_with_non_gguf_rejected(self) -> None:
+        with pytest.raises(ValueError, match="requires --format gguf"):
+            ExportRequest(
+                checkpoint_path=Path("ckpt"),
+                output_path=Path("out.safetensors"),
+                export_format="safetensors",
+                model_name="m",
+                gguf_tensor_type="q8_0",
+            )
+
+
+# ---------------------------------------------------------------------------
+# 18. ExportWriter validation
+# ---------------------------------------------------------------------------
+
+
+class TestExportWriteResultValidation:
+    def test_gguf_tensor_type_in_result(self) -> None:
+        r = ExportWriteResult(
+            output_path=Path("out.gguf"),
+            export_format="gguf",
+            writer_name="gguf-q8_0-local",
+            dry_run=False,
+            bytes_written=100,
+            gguf_tensor_type="q8_0",
+        )
+        d = r.to_dict()
+        assert d["gguf_tensor_type"] == "q8_0"
+
+    def test_unsupported_gguf_tensor_type_rejected(self) -> None:
+        with pytest.raises(ValueError, match="gguf_tensor_type must be one of"):
+            ExportWriteResult(
+                output_path=Path("out.gguf"),
+                export_format="gguf",
+                writer_name="test",
+                gguf_tensor_type="q4_0",
+            )
