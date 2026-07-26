@@ -90,11 +90,13 @@ class ExportWriterRegistry:
         self._writers: dict[tuple[ExportFormat, bool], ExportWriter] = {}
         if writers is None:
             self._writers[("safetensors", True)] = DryRunExportWriter(  # type: ignore[assignment]
-                name="safetensors-dry-run", export_format="safetensors",
+                name="safetensors-dry-run",
+                export_format="safetensors",
             )
             self._writers[("safetensors", False)] = LocalSafetensorsExportWriter()  # type: ignore[assignment]
             self._writers[("gguf", True)] = DryRunExportWriter(  # type: ignore[assignment]
-                name="gguf-dry-run", export_format="gguf",
+                name="gguf-dry-run",
+                export_format="gguf",
             )
         else:
             for writer in writers:
