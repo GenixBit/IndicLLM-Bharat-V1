@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -69,17 +69,25 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: astral-sh/ruff-action@v4.1.0
         with:
           version: "0.5.0"
-          args: "format ."
-      - name: Show exact Ruff formatting diff
+          args: "format bharat/serving/safetensors_writer.py"
+      - name: Commit exact Ruff output
         run: |
-          git diff -- bharat/serving/safetensors_writer.py
-          exit 1
+          if git diff --quiet -- bharat/serving/safetensors_writer.py; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bharat/serving/safetensors_writer.py
+          git commit -m "style: apply pinned Ruff formatting"
+          git push origin HEAD:${{ github.head_ref }}
 
   lint:
     needs: changes
