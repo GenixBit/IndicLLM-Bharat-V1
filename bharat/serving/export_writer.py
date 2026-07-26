@@ -140,6 +140,25 @@ def _load_f32_state_dict(checkpoint_path: Path) -> dict[str, torch.Tensor]:
     return {str(name): tensor for name, tensor in state_dict.items()}
 
 
+def _validate_gguf_tensor_type(
+    *,
+    writer_name: str,
+    expected: str,
+    plan: ExportPlan,
+    preflight: GGUFPreflightResult,
+) -> None:
+    if plan.gguf_tensor_type != expected:
+        raise ValueError(
+            f"writer {writer_name!r} requires gguf_tensor_type {expected!r}, "
+            f"got {plan.gguf_tensor_type!r}"
+        )
+    if preflight.gguf_tensor_type != expected:
+        raise ValueError(
+            f"writer {writer_name!r} requires preflight gguf_tensor_type {expected!r}, "
+            f"got {preflight.gguf_tensor_type!r}"
+        )
+
+
 @dataclass(frozen=True)
 class LocalGGUFF32ExportWriter:
     preflight: GGUFPreflightResult
@@ -151,6 +170,12 @@ class LocalGGUFF32ExportWriter:
             raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
         if plan.dry_run:
             raise ValueError("real GGUF writer requires a non-dry-run export plan")
+        _validate_gguf_tensor_type(
+            writer_name=self.name,
+            expected="f32",
+            plan=plan,
+            preflight=self.preflight,
+        )
         tensors = _load_f32_state_dict(plan.checkpoint_path)
         result = write_gguf_f32_tensors(self.preflight, tensors, plan.output_path.resolve())
         return ExportWriteResult(
@@ -176,6 +201,12 @@ class LocalGGUFQ8_0ExportWriter:  # noqa: N801
             raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
         if plan.dry_run:
             raise ValueError("real GGUF writer requires a non-dry-run export plan")
+        _validate_gguf_tensor_type(
+            writer_name=self.name,
+            expected="q8_0",
+            plan=plan,
+            preflight=self.preflight,
+        )
         tensors = _load_f32_state_dict(plan.checkpoint_path)
         result = write_gguf_q8_0_tensors(self.preflight, tensors, plan.output_path.resolve())
         return ExportWriteResult(
@@ -198,6 +229,20 @@ class ExportWriterRegistry:
         gguf_preflight: GGUFPreflightResult | None = None,
         gguf_tensor_type: str = "f32",
     ) -> None:
+        if gguf_tensor_type not in GGUF_TENSOR_TYPE_VALUES:
+            raise ValueError(
+                f"unsupported GGUF tensor type: {gguf_tensor_type!r}; "
+                f"expected one of {sorted(GGUF_TENSOR_TYPE_VALUES)}"
+            )
+        if (
+            gguf_preflight is not None
+            and gguf_preflight.gguf_tensor_type != gguf_tensor_type
+        ):
+            raise ValueError(
+                "GGUF preflight tensor type does not match registry selection: "
+                f"{gguf_preflight.gguf_tensor_type!r} != {gguf_tensor_type!r}"
+            )
+
         self._writers: dict[tuple[ExportFormat, bool], ExportWriter] = {}
         if writers is None:
             self._writers[("safetensors", True)] = DryRunExportWriter(  # type: ignore[assignment]
@@ -214,14 +259,9 @@ class ExportWriterRegistry:
                     self._writers[("gguf", False)] = LocalGGUFF32ExportWriter(  # type: ignore[assignment]
                         preflight=gguf_preflight,
                     )
-                elif gguf_tensor_type == "q8_0":
+                else:
                     self._writers[("gguf", False)] = LocalGGUFQ8_0ExportWriter(  # type: ignore[assignment]
                         preflight=gguf_preflight,
-                    )
-                else:
-                    raise ValueError(
-                        f"unsupported GGUF tensor type: {gguf_tensor_type!r}; "
-                        f"expected one of {sorted(GGUF_TENSOR_TYPE_VALUES)}"
                     )
         else:
             for writer in writers:
