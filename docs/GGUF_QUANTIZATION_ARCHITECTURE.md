@@ -210,21 +210,20 @@ GGUFQuantTensorWriter
 New argument:
 
 ```
---quantize {none,f32,q8_0}    Quantization scheme for GGUF tensors (default: none)
+--gguf-tensor-type {f32,q8_0}    GGUF tensor type (default: f32)
 ```
 
-- `--quantize f32` — equivalent to current F32-only behaviour.
-- `--quantize none` — same as `f32` (dry-run default).
-- `--quantize q8_0` — enable Q8_0 quantization.
+- `--gguf-tensor-type f32` — equivalent to current F32-only behaviour (default).
+- `--gguf-tensor-type q8_0` — enable Q8_0 quantization.
 - Requires `--format gguf`.
-- Must be consistent with `--gguf-metadata-path` metadata (if present, the `quantization` field in metadata must match).
+- Must be consistent with `--gguf-metadata-path` metadata.
 
 Validation flow with quantization:
 
 1. Parse CLI arguments.
-2. If `--quantize` set to anything other than `none`/`f32`, verify `--format gguf` (error if safetensors).
-3. Preflight: validate metadata JSON; extract `quantization` field.
-4. Writer selection: `quantization` determines which `ExportWriter` is selected from the registry.
+2. If `--gguf-tensor-type` is `q8_0`, verify `--format gguf` (error if safetensors).
+3. Preflight: validate metadata JSON; tensor type validated.
+4. Writer selection: `gguf_tensor_type` determines which `ExportWriter` is selected from the registry.
 5. Tensor loading + quantization (if applicable).
 6. Atomic write + manifest.
 
