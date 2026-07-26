@@ -34,9 +34,18 @@ def _plan(checkpoint_path: Path, output_path: Path):
 def test_registry_executes_local_gguf_f32_writer(tmp_path: Path) -> None:
     checkpoint = tmp_path / "model.pt"
     output = tmp_path / "model.gguf"
-    torch.save({"model": {"weight": torch.tensor([[1.0, 2.0]], dtype=torch.float32)}}, checkpoint)
+    torch.save(
+        {
+            "model": {
+                "weight": torch.tensor([[1.0, 2.0]], dtype=torch.float32)
+            }
+        },
+        checkpoint,
+    )
 
-    result = ExportWriterRegistry(gguf_preflight=_preflight()).write(_plan(checkpoint, output))
+    result = ExportWriterRegistry(gguf_preflight=_preflight()).write(
+        _plan(checkpoint, output)
+    )
 
     assert result.writer_name == "gguf-f32-local"
     assert result.export_format == "gguf"
@@ -71,7 +80,9 @@ def test_writer_loads_checkpoint_directory_model_file(tmp_path: Path) -> None:
     )
 
     output = tmp_path / "model.gguf"
-    result = LocalGGUFF32ExportWriter(_preflight()).write(_plan(checkpoint_dir, output))
+    result = LocalGGUFF32ExportWriter(_preflight()).write(
+        _plan(checkpoint_dir, output)
+    )
 
     assert result.bytes_written > 0
     assert output.is_file()
