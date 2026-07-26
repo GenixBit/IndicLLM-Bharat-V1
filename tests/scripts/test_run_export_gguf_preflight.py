@@ -29,8 +29,8 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path]:
                 "tensor_count": 0,
                 "output_file": gguf_file.name,
                 "metadata": [
-                    {"key": "general.name", "value_type": "string"},
-                    {"key": "general.file_type", "value_type": "int"},
+                    {"key": "general.name", "value_type": "string", "value": "test"},
+                    {"key": "general.file_type", "value_type": "int", "value": 0},
                 ],
             },
         ),
