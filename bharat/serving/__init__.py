@@ -8,6 +8,7 @@ from bharat.serving.export_writer import (
     ExportWriter,
     ExportWriteResult,
     ExportWriterRegistry,
+    LocalSafetensorsExportWriter,
 )
 from bharat.serving.metrics import MetricsSnapshot, ServingMetrics
 from bharat.serving.rate_limit import InMemoryRateLimiter, RateLimitConfig, RateLimitResult
@@ -36,6 +37,7 @@ __all__ = [
     "ExportWriteResult",
     "ExportWriter",
     "ExportWriterRegistry",
+    "LocalSafetensorsExportWriter",
     "FunctionCall",
     "FunctionSpec",
     "InMemoryRateLimiter",

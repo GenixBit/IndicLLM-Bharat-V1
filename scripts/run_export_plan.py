@@ -28,7 +28,7 @@ def _is_remote(path: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate and dry-run an export plan for safetensors or GGUF",
+        description="Validate and run a local export plan for safetensors or GGUF",
     )
     parser.add_argument(
         "--checkpoint-path",
@@ -73,6 +73,11 @@ def main() -> None:
         action="store_true",
         help="Run writer readiness validation before the export dry-run",
     )
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Execute a real local export. Without this flag, the command remains a dry-run.",
+    )
 
     args = parser.parse_args()
 
@@ -101,12 +106,22 @@ def main() -> None:
         )
         sys.exit(1)
 
+    if args.execute and args.format == "gguf":
+        print(
+            "error: real GGUF export is not implemented; " "omit --execute for a dry-run",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    dry_run = not args.execute
+
     try:
         request = ExportRequest(
             checkpoint_path=Path(args.checkpoint_path),
             output_path=Path(args.output_path),
             export_format=args.format,
             model_name=args.model_name,
+            dry_run=dry_run,
         )
         plan = build_export_plan(request)
 
@@ -133,6 +148,7 @@ def main() -> None:
             or args.safetensors_metadata_path is not None
             or args.gguf_metadata_path is not None
             or args.validate_writer_readiness
+            or args.execute
         )
         if needs_inventory:
             inventory = build_checkpoint_inventory(plan.checkpoint_path)
@@ -152,7 +168,7 @@ def main() -> None:
             )
 
         writer_readiness = None
-        if args.validate_writer_readiness:
+        if args.validate_writer_readiness or args.execute:
             writer_readiness = validate_export_writer_readiness(plan, inventory)
 
         manifest_readiness = None

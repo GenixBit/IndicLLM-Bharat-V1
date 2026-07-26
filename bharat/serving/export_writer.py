@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from bharat.serving.export import ExportFormat, ExportPlan
+from bharat.serving.safetensors_writer import write_safetensors_checkpoint
 
 
 @dataclass(frozen=True)
@@ -60,26 +61,60 @@ class DryRunExportWriter:
         )
 
 
+@dataclass(frozen=True)
+class LocalSafetensorsExportWriter:
+    name: str = "safetensors-local"
+    export_format: ExportFormat = "safetensors"
+
+    def write(self, plan: ExportPlan) -> ExportWriteResult:
+        if plan.export_format != self.export_format:
+            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
+        if plan.dry_run:
+            raise ValueError("real safetensors writer requires a non-dry-run export plan")
+        result = write_safetensors_checkpoint(
+            checkpoint_path=plan.checkpoint_path,
+            output_path=plan.output_path,
+            model_name=plan.model_name,
+        )
+        return ExportWriteResult(
+            output_path=result.output_path,
+            export_format=self.export_format,
+            writer_name=self.name,
+            dry_run=False,
+            bytes_written=result.bytes_written,
+        )
+
+
 class ExportWriterRegistry:
     def __init__(self, writers: tuple[ExportWriter, ...] | None = None) -> None:
+        self._writers: dict[tuple[ExportFormat, bool], ExportWriter] = {}
         if writers is None:
-            selected: tuple[ExportWriter, ...] = (  # type: ignore[assignment]
-                DryRunExportWriter(name="safetensors-dry-run", export_format="safetensors"),
-                DryRunExportWriter(name="gguf-dry-run", export_format="gguf"),
+            self._writers[("safetensors", True)] = DryRunExportWriter(  # type: ignore[assignment]
+                name="safetensors-dry-run",
+                export_format="safetensors",
+            )
+            self._writers[("safetensors", False)] = LocalSafetensorsExportWriter()  # type: ignore[assignment]
+            self._writers[("gguf", True)] = DryRunExportWriter(  # type: ignore[assignment]
+                name="gguf-dry-run",
+                export_format="gguf",
             )
         else:
-            selected = writers
-        self._writers: dict[ExportFormat, ExportWriter] = {}
-        for writer in selected:
-            if writer.export_format in self._writers:
-                raise ValueError(f"duplicate writer for format {writer.export_format!r}")
-            self._writers[writer.export_format] = writer
+            for writer in writers:
+                key = (writer.export_format, True)
+                if key in self._writers:
+                    raise ValueError(f"duplicate writer for format {writer.export_format!r}")
+                self._writers[key] = writer
 
-    def get(self, export_format: ExportFormat) -> ExportWriter:
+    def get(self, export_format: ExportFormat, dry_run: bool = True) -> ExportWriter:
+        key = (export_format, dry_run)
         try:
-            return self._writers[export_format]
+            return self._writers[key]
         except KeyError as exc:
+            if not dry_run:
+                raise ValueError(
+                    f"no execute writer registered for format {export_format!r}"
+                ) from exc
             raise ValueError(f"no writer registered for format {export_format!r}") from exc
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
-        return self.get(plan.export_format).write(plan)
+        return self.get(plan.export_format, dry_run=plan.dry_run).write(plan)
