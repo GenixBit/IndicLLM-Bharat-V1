@@ -37,8 +37,8 @@ def test_registry_executes_local_gguf_f32_writer(tmp_path: Path) -> None:
     torch.save(
         {
             "model": {
-                "weight": torch.tensor([[1.0, 2.0]], dtype=torch.float32)
-            }
+                "weight": torch.tensor([[1.0, 2.0]], dtype=torch.float32),
+            },
         },
         checkpoint,
     )
@@ -67,7 +67,7 @@ def test_writer_rejects_non_f32_checkpoint(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="torch.float32"):
         LocalGGUFF32ExportWriter(_preflight()).write(
-            _plan(checkpoint, tmp_path / "model.gguf")
+            _plan(checkpoint, tmp_path / "model.gguf"),
         )
 
 
