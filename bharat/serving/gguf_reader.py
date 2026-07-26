@@ -76,15 +76,22 @@ class _Cursor:
             raise ValueError("invalid UTF-8 string in GGUF payload") from exc
 
 
-def _read_metadata_value(cursor: _Cursor, value_type: int) -> bool | float | int | str:
+def _align(value: int, alignment: int) -> int:
+    return ((value + alignment - 1) // alignment) * alignment
+
+
+def _read_metadata_value(
+    cursor: _Cursor,
+    value_type: int,
+) -> bool | float | int | str:
     if value_type == _GGUF_TYPE_BOOL:
         return bool(cursor.unpack("<?"))
     if value_type == _GGUF_TYPE_STRING:
         return cursor.string()
     if value_type == _GGUF_TYPE_INT64:
-        return cursor.unpack("<q")
+        return int(cursor.unpack("<q"))
     if value_type == _GGUF_TYPE_FLOAT64:
-        return cursor.unpack("<d")
+        return float(cursor.unpack("<d"))
     raise ValueError(f"unsupported GGUF metadata value type: {value_type}")
 
 
@@ -145,25 +152,47 @@ def read_gguf_subset(path: Path, *, alignment: int = 32) -> GGUFReadResult:
             raise ValueError(f"unsupported GGML tensor type: {ggml_type}")
         offset = cursor.unpack("<Q")
         if offset % alignment != 0 or offset <= previous_offset:
-            raise ValueError("GGUF tensor offsets must be increasing and aligned")
+            raise ValueError(
+                "GGUF tensor offsets must be increasing and aligned"
+            )
         previous_offset = offset
-        tensors.append(GGUFReadTensor(name=name, shape=shape, ggml_type=ggml_type, offset=offset))
+        tensors.append(
+            GGUFReadTensor(
+                name=name,
+                shape=shape,
+                ggml_type=ggml_type,
+                offset=offset,
+            )
+        )
     if [tensor.name for tensor in tensors] != sorted(tensor_names):
         raise ValueError("GGUF tensor names are not deterministically sorted")
 
-    data_start = ((cursor.offset + alignment - 1) // alignment) * alignment
+    data_start = _align(cursor.offset, alignment)
     if data_start > len(payload):
         raise ValueError("truncated GGUF alignment padding")
     if any(payload[cursor.offset:data_start]):
         raise ValueError("GGUF alignment padding must be zero-filled")
 
+    relative_payload_end = 0
     for tensor in tensors:
         element_count = 1
         for dim in tensor.shape:
             element_count *= dim
-        end = data_start + tensor.offset + element_count * 4
-        if end > len(payload):
-            raise ValueError(f"tensor {tensor.name!r} payload exceeds file bounds")
+        tensor_end = tensor.offset + element_count * 4
+        relative_payload_end = max(relative_payload_end, tensor_end)
+        if data_start + tensor_end > len(payload):
+            raise ValueError(
+                f"tensor {tensor.name!r} payload exceeds file bounds"
+            )
+
+    expected_file_size = data_start + _align(relative_payload_end, alignment)
+    if len(payload) < expected_file_size:
+        raise ValueError("truncated GGUF tensor payload or final padding")
+    if len(payload) > expected_file_size:
+        raise ValueError("GGUF payload contains trailing bytes")
+    final_padding_start = data_start + relative_payload_end
+    if any(payload[final_padding_start:expected_file_size]):
+        raise ValueError("GGUF final alignment padding must be zero-filled")
 
     return GGUFReadResult(
         path=path.resolve(),
