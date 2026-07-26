@@ -55,7 +55,9 @@ class DryRunExportWriter:
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         if plan.export_format != self.export_format:
-            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
+            raise ValueError(
+                f"writer {self.name!r} does not support format {plan.export_format!r}"
+            )
         if not plan.dry_run:
             raise ValueError("dry-run writer requires a dry-run export plan")
         return ExportWriteResult(
@@ -72,7 +74,9 @@ class LocalSafetensorsExportWriter:
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         if plan.export_format != self.export_format:
-            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
+            raise ValueError(
+                f"writer {self.name!r} does not support format {plan.export_format!r}"
+            )
         if plan.dry_run:
             raise ValueError("real safetensors writer requires a non-dry-run export plan")
         result = write_safetensors_checkpoint(
@@ -94,11 +98,15 @@ def _resolve_checkpoint_file(checkpoint_path: Path) -> Path:
     if resolved.is_dir():
         model_path = resolved / "model.pt"
         if not model_path.is_file():
-            raise FileNotFoundError(f"checkpoint directory {resolved} does not contain model.pt")
+            raise FileNotFoundError(
+                f"checkpoint directory {resolved} does not contain model.pt"
+            )
         return model_path
     if resolved.is_file() and resolved.suffix.lower() in (".pt", ".pth"):
         return resolved
-    raise FileNotFoundError(f"checkpoint path is not a local .pt/.pth file: {resolved}")
+    raise FileNotFoundError(
+        f"checkpoint path is not a local .pt/.pth file: {resolved}"
+    )
 
 
 def _load_f32_state_dict(checkpoint_path: Path) -> dict[str, torch.Tensor]:
@@ -106,9 +114,15 @@ def _load_f32_state_dict(checkpoint_path: Path) -> dict[str, torch.Tensor]:
     try:
         loaded = torch.load(model_path, map_location="cpu", weights_only=True)
     except Exception as exc:
-        raise ValueError(f"failed to load checkpoint {model_path} with weights_only=True: {exc}") from exc
+        raise ValueError(
+            f"failed to load checkpoint {model_path} with weights_only=True: {exc}"
+        ) from exc
 
-    state_dict: object = loaded.get("model") if isinstance(loaded, dict) and "model" in loaded else loaded
+    state_dict: object = (
+        loaded.get("model")
+        if isinstance(loaded, dict) and "model" in loaded
+        else loaded
+    )
     if not isinstance(state_dict, dict):
         raise ValueError("checkpoint must contain a state-dict mapping")
     return {str(name): tensor for name, tensor in state_dict.items()}
@@ -122,11 +136,17 @@ class LocalGGUFF32ExportWriter:
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         if plan.export_format != self.export_format:
-            raise ValueError(f"writer {self.name!r} does not support format {plan.export_format!r}")
+            raise ValueError(
+                f"writer {self.name!r} does not support format {plan.export_format!r}"
+            )
         if plan.dry_run:
             raise ValueError("real GGUF writer requires a non-dry-run export plan")
         tensors = _load_f32_state_dict(plan.checkpoint_path)
-        result = write_gguf_f32_tensors(self.preflight, tensors, plan.output_path.resolve())
+        result = write_gguf_f32_tensors(
+            self.preflight,
+            tensors,
+            plan.output_path.resolve(),
+        )
         return ExportWriteResult(
             output_path=result.output_path,
             export_format=self.export_format,
@@ -162,7 +182,9 @@ class ExportWriterRegistry:
             for writer in writers:
                 key = (writer.export_format, True)
                 if key in self._writers:
-                    raise ValueError(f"duplicate writer for format {writer.export_format!r}")
+                    raise ValueError(
+                        f"duplicate writer for format {writer.export_format!r}"
+                    )
                 self._writers[key] = writer
 
     def get(self, export_format: ExportFormat, dry_run: bool = True) -> ExportWriter:
@@ -174,7 +196,9 @@ class ExportWriterRegistry:
                 raise ValueError(
                     f"no execute writer registered for format {export_format!r}"
                 ) from exc
-            raise ValueError(f"no writer registered for format {export_format!r}") from exc
+            raise ValueError(
+                f"no writer registered for format {export_format!r}"
+            ) from exc
 
     def write(self, plan: ExportPlan) -> ExportWriteResult:
         return self.get(plan.export_format, dry_run=plan.dry_run).write(plan)
