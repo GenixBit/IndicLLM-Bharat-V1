@@ -10,6 +10,11 @@ from bharat.serving.export_writer import (
     ExportWriterRegistry,
     LocalSafetensorsExportWriter,
 )
+from bharat.serving.gguf_tensor_writer import (
+    GGUFTensorWriteResult,
+    build_gguf_f32_payload,
+    write_gguf_f32_tensors,
+)
 from bharat.serving.gguf_writer import (
     GGML_TYPE_F32,
     GGUFDescriptorResult,
@@ -53,6 +58,7 @@ __all__ = [
     "GGUFDescriptorResult",
     "GGUFTensorDescriptor",
     "GGUFTensorInventoryEntry",
+    "GGUFTensorWriteResult",
     "GGUFWriteResult",
     "LocalSafetensorsExportWriter",
     "FunctionCall",
@@ -68,9 +74,11 @@ __all__ = [
     "StreamEvent",
     "StreamRequest",
     "build_export_plan",
+    "build_gguf_f32_payload",
     "build_gguf_header",
     "build_gguf_header_and_descriptors",
     "build_gguf_tensor_descriptors",
+    "write_gguf_f32_tensors",
     "write_gguf_header",
     "write_gguf_header_and_descriptors",
     "write_safetensors_checkpoint",
