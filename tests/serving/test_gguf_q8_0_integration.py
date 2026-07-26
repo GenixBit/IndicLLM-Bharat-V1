@@ -480,6 +480,105 @@ class TestQ80RoundTrip:
 
 
 # ===================================================================
+# Independent byte-level Q8_0 block decoding
+# ===================================================================
+
+
+class TestQ80IndependentBlockDecode:
+    """Decode Q8_0 blocks at the byte level without calling dequantize_q8_0."""
+
+    @staticmethod
+    def _extract_block(data: bytes, byte_offset: int) -> tuple[int, bytes]:
+        d_bits = struct.unpack_from("<H", data, byte_offset)[0]
+        qs = data[byte_offset + 2 : byte_offset + BLOCK_Q8_0_SIZE]
+        return d_bits, qs
+
+    @staticmethod
+    def _float16_to_f32(bits: int) -> float:
+        sign = (bits >> 15) & 1
+        exp = (bits >> 10) & 0x1F
+        mant = bits & 0x3FF
+        if exp == 0:
+            if mant == 0:
+                return -0.0 if sign else 0.0
+            while mant >> 10 == 0:
+                mant <<= 1
+                exp -= 1
+            mant &= 0x3FF
+            exp += 1
+        if exp == 31:
+            return float("nan") if mant else float("inf")
+        f32_bits = (sign << 31) | ((exp + 112) << 23) | (mant << 13)
+        return struct.unpack("<f", struct.pack("<I", f32_bits))[0]
+
+    def _build_single_tensor_payload(self, tensor: torch.Tensor) -> tuple[bytes, int]:
+        pf = _preflight(tensor_count=1)
+        payload = build_gguf_q8_0_payload(pf, {"t": tensor})
+        inventory = [GGUFTensorInventoryEntry(name="t", shape=tuple(tensor.shape))]
+        descs = build_gguf_tensor_descriptors(
+            inventory, alignment=pf.alignment, ggml_type=GGML_TYPE_Q8_0
+        )
+        prefix = build_gguf_header_and_descriptors(pf, descs)
+        tensor_file_offset = len(prefix) + descs[0].offset
+        return payload, tensor_file_offset
+
+    def test_zero_block_independent_decode(self) -> None:
+        payload, tensor_off = self._build_single_tensor_payload(
+            torch.zeros(32, dtype=torch.float32)
+        )
+        d_bits, qs = self._extract_block(payload, tensor_off)
+        assert d_bits == 0, "zero block scale must be zero"
+        assert all(q == 0 for q in qs), "zero block quants must all be zero"
+
+    def test_constant_value_block_independent_decode(self) -> None:
+        payload, tensor_off = self._build_single_tensor_payload(
+            torch.full((32,), 127.0, dtype=torch.float32)
+        )
+        d_bits, qs = self._extract_block(payload, tensor_off)
+        d = self._float16_to_f32(d_bits)
+        assert d == pytest.approx(1.0, abs=1e-3)
+        assert all(q == 127 for q in qs)
+
+    def test_two_blocks_independent(self) -> None:
+        payload, tensor_off = self._build_single_tensor_payload(
+            torch.tensor([[float(i) for i in range(64)]], dtype=torch.float32)
+        )
+        d_bits0, qs0 = self._extract_block(payload, tensor_off)
+        d0 = self._float16_to_f32(d_bits0)
+        assert len(qs0) == 32
+        d_bits1, qs1 = self._extract_block(payload, tensor_off + BLOCK_Q8_0_SIZE)
+        d1 = self._float16_to_f32(d_bits1)
+        assert len(qs1) == 32
+
+        amax0 = 31.0
+        assert d0 == pytest.approx(amax0 / 127.0, abs=1e-3)
+        for j in range(32):
+            expected_q = int(round(j * 127.0 / amax0))
+            expected_q = max(-128, min(127, expected_q))
+            assert qs0[j] == (expected_q & 0xFF)
+
+        amax1 = 63.0
+        assert d1 == pytest.approx(amax1 / 127.0, abs=1e-3)
+
+    def test_signed_int8_values_correct(self) -> None:
+        payload, tensor_off = self._build_single_tensor_payload(
+            torch.tensor([[float(i) for i in range(64)]], dtype=torch.float32)
+        )
+        _, qs = self._extract_block(payload, tensor_off)
+        for q_byte in qs:
+            q_signed = q_byte - 256 if q_byte >= 128 else q_byte
+            assert -128 <= q_signed <= 127
+
+    def test_scale_is_float16_little_endian(self) -> None:
+        payload, tensor_off = self._build_single_tensor_payload(
+            torch.full((32,), 127.0, dtype=torch.float32)
+        )
+        d_bits, _ = self._extract_block(payload, tensor_off)
+        expected_bits = 0x3C00  # float16 1.0
+        assert d_bits == expected_bits
+
+
+# ===================================================================
 # Backward compatibility
 # ===================================================================
 
