@@ -22,6 +22,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "JSON dict of special token->id, e.g. " '\'{"<pad>":0,"<unk>":1,"<bos>":2,"<eos>":3}\''
         ),
     )
+    parser.add_argument(
+        "--text-field",
+        type=str,
+        default="text",
+        help="JSON field containing training text (default: text)",
+    )
     return parser
 
 
@@ -47,6 +53,7 @@ def main() -> None:
         corpus_path=args.corpus,
         vocab_size=args.vocab_size,
         special_tokens=special_tokens,
+        text_field=args.text_field,
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -54,7 +61,7 @@ def main() -> None:
 
     corpus_sha = hashlib.sha256(args.corpus.read_bytes()).hexdigest()
     print(f"Tokenizer saved to {args.output}")
-    print(f"Vocabulary size:  {len(tokenizer.vocab)}")
+    print(f"Vocabulary size:  {tokenizer.vocab_size}")
     print(f"Number of merges: {len(tokenizer.merges)}")
     print(f"Tokenizer hash:   {tokenizer.tokenizer_hash}")
     print(f"Corpus SHA-256:   {corpus_sha}")
