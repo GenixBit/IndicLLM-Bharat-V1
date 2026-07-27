@@ -58,12 +58,21 @@ def main(argv: list[str] | None = None) -> int:
     tokenizer_name = args.tokenizer_name
     names = report.get("tokenizer_names")
     if tokenizer_name is None:
-        if not isinstance(names, list) or len(names) != 1 or not isinstance(names[0], str):
-            raise ValueError("--tokenizer-name is required when the report does not contain exactly one tokenizer")
+        if (
+            not isinstance(names, list)
+            or len(names) != 1
+            or not isinstance(names[0], str)
+        ):
+            raise ValueError(
+                "--tokenizer-name is required when the report does not contain exactly one tokenizer"
+            )
         tokenizer_name = names[0]
 
     result = evaluate_tokenizer_acceptance(report, tokenizer_name, thresholds)
-    serialized = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
+    serialized = (
+        json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        + "\n"
+    )
 
     if args.output is not None:
         try:
@@ -72,7 +81,9 @@ def main(argv: list[str] | None = None) -> int:
                 handle.flush()
                 os.fsync(handle.fileno())
         except FileExistsError:
-            raise FileExistsError(f"refusing to overwrite existing file: {args.output}") from None
+            raise FileExistsError(
+                f"refusing to overwrite existing file: {args.output}"
+            ) from None
 
     print(serialized, end="")
     sys.stdout.flush()
