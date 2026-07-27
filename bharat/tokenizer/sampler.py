@@ -50,7 +50,7 @@ def _release_digest(release: dict[str, Any]) -> str:
 
 
 def _score(seed: int, record_id: str, text: str) -> bytes:
-    payload = f"{seed}\0{record_id}\0{text}".encode("utf-8")
+    payload = f"{seed}\0{record_id}\0{text}".encode()
     return hashlib.sha256(payload).digest()
 
 
@@ -81,11 +81,16 @@ def sample_tokenizer_corpus(
     audit_path = release_root / "audit_report.json"
     shards_dir = release_root / "shards"
     if not release_path.is_file() or not audit_path.is_file() or not shards_dir.is_dir():
-        raise ValueError("release must contain dataset_release.json, audit_report.json, and shards/")
+        raise ValueError(
+            "release must contain dataset_release.json, audit_report.json, and shards/"
+        )
 
     release = _load_json(release_path)
     audit = _load_json(audit_path)
-    if audit.get("approval_checks_passed") is not True or audit.get("shard_checks_passed") is not True:
+    if (
+        audit.get("approval_checks_passed") is not True
+        or audit.get("shard_checks_passed") is not True
+    ):
         raise ValueError("dataset release audit is not fully approved")
     if audit.get("dataset_id") != release.get("dataset_id"):
         raise ValueError("dataset release and audit dataset_id values differ")
@@ -93,7 +98,9 @@ def sample_tokenizer_corpus(
     candidates: list[tuple[bytes, str, str]] = []
     seen_ids: set[str] = set()
     for shard_path in sorted(shards_dir.glob("*.jsonl"), key=lambda path: path.name):
-        for line_number, raw_line in enumerate(shard_path.read_text(encoding="utf-8").splitlines(), 1):
+        for line_number, raw_line in enumerate(
+            shard_path.read_text(encoding="utf-8").splitlines(), 1
+        ):
             if not raw_line.strip():
                 continue
             value = json.loads(raw_line)
@@ -104,7 +111,9 @@ def sample_tokenizer_corpus(
             record_id = value.get("record_id")
             text = value.get("text")
             if not isinstance(record_id, str) or not record_id:
-                raise ValueError(f"record_id must be a non-empty string: {shard_path}:{line_number}")
+                raise ValueError(
+                    f"record_id must be a non-empty string: {shard_path}:{line_number}"
+                )
             if record_id in seen_ids:
                 raise ValueError(f"duplicate record_id: {record_id}")
             seen_ids.add(record_id)
