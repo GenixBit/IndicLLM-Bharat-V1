@@ -1,6 +1,6 @@
 # Milestone 6.1 — 64K BPE Tokenizer Validation Plan
 
-**Status:** Planning (not started)
+**Status:** Planning — PR A (architecture contract) open for review
 **Date:** 2026-07-27
 **Branch:** `docs/milestone-6-1-tokenizer-validation-plan`
 **PR sequence:** A (see [Phased PR Plan](#24-phased-pr-plan))
@@ -66,7 +66,8 @@ All in `bharat/tokenizer/evaluate.py`:
 - Tokens per byte
 - Unknown-token rate
 - Byte-fallback rate
-- Round-trip fidelity
+- Literal round-trip fidelity (NFC input)
+- Canonical-equivalence fidelity (any valid Unicode)
 - Script fragmentation
 - Word fragmentation
 - Numeric fragmentation
@@ -122,9 +123,9 @@ All in `bharat/tokenizer/evaluate.py`:
 
 ### 2.3 Rationale
 
-1. **Zero unknown tokens**: Byte-level BPE operates on UTF-8 bytes. Every possible Unicode string is tokenizable. This is critical for Indic languages where a vocabulary may not cover all Unicode code points.
+1. **Zero unknown tokens (qualified)**: Byte-level BPE produces no unknown tokens when the complete byte alphabet (0x00–0xFF) is correctly included in the trained vocabulary and the input is valid supported Unicode that passes the NFC normalizer without error. This is the expected behavior for all reasonable training corpora and all valid Indic/English/code input. This guarantee does **not** extend to: input rejected by the NFC normalizer, lone-surrogate Python strings, or tokenizer configurations where the byte alphabet is incomplete (which PR C tests must rule out). Unknown-token rate must be measured and reported, not assumed.
 
-2. **Inference ecosystem compatibility**: All major Llama-family models (Llama 2, Llama 3, Mistral, CodeLlama, Qwen 2) use byte-level BPE. Bharat-350M uses the same architecture family (RoPE, RMSNorm, SwiGLU, GQA). Using the same tokenizer family maximizes ecosystem compatibility for inference servers, quantization tools, and evaluation frameworks.
+2. **Inference ecosystem compatibility (qualified)**: Byte-level BPE via the `tokenizers` library is the same algorithm family used by Llama 2/3, Mistral, CodeLlama, and Qwen 2. Bharat-350M uses the same architecture family (RoPE, RMSNorm, SwiGLU, GQA). This increases the likelihood of compatibility with ecosystem tools (inference servers, quantization, evaluation) but does **not** automatically guarantee compatibility with every Llama-family tokenizer's special-token scheme, chat template, or pre-tokenizer configuration. Tokenizer-specific integration must be validated independently in PR G.
 
 3. **Whitespace preservation**: Byte-level BPE does not normalize whitespace. This is important for code (Python indentation) and Indic languages where whitespace rules differ from English.
 
@@ -159,24 +160,42 @@ SentencePiece Unigram can be effective but:
 
 ### 3.2 Composition (Training Order)
 
-| Range | Count | Type | Description |
-|-------|-------|------|-------------|
-| 0–2 | 3 | Special tokens | `<\|pad\|>`, `<\|bos\|>`, `<\|eos\|>` |
-| 3 | 1 | Reserved | Future special token |
-| 4–7 | 4 | Reserved | Chat template markers (system, user, assistant, tool) |
-| 8–10 | 3 | Reserved | Future use |
-| 11–266 | 256 | Byte tokens | Raw UTF-8 bytes 0x00–0xFF |
-| 267–63999 | 63,733 | Learned tokens | BPE merges learned from training corpus |
+Only the first 11 vocabulary slots have fixed assignments. Remainder is implementation-derived but deterministically reproducible.
 
-**Total: 3 + 1 + 4 + 3 + 256 + 63,733 = 64,000**
+| Role | Count | ID Range | Fixed? | Description |
+|------|-------|----------|--------|-------------|
+| Special tokens | 3 | 0–2 | ✅ Fixed | `<\|pad\|>`, `<\|bos\|>`, `<\|eos\|>` |
+| Reserved placeholders | 8 | 3–10 | ✅ Fixed | `<\|reserved_0\|>` through `<\|reserved_7\|>` |
+| Byte tokens | 256 | Implementation-derived | ❌ Proven by tests | Raw UTF-8 bytes 0x00–0xFF in the order the BPE trainer assigns them |
+| Learned tokens | 63,733 | Implementation-derived | ❌ Proven by tests | BPE merges learned from training corpus |
 
-### 3.3 Rationale for Reserving IDs
+**Total: 3 + 8 + 256 + 63,733 = 64,000**
 
-Reserved IDs ensure that special tokens can be added later without changing the embedding table size. The 8 reserved slots (IDs 3–10) are a reasonable buffer — enough for chat template tokens and control tokens, small enough to not waste significant vocabulary capacity.
+### 3.3 Byte-Token ID Policy
 
-### 3.4 Byte Token Range
+Byte-token IDs are **not** assumed to occupy any fixed numeric range other than "after the 11 fixed entries and before learned tokens." The `tokenizers` BPE trainer assigns byte-token IDs in the order bytes appear during training. Because training is deterministic (fixed seed, fixed data order), the mapping is reproducible, but the exact IDs depend on corpus content.
 
-IDs 11–266 represent raw bytes 0x00–0xFF. Byte-level BPE inherently covers all bytes; the specific ID assignment depends on training order. These IDs are stable once training completes.
+PR C tests must prove:
+1. Final vocabulary size is exactly 64,000.
+2. Special-token IDs 0, 1, 2 are exactly stable.
+3. Reserved placeholder IDs 3–10 are exactly stable.
+4. All 256 byte values 0x00–0xFF are representable (every valid UTF-8 input encodes without unknown tokens).
+5. Byte-token mapping is deterministic across repeated training runs.
+6. Tokenizer hash is identical across repeated runs.
+7. No learned token occupies a fixed-slot ID (0–10).
+8. Saved and reloaded tokenizers preserve every ID.
+
+### 3.4 Reserved Placeholder Tokens
+
+The 8 reserved entries (`<|reserved_0|>` through `<|reserved_7|>`) are actual special tokens occupying vocabulary slots 3–10. They:
+
+- Are added to the tokenizer before BPE training (via the `special_tokens` parameter of `BpeTrainer`).
+- Cannot be emitted from ordinary text accidentally (they never appear in training data).
+- Are excluded from BPE merge learning.
+- Remain unchanged after save/load.
+- Are documented as inactive (no embedding or LM head is trained to use them meaningfully at this stage).
+
+If a future milestone requires additional special tokens (chat template markers, FIM tokens, etc.), the inactive placeholder at the corresponding slot is activated by updating the model's embedding table initialisation. If more slots are needed, `add_special_tokens` extends the vocabulary beyond 64,000, requiring a corresponding `vocab_size` increase in the model config.
 
 ### 3.5 Vocabulary File
 
@@ -195,24 +214,30 @@ The model configuration (`vocab_size: 64000`) must exactly match the tokenizer's
 
 ### 4.1 Required Tokens and Stable IDs
 
-| Token | ID | Purpose | Immutable |
-|-------|----|---------|-----------|
-| `<\|pad\|>` | 0 | Padding | Yes |
-| `<\|bos\|>` | 1 | Beginning of sequence | Yes |
-| `<\|eos\|>` | 2 | End of sequence | Yes |
-| *Reserved* | 3 | Future use | N/A |
-| *Reserved* | 4–7 | Chat template markers | N/A |
-| *Reserved* | 8–10 | Future use | N/A |
+| Token | ID | Purpose | Immutable | Active |
+|-------|----|---------|-----------|--------|
+| `<\|pad\|>` | 0 | Padding | Yes | ✅ |
+| `<\|bos\|>` | 1 | Beginning of sequence | Yes | ✅ |
+| `<\|eos\|>` | 2 | End of sequence | Yes | ✅ |
+| `<\|reserved_0\|>` | 3 | Inactive placeholder | Yes | ❌ |
+| `<\|reserved_1\|>` | 4 | Inactive placeholder | Yes | ❌ |
+| `<\|reserved_2\|>` | 5 | Inactive placeholder | Yes | ❌ |
+| `<\|reserved_3\|>` | 6 | Inactive placeholder | Yes | ❌ |
+| `<\|reserved_4\|>` | 7 | Inactive placeholder | Yes | ❌ |
+| `<\|reserved_5\|>` | 8 | Inactive placeholder | Yes | ❌ |
+| `<\|reserved_6\|>` | 9 | Inactive placeholder | Yes | ❌ |
+| `<\|reserved_7\|>` | 10 | Inactive placeholder | Yes | ❌ |
 
 ### 4.2 No UNK Token
 
-Byte-level BPE has no unknown tokens — every byte sequence is valid. An UNK token is not needed and will not be added.
+Byte-level BPE produces no unknown tokens for any valid supported Unicode input, provided the complete byte alphabet (0x00–0xFF) is correctly included in the trained vocabulary. An UNK token is not needed and will not be added. See Section 2.3 qualification for edge cases (unsupported input, library-level normalization/preprocessing failure).
 
 ### 4.3 Special-Token Handling in Training
 
-- Special tokens are added to the tokenizer before training (`special_tokens` parameter of `BpeTrainer`)
-- They receive the lowest IDs (0, 1, 2) by virtue of being first in the special_tokens list
+- Special tokens (including reserved placeholders) are added to the tokenizer before training via the `special_tokens` parameter of `BpeTrainer`
+- They receive the lowest IDs (0–10) by virtue of being first in the `special_tokens` list, in the order listed above
 - They are not learned — they are excluded from the BPE merge learning
+- Reserved placeholders are inactive: the model may assign embeddings to them but should not be trained to produce them meaningfully
 
 ### 4.4 Adding Special Tokens After Training
 
@@ -226,67 +251,104 @@ If additional special tokens (e.g., `<|system|>`, `<|user|>`, `<|assistant|>`) a
 
 **NFC (Normalization Form C)** — Unicode canonical composition.
 
-### 5.2 Decision Rationale
+An NFC normalizer is applied to all input before byte-level BPE encoding. This means:
 
-- NFC is the standard normalization form for web text
-- Most Indic scripts are already in NFC in their standard representation
-- NFC is safe for all Indic scripts because Unicode defines no compatibility decompositions for most Indic characters (Devanagari, Bengali, Gurmukhi, Gujarati, Tamil, Telugu, Kannada, Malayalam, Odia)
-- NFC is the current default in `train_bpe_tokenizer()` (`normalizers.NFC()`)
-- NFC ensures that "é" (NFC: U+00E9) and "é" (NFD: U+0065 U+0301) produce the same token sequence
+- Input already in NFC: unchanged.
+- Input in NFD or other equivalent decompositions: composited to NFC before encoding.
+- Subsequent `decode(encode(text))` output is always in NFC.
 
-### 5.3 Confirmed Safe Characters
+### 5.2 Round-Trip Contract
 
-Each of the following categories must pass round-trip fidelity tests (encode → decode == original):
+Two distinct round-trip metrics are reported:
 
-| Category | Example | Risk |
-|----------|---------|------|
-| ASCII | `a`, `0`, `+` | None |
-| Devanagari | `नमस्ते` | None |
-| Bengali | `বাংলা` | None |
-| Gurmukhi | `ਸਤ ਸ੍ਰੀ ਅਕਾਲ` | None |
-| Gujarati | `નમસ્તે` | None |
-| Tamil | `வணக்கம்` | None |
-| Telugu | `నమస్కారము` | None |
-| Kannada | `ನಮಸ್ಕಾರ` | None |
-| Malayalam | `നമസ്കാരം` | None |
-| Odia | `ନମସ୍କାର` | None |
-| Assamese | `নমস্কাৰ` | None |
-| Zero-width joiner | ZWJ sequences (e.g., क्ष in Devanagari via ZWJ) | Must survive NFC unchanged |
-| Zero-width non-joiner | ZWNJ in Persian/Arabic/Indic | Must survive NFC unchanged |
-| Combining marks | Multiple diacritics on one base | May be reordered; verify identity |
-| Emoji | `😀`, `👨‍👩‍👧‍👦` (ZWJ sequences) | Must round-trip |
-| Malformed UTF-8 | Invalid byte sequences | Byte-level BPE handles; verify crash-free |
+#### Literal Round-Trip Fidelity
+
+`decode(encode(text)) == text` — the output bytes are identical to the input bytes.
+
+This is guaranteed **only when the input is already in NFC**. For NFC input, the normalizer is a no-op, the BPE encodes and decodes losslessly, and the result matches the original text exactly.
+
+#### Canonical-Equivalence Round-Trip Fidelity
+
+`decode(encode(text)) == unicodedata.normalize('NFC', text)` — the output is canonically equivalent to the input (same text, different byte representation).
+
+This is guaranteed for any valid Unicode input. Non-NFC input (e.g., NFD) is first normalized to NFC, then encoded. Decoding produces NFC text, which is canonically equivalent to the original.
+
+#### Policy Summary
+
+| Input State | Literal Fidelity | Canonical-Equiv Fidelity |
+|-------------|-----------------|--------------------------|
+| Already NFC | ✅ 100% | ✅ 100% |
+| NFD (decomposed) | ❌ NFD → NFC | ✅ NFC(output) == NFC(input) |
+| Mixed NFC/NFD | ❌ Per-character | ✅ After per-char NFC |
+| Non-NFC Latin (e.g., precomposed é vs e+combining) | ❌ | ✅ |
+
+When literal codepoint preservation is required for specific use cases (e.g., cryptographic signatures over raw text), normalization must be disabled at the application layer. The tokenizer always applies NFC.
+
+### 5.3 Decision Rationale
+
+- NFC is the standard normalization form for web text.
+- Most Indic scripts are already in NFC in their standard representation.
+- NFC is safe for all Indic scripts because Unicode defines no compatibility decompositions for most Indic characters (Devanagari, Bengali, Gurmukhi, Gujarati, Tamil, Telugu, Kannada, Malayalam, Odia). In these scripts, NFC and NFD are typically identical.
+- NFC ensures that "é" (NFC: U+00E9) and "é" (NFD: U+0065 U+0301) produce the same token sequence — a desirable property for a language model that should treat the same word the same way regardless of input normalization.
+- NFC is the current default in `train_bpe_tokenizer()` (`normalizers.NFC()`).
 
 ### 5.4 Prohibited Normalizations
 
 - **NFKC** — rejected. NFKC can destructively normalize characters (e.g., ⁴ → 4, ½ → 1/2, ℕ → N). This is information-destructive and unacceptable for a language model tokenizer.
-- **NFD** — not selected. NFD changes byte representation of text (decomposes characters). While reversible through NFC, it's unnecessary complexity.
+- **NFD** — not selected as the primary normalizer. NFD changes byte representation of text. While reversible through NFC, it is unnecessary complexity.
 - **Case folding** — not selected. Case folding loses information (e.g., "Apple" vs "apple").
 - **Whitespace normalization** — not selected. Byte-level BPE preserves whitespace; any whitespace normalization would break code and multilingual text.
 
 ### 5.5 Behavior for Edge Cases
 
-| Case | Behavior |
-|------|----------|
-| Tabs | Preserved as `\t` (byte 0x09) |
-| Repeated spaces | Preserved |
-| Line endings | `\n` preserved (byte 0x0A); `\r\n` preserved as two bytes |
-| BOM | U+FEFF preserved (byte sequence EF BB BF) |
-| Null byte | Preserved (byte 0x00), rarely occurs in training data |
-| Very long lines | No truncation; tokenizer processes all bytes |
-| Empty string | Returns empty list (no special tokens added) |
-| String with only special tokens | Returns special token IDs if `add_special_tokens=True` |
+| Case | Behavior | Round-Trip Expectation |
+|------|----------|----------------------|
+| Tabs | Preserved as `\t` (byte 0x09) | Literal (tab is ASCII, NFC-identical) |
+| Repeated spaces | Preserved | Literal |
+| Line endings | `\n` preserved (byte 0x0A); `\r\n` preserved as two bytes | Literal |
+| BOM | U+FEFF preserved (byte sequence EF BB BF) | Literal (BOM is NFC-stable) |
+| Null byte | Preserved (byte 0x00) | Literal |
+| Very long lines | No truncation; tokenizer processes all bytes | Literal if NFC |
+| Empty string | Returns empty list (no special tokens added) | N/A |
+| String with only special tokens | Returns special token IDs if `add_special_tokens=True` | N/A |
+| ZWJ (U+200D) | Preserved; NFC-stable | Literal |
+| ZWNJ (U+200C) | Preserved; NFC-stable | Literal |
+| Variation selectors (U+FE0x, U+E01xx) | Preserved; NFC-stable | Literal |
+| Emoji ZWJ sequences | Preserved (each codepoint is individually NFC-stable) | Literal |
+| Latin with combining marks (NFD) | Composited to NFC | Canonical-equivalence |
+| Devanagari nukta (e.g., क़ vs क + ़) | If nukta has a composed form → NFC; otherwise preserved | Canonical-equivalence or literal |
+| Invalid UTF-8 at input boundary | Tokenizer receives valid Python `str`; decoding failure occurs before the tokenizer. Python strings may contain lone surrogates; behavior depends on `tokenizers` library handling. Not guaranteed to round-trip arbitrarily malformed byte sequences. | Not defined — malformed input must be rejected before the tokenizer |
+| Python lone-surrogate strings | Supplied as Python `str`; behaviour depends on `tokenizers` library encode/decode. Production pipeline must not produce lone surrogates. | Not required |
 
-### 5.6 Tests Required
+### 5.6 Tests Required for Decomposed and Composed Forms
 
-Before production training, unit tests must verify:
-- NFC round-trip for each Indic script listed above
-- NFC identity for characters that are identical in NFC and NFD (most of Indic)
-- Zero-width joiner/non-joiner preservation
-- Emoji ZWJ sequence round-trip
-- Malformed UTF-8 produces no crash (produces valid byte sequence or error)
-- Empty string handling
-- Null byte handling
+Before production training, unit tests must verify both NFC→NFC (literal) and NFD→NFC (canonical-equivalence) round-trip for:
+
+| Script | NFC Test Input | NFD Test Input | Notes |
+|--------|---------------|---------------|-------|
+| Latin | `é` (U+00E9) | `e` + `´` (U+0065 U+0301) | Classic NFC/NFD pair |
+| Devanagari | क्ष (U+0915 U+094D U+0937) | Same (no precomposed form) | ZWJ not needed; verify identity |
+| Devanagari nukta | क़ (U+0915 U+093C) | Same if no precomposed form | Verify NFC/NFD identity |
+| Bengali | ক + ্ + ষ (U+0995 U+09CD U+09B7) | Same (no precomposed) | Verify NFC/NFD identity |
+| Gujarati | ક + ્ + ષ (U+0A95 U+0ACD U+0AB7) | Same | Verify identity |
+| Gurmukhi | ਸ + ੍ + ਰ (U+0A38 U+0A4D U+0A30) | Same | Verify identity |
+| Tamil | க + ் (U+0B95 U+0BCD) | Same (no precomposed) | Verify identity |
+| Telugu | క + ్ + ష (U+0C15 U+0C4D U+0C37) | Same | Verify identity |
+| Kannada | ಕ + ್ + ಷ (U+0C95 U+0CCD U+0CB7) | Same | Verify identity |
+| Malayalam | ക + ് + ഷ (U+0D15 U+0D4D U+0D37) | Same | Verify identity |
+| Odia | କ + ୍ + ଷ (U+0B15 U+0B4D U+0B37) | Same | Verify identity |
+
+Where a script has no NFC/NFD distinction (most Indic scripts), both literal and canonical-equivalence fidelity are expected to be 100%. Where a distinction exists (Latin,少数 non-Indic scripts), literal fidelity is 0% for NFD input but canonical-equivalence fidelity is 100%.
+
+### 5.7 Additional Tests Required
+
+- ZWJ (U+200D) preservation: `encode(decode(t))` returns original for text containing ZWJ.
+- ZWNJ (U+200C) preservation: same.
+- Variation selector (U+FE0F) preservation: emoji presentation sequences round-trip.
+- Emoji ZWJ sequence (e.g., 👨‍👩‍👧‍👦) round-trip: literal if NFC-stable.
+- Lone surrogate rejection: production pipeline must validate input before tokenization; no requirement for tokenizer to handle malformed Python strings gracefully.
+- Empty string: `encode("")` returns `[]`.
+- Special tokens only: `encode("<|bos|>")` returns `[1]`.
 
 ---
 
@@ -421,7 +483,8 @@ For the production tokenizer evaluation report, a small held-out sample from eac
 | **Fertility** | `tokens / words` | Lower |
 | **Unknown-token rate** | `unknown_tokens / total_tokens * 100` | 0.0% |
 | **Byte-fallback rate** | `fallback_bytes / total_chars * 100` | 0.0% (byte-level) |
-| **Round-trip fidelity** | `decode(encode(text)) == text` rate | 100% |
+| **Literal round-trip fidelity** | `decode(encode(text)) == text` rate for NFC input | 100% on NFC |
+| **Canonical-equivalence fidelity** | `decode(encode(text)) == NFC(text)` rate for all valid Unicode | 100% |
 | **Script fragmentation** | `unique_tokens_per_script / script_chars` | Lower |
 | **Word fragmentation** | `tokens / unique_words` | Lower |
 | **Numeric fragmentation** | `tokens_covering_numbers / number_chars` description | See below |
@@ -447,7 +510,8 @@ The evaluation framework must extend `bharat/tokenizer/evaluate.py` with:
 def tokens_per_byte(tokenizer, texts) -> float
 def unknown_token_rate(tokenizer, texts) -> float
 def byte_fallback_rate(tokenizer, texts) -> float
-def round_trip_fidelity(tokenizer, texts) -> float
+def literal_round_trip_fidelity(tokenizer, texts) -> float
+def canonical_equiv_fidelity(tokenizer, texts) -> float
 def script_fragmentation(tokenizer, texts, script) -> float
 def word_fragmentation(tokenizer, texts) -> float
 def numeric_fragmentation(tokenizer, texts) -> float
@@ -474,7 +538,8 @@ This is the current default tokenizer in the repository. All training and evalua
 | Compression ratio (English) | N/A | ≥ 95% of GPT-2 | N/A |
 | Code compression ratio | N/A | N/A | ≥ 90% of GPT-2 |
 | Unknown-token rate | 0.0% (both) | 0.0% (both) | 0.0% (both) |
-| Round-trip fidelity | ≥ GPT-2 | ≥ GPT-2 | ≥ GPT-2 |
+| Literal round-trip fidelity (NFC input) | ≥ GPT-2 | ≥ GPT-2 | ≥ GPT-2 |
+| Canonical-equivalence fidelity (any valid Unicode) | ≥ GPT-2 | ≥ GPT-2 | ≥ GPT-2 |
 
 ### 10.3 Acceptance Criteria for Baseline
 
@@ -483,7 +548,8 @@ This is the current default tokenizer in the repository. All training and evalua
 | Indic compression improvement | ≥ 25% better than GPT-2 | Compression ratio on Indic eval set |
 | English regression limit | ≤ 5% worse than GPT-2 | Compression ratio on English eval set |
 | Code regression limit | ≤ 10% worse than GPT-2 | Compression ratio on code eval set |
-| Round-trip correctness | 100% on all eval sets | Encode → decode identity |
+| Literal round-trip correctness (NFC input) | 100% on all NFC eval sets | Encode → decode identity |
+| Canonical-equivalence correctness (any valid Unicode) | 100% on all eval sets | Encode(NFD) → decode → NFC identity |
 | Tokenizer speed | ≥ 50% of GPT-2 throughput | Tokens/second on eval set |
 | Metadata reproducibility | Identical hash for identical config | `tokenizer_hash()` |
 
@@ -495,12 +561,13 @@ This is the current default tokenizer in the repository. All training and evalua
 
 | # | Criterion | Evidence |
 |---|-----------|----------|
-| 1 | Exact round-trip for all supported scripts | Unit test with synthetic fixtures |
+| 1 | Literal round-trip fidelity for NFC input across all supported scripts | Unit test with synthetic NFC fixtures |
+| 1b | Canonical-equivalence fidelity for NFD and decomposed input across all supported scripts | Unit test with synthetic NFD fixtures |
 | 2 | Zero accidental special-token insertion | encode("text") returns no special token IDs inside text |
 | 3 | Deterministic training output | Two identically-configured training runs produce identical tokenizer hash |
 | 4 | Stable tokenizer hash | `tokenizer_hash()` returns same 64-char SHA-256 for same config |
 | 5 | Stable special-token IDs | VOC 0, 1, 2 are always `<\|pad\|>`, `<\|bos\|>`, `<\|eos\|>` |
-| 6 | Unknown-token rate = 0.0% | Byte-level BPE encodes all bytes |
+| 6 | Unknown-token rate = 0.0% on valid supported NFC input | Byte-level BPE encodes all bytes; measured by test with synthetic and held-out text |
 | 7 | Tokenizer vocabulary matches model config | `vocab_size == 64000` |
 | 8 | Training data from approved sources only | Immutable release digest in sample manifest |
 | 9 | No PII/contamination in training data | From governed data pipeline |
@@ -513,7 +580,7 @@ This is the current default tokenizer in the repository. All training and evalua
 | 11 | English compression ratio | ≥ 95% of GPT-2 | Measured on English eval set |
 | 12 | Code compression ratio | ≥ 90% of GPT-2 | Measured on code eval set |
 | 13 | Per-language fertility | ≤ 2.0 for all supported languages | Lower is better |
-| 14 | Round-trip fidelity | 100% | On all eval sets |
+| 14 | Literal + canonical-equivalence fidelity | 100% each | On all eval sets |
 | 15 | Tokenizer throughput | ≥ 50% of GPT-2 throughput | Tokens/second |
 
 ### 11.3 Threshold Review
@@ -754,7 +821,8 @@ Milestone 6.1 is complete when all of the following are true:
 ### 18.3 Verification
 
 - [ ] Synthetic fixture tests pass for all Indic scripts
-- [ ] Round-trip fidelity verified for all supported scripts
+- [ ] Literal round-trip fidelity verified for NFC input across all supported scripts
+- [ ] Canonical-equivalence fidelity verified for NFD and decomposed input across all supported scripts
 - [ ] No accidental special-token insertion
 - [ ] Deterministic sampling produces identical digests
 - [ ] Tokenizer hash stable across identical configurations
@@ -787,10 +855,10 @@ Milestone 6.1 is complete when all of the following are true:
 
 ### PR A — Architecture and Evaluation Contract (This PR)
 
-*Documentation only.*
+*Documentation only. Revised 2026-07-27 to correct normalization contract, byte-token ID policy, reserved-token policy, and algorithm claims.*
 
 Files:
-- `docs/MILESTONE_6_1_TOKENIZER_VALIDATION_PLAN.md` (new)
+- `docs/MILESTONE_6_1_TOKENIZER_VALIDATION_PLAN.md` (new, revised)
 - `docs/IMPLEMENTATION_PLAN.md` (update Milestone 6 section)
 
 Accepts no code changes. Zero diff on production code.
@@ -811,6 +879,17 @@ Accepts no code changes. Zero diff on production code.
 - `configs/tokenizers/bpe-64k.yaml` — production tokenizer configuration
 - `tests/test_tokenizer_train.py` — reproducibility tests with synthetic data
 - `tests/test_bpe_wrapper.py` — metadata, hashing, special-token tests
+
+**Required implementation proofs (must pass as tests in this PR):**
+
+1. Final vocabulary size is exactly 64,000.
+2. Special-token IDs 0 (`<|pad|>`), 1 (`<|bos|>`), 2 (`<|eos|>`) are exactly stable across repeated training runs.
+3. Reserved placeholder IDs 3–10 (`<|reserved_0|>` through `<|reserved_7|>`) are exactly stable.
+4. All 256 byte values 0x00–0xFF are representable: any valid UTF-8 string can be encoded without producing an unknown-token error.
+5. Byte-token mapping (which byte value maps to which ID) is deterministic across repeated training runs with identical data and seed.
+6. `tokenizer_hash()` returns an identical 64-char SHA-256 hex string for tokenizers trained with identical configuration.
+7. No learned token occupies a fixed-slot ID (0–10).
+8. Saved (`tokenizer.json`) and reloaded tokenizers preserve every ID and produce identical encoding results.
 
 ### PR D — Evaluation Framework
 
