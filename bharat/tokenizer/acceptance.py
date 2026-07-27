@@ -71,9 +71,7 @@ def evaluate_tokenizer_acceptance(
     thresholds: TokenizerAcceptanceThresholds,
 ) -> dict[str, Any]:
     names = report.get("tokenizer_names")
-    if not isinstance(names, list) or not all(
-        isinstance(name, str) for name in names
-    ):
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
         raise ValueError("report tokenizer_names must be a list of strings")
     if tokenizer_name not in names:
         raise ValueError(f"tokenizer {tokenizer_name!r} is not present in report")
@@ -172,9 +170,7 @@ def evaluate_tokenizer_acceptance(
         separators=(",", ":"),
         ensure_ascii=True,
     )
-    result["acceptance_sha256"] = hashlib.sha256(
-        canonical.encode("utf-8")
-    ).hexdigest()
+    result["acceptance_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return result
 
 
