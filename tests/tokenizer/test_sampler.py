@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -40,6 +42,9 @@ def _make_manifest(
                 sha256=_digest(b"dummy"),
             ),
         )
+        manifest_bytes = 100
+    else:
+        manifest_bytes = sum(s.bytes_utf8 for s in shards)
     return DatasetManifest(
         manifest_version="1.0",
         dataset_id=dataset_id,
@@ -50,7 +55,7 @@ def _make_manifest(
         language=language,
         split="train",
         records=records,
-        bytes_utf8=100,
+        bytes_utf8=manifest_bytes,
         sha256=_digest(),
         processing_config_digest=_digest(),
         registry_digest=_digest(),
@@ -303,7 +308,6 @@ class TestCorpusManifest:
         cfg = SamplerConfig(version="1.0", seed=0)
         m1 = CorpusManifest(
             schema_version="1",
-            created_at="2026-01-01T00:00:00Z",
             sampler_config=cfg,
             releases=(),
             total_candidates=0,
@@ -324,7 +328,6 @@ class TestCorpusManifest:
         )
         m2 = CorpusManifest(
             schema_version="1",
-            created_at="2026-01-01T00:00:00Z",
             sampler_config=cfg,
             releases=(),
             total_candidates=0,
@@ -443,7 +446,7 @@ class TestSampleExecution:
             shard_records=[{"text": "x", "accepted": True}],
         )
         (root / "shards" / "shard-0000").unlink()
-        with pytest.raises(FileNotFoundError, match="shard not found"):
+        with pytest.raises(ValueError, match="shard file count"):
             sample_tokenizer_corpus(
                 release_roots=[root],
                 manifest_paths=[mpath],
@@ -457,7 +460,7 @@ class TestSampleExecution:
             shard_records=[{"text": "x", "accepted": True}],
         )
         (root / "shards" / "shard-0000").write_bytes(b"tampered")
-        with pytest.raises(ValueError, match="sha256 mismatch"):
+        with pytest.raises(ValueError, match=r"actual bytes|sha256 mismatch"):
             sample_tokenizer_corpus(
                 release_roots=[root],
                 manifest_paths=[mpath],
@@ -506,7 +509,7 @@ class TestSampleExecution:
         (root / "approval.json").write_text(
             json.dumps(new_approval.to_dict(), indent=2), encoding="utf-8"
         )
-        with pytest.raises(ValueError, match="symlink escape"):
+        with pytest.raises(ValueError, match=r"shard file count|symlink escape"):
             sample_tokenizer_corpus(
                 release_roots=[root],
                 manifest_paths=[mpath],
@@ -542,9 +545,10 @@ class TestSampleExecution:
             shard_records=[{"text": "x", "accepted": True}],
         )
         shard_path = root / "shards" / "shard-0000"
-        shard_path.write_bytes(b"\xff\xfe\x00")
+        malformed = b"\xff\xfe\x00".ljust(32, b"\x00")
+        shard_path.write_bytes(malformed)
         mdata = json.loads(mpath.read_text(encoding="utf-8"))
-        mdata["shards"][0]["sha256"] = hashlib.sha256(b"\xff\xfe\x00").hexdigest()
+        mdata["shards"][0]["sha256"] = hashlib.sha256(malformed).hexdigest()
         mpath.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
         self._update_governance_digests(root, mpath)
         with pytest.raises(ValueError, match="malformed UTF-8"):
@@ -566,9 +570,21 @@ class TestSampleExecution:
         )
         shard_path.write_bytes(shard_bytes)
         mdata = json.loads(mpath.read_text(encoding="utf-8"))
+        shard_b64 = len(shard_bytes)
         mdata["shards"][0]["sha256"] = hashlib.sha256(shard_bytes).hexdigest()
+        mdata["shards"][0]["bytes_utf8"] = shard_b64
+        mdata["bytes_utf8"] = shard_b64
+        mdata["records"] = 1
         mpath.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
         self._update_governance_digests(root, mpath)
+        rel_data = json.loads((root / "dataset_release.json").read_text(encoding="utf-8"))
+        rel_data["bytes_utf8"] = shard_b64
+        rel_data["records"] = 1
+        (root / "dataset_release.json").write_text(json.dumps(rel_data, indent=2), encoding="utf-8")
+        aud_data = json.loads((root / "audit_report.json").read_text(encoding="utf-8"))
+        aud_data["total_bytes_utf8"] = shard_b64
+        aud_data["total_records"] = 1
+        (root / "audit_report.json").write_text(json.dumps(aud_data, indent=2), encoding="utf-8")
         with pytest.raises(ValueError, match="lone surrogate"):
             sample_tokenizer_corpus(
                 release_roots=[root],
@@ -942,16 +958,28 @@ class TestSampleExecution:
 
     def test_dry_run_creates_no_files(self, tmp_path: Path) -> None:
         root, mpath, apath = _setup_single_release(tmp_path)
-        result = sample_tokenizer_corpus(
+        dry = sample_tokenizer_corpus(
             release_roots=[root],
             manifest_paths=[mpath],
             approval_paths=[apath],
             config=SamplerConfig(version="1.0", seed=42),
         )
-        assert result.total_selected == 2
-        assert result.corpus_sha256 == "0" * 64
         assert not (tmp_path / "corpus.jsonl").exists()
         assert not (tmp_path / "manifest.json").exists()
+        exc = sample_tokenizer_corpus(
+            release_roots=[root],
+            manifest_paths=[mpath],
+            approval_paths=[apath],
+            config=SamplerConfig(
+                version="1.0",
+                seed=42,
+                output_corpus=str(tmp_path / "corpus.jsonl"),
+                output_manifest=str(tmp_path / "manifest.json"),
+            ),
+        )
+        assert dry.total_selected == exc.total_selected
+        assert dry.total_corpus_bytes == exc.total_corpus_bytes
+        assert dry.corpus_sha256 == exc.corpus_sha256
 
     def test_dry_run_with_output_set_raises(self, tmp_path: Path) -> None:
         root, mpath, apath = _setup_single_release(tmp_path)
@@ -1224,3 +1252,275 @@ class TestSampleExecution:
         m1 = (tmp_path / "m1.json").read_bytes()
         m2 = (tmp_path / "m2.json").read_bytes()
         assert m1 == m2
+
+
+class TestOutputPathSafety:
+    def test_reject_remote_corpus(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        with pytest.raises(ValueError, match="remote.*not allowed"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus="https://evil.com/corpus.jsonl",
+                    output_manifest=str(tmp_path / "manifest.json"),
+                ),
+            )
+
+    def test_reject_remote_manifest(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        with pytest.raises(ValueError, match="remote.*not allowed"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(tmp_path / "corpus.jsonl"),
+                    output_manifest="gs://bucket/manifest.json",
+                ),
+            )
+
+    def test_identical_resolved_paths_rejected(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        corpus = str(tmp_path / "out.json")
+        manifest = str(tmp_path / "sub" / ".." / "out.json")
+        with pytest.raises(ValueError, match="resolve to the same file"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=corpus,
+                    output_manifest=manifest,
+                ),
+            )
+
+    def test_symlink_alias_rejected(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        real_target = tmp_path / "real_target"
+        real_target.write_text("placeholder")
+        link_dir = tmp_path / "link_dir"
+        link_dir.mkdir()
+        link = link_dir / "alias.json"
+        link.symlink_to(real_target)
+        with pytest.raises(ValueError, match=r"resolve to the same file|symlink aliases"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(real_target),
+                    output_manifest=str(link),
+                ),
+            )
+
+    def test_existing_corpus_rejected(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        (tmp_path / "corpus.jsonl").write_text("data")
+        with pytest.raises(FileExistsError, match="corpus already exists"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(tmp_path / "corpus.jsonl"),
+                    output_manifest=str(tmp_path / "manifest.json"),
+                ),
+            )
+
+    def test_existing_manifest_rejected(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        (tmp_path / "manifest.json").write_text("{}")
+        with pytest.raises(FileExistsError, match="manifest already exists"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(tmp_path / "corpus.jsonl"),
+                    output_manifest=str(tmp_path / "manifest.json"),
+                ),
+            )
+
+
+class TestReleaseTotalValidation:
+    def test_shard_count_mismatch_rejected(self, tmp_path: Path) -> None:
+        records = [{"text": "x", "accepted": True}]
+        root, mpath, apath = _setup_single_release(tmp_path, shard_records=records)
+        rel_data = json.loads((root / "dataset_release.json").read_text(encoding="utf-8"))
+        rel_data["shard_count"] = 999
+        (root / "dataset_release.json").write_text(json.dumps(rel_data, indent=2), encoding="utf-8")
+        with pytest.raises(ValueError, match="shard_count"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(version="1.0", seed=0),
+            )
+
+    def test_records_mismatch_rejected(self, tmp_path: Path) -> None:
+        records = [{"text": "x", "accepted": True}]
+        root, mpath, apath = _setup_single_release(tmp_path, shard_records=records)
+        rel_data = json.loads((root / "dataset_release.json").read_text(encoding="utf-8"))
+        rel_data["records"] = 999
+        (root / "dataset_release.json").write_text(json.dumps(rel_data, indent=2), encoding="utf-8")
+        with pytest.raises(ValueError, match="release.records"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(version="1.0", seed=0),
+            )
+
+    def test_bytes_mismatch_rejected(self, tmp_path: Path) -> None:
+        records = [{"text": "x", "accepted": True}]
+        root, mpath, apath = _setup_single_release(tmp_path, shard_records=records)
+        rel_data = json.loads((root / "dataset_release.json").read_text(encoding="utf-8"))
+        rel_data["bytes_utf8"] = 999
+        (root / "dataset_release.json").write_text(json.dumps(rel_data, indent=2), encoding="utf-8")
+        with pytest.raises(ValueError, match="release.bytes_utf8"):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(version="1.0", seed=0),
+            )
+
+
+class TestAtomicPublication:
+    def test_corpus_write_failure_cleans_temps(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        parent = tmp_path / "blocker"
+        parent.write_text("i am a file, not a directory")
+        with pytest.raises(OSError):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(parent / "corpus.jsonl"),
+                    output_manifest=str(tmp_path / "manifest.json"),
+                ),
+            )
+        temps = [p for p in tmp_path.iterdir() if p.name.startswith(".tmp.")]
+        assert len(temps) == 0
+        assert not (tmp_path / "manifest.json").exists()
+
+    def test_manifest_write_failure_rolls_back_corpus(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        corpus_path = (tmp_path / "corpus.jsonl").resolve()
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        pid = os.getpid()
+        _orig_replace = os.replace
+
+        def _failing_replace(src: Path, dst: Path) -> None:
+            if dst == manifest_path:
+                msg = "injected rename failure"
+                raise OSError(msg)
+            _orig_replace(src, dst)
+
+        with (
+            patch("bharat.tokenizer.sampler.os.replace", _failing_replace),
+            pytest.raises(OSError, match="injected rename failure"),
+        ):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(corpus_path),
+                    output_manifest=str(manifest_path),
+                ),
+            )
+
+        assert not corpus_path.exists(), "corpus should be rolled back"
+        assert not manifest_path.exists(), "manifest should never have been created"
+        temps = [p for p in tmp_path.iterdir() if p.name.startswith(f".tmp.{pid}.")]
+        assert len(temps) == 0, f"temp files left: {temps}"
+
+    def test_corpus_rename_failure_cleans_temps(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        corpus_path = (tmp_path / "corpus.jsonl").resolve()
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        pid = os.getpid()
+        _orig_replace = os.replace
+
+        def _failing_replace(src: Path, dst: Path) -> None:
+            if dst == corpus_path:
+                msg = "injected corpus rename failure"
+                raise OSError(msg)
+            _orig_replace(src, dst)
+
+        with (
+            patch("bharat.tokenizer.sampler.os.replace", _failing_replace),
+            pytest.raises(OSError, match="injected corpus rename failure"),
+        ):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(corpus_path),
+                    output_manifest=str(manifest_path),
+                ),
+            )
+
+        assert not corpus_path.exists(), "corpus should not exist"
+        assert not manifest_path.exists(), "manifest should not exist"
+        temps = [p for p in tmp_path.iterdir() if p.name.startswith(f".tmp.{pid}.")]
+        assert len(temps) == 0, f"temp files left: {temps}"
+
+    def test_pre_existing_unrelated_files_untouched(self, tmp_path: Path) -> None:
+        root, mpath, apath = _setup_single_release(tmp_path)
+        pre_existing = tmp_path / "pre_existing.txt"
+        pre_existing.write_text("do not delete")
+        corpus_path = (tmp_path / "corpus.jsonl").resolve()
+        manifest_path = (tmp_path / "manifest.json").resolve()
+        pid = os.getpid()
+        _orig_replace = os.replace
+
+        def _failing_replace(src: Path, dst: Path) -> None:
+            if dst == manifest_path:
+                msg = "injected rename failure"
+                raise OSError(msg)
+            _orig_replace(src, dst)
+
+        with (
+            patch("bharat.tokenizer.sampler.os.replace", _failing_replace),
+            pytest.raises(OSError, match="injected rename failure"),
+        ):
+            sample_tokenizer_corpus(
+                release_roots=[root],
+                manifest_paths=[mpath],
+                approval_paths=[apath],
+                config=SamplerConfig(
+                    version="1.0",
+                    seed=42,
+                    output_corpus=str(corpus_path),
+                    output_manifest=str(manifest_path),
+                ),
+            )
+
+        assert pre_existing.exists(), "pre-existing file should not be deleted"
+        assert pre_existing.read_text() == "do not delete"
+        temps = [p for p in tmp_path.iterdir() if p.name.startswith(f".tmp.{pid}.")]
+        assert len(temps) == 0

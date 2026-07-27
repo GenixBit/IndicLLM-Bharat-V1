@@ -1,6 +1,6 @@
 # Milestone 6.1 — Deterministic Tokenizer-Corpus Sampler
 
-**Status:** Complete
+**Status:** In review
 **PR:** #59
 
 ## Objective
@@ -62,14 +62,13 @@ Never partially writes a record. Order of cap application is deterministic and t
 - Write to `.tmp.{pid}.{name}`, flush+stat+verify SHA-256, `os.replace` to final
 - Rollback removes corpus if manifest write fails
 - Reject existing output files
-- Dry-run by default (`--execute` to write); dry-run returns manifest with `corpus_sha256="0"*64`, creates no files
+- Dry-run by default (`--execute` to write); dry-run returns exact projection (same digest and bytes as execute), creates no files
 
 ### Manifest Schema
 
 | Field | Description |
 |-------|-------------|
 | `schema_version` | `"1"` |
-| `created_at` | ISO 8601 UTC |
 | `sampler_config` | Full `SamplerConfig` dict |
 | `releases` | Per-release metadata (digests, counts) |
 | `total_candidates` | Records before dedup/caps |
@@ -97,10 +96,10 @@ Never partially writes a record. Order of cap application is deterministic and t
 - Dry-run by default; `--execute` to write
 - JSON output with status, counts, and digests
 
-### Tests — 29 CLI + 34 unit = 63 new tests
+### Tests — 19 CLI + 66 unit = 85 tests
 
-- `tests/tokenizer/test_sampler.py` — 34 unit tests covering config validation, governance chain, dedup, caps, path security, determinism, dry-run, atomic publish
-- `tests/scripts/test_sample_tokenizer_corpus.py` — 29 CLI integration tests
+- `tests/tokenizer/test_sampler.py` — 66 unit tests covering config validation, governance chain, dedup, caps, path security, determinism, dry-run/projection, output-path safety, release-total validation, atomic publish, fault injection
+- `tests/scripts/test_sample_tokenizer_corpus.py` — 19 CLI integration tests
 
 ## Files Changed
 

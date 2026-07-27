@@ -42,6 +42,9 @@ def _make_manifest(
                 sha256=_digest(b"dummy"),
             ),
         )
+        manifest_bytes = 100
+    else:
+        manifest_bytes = sum(s.bytes_utf8 for s in shards)
     return DatasetManifest(
         manifest_version="1.0",
         dataset_id=dataset_id,
@@ -52,7 +55,7 @@ def _make_manifest(
         language=language,
         split="train",
         records=records,
-        bytes_utf8=100,
+        bytes_utf8=manifest_bytes,
         sha256=_digest(),
         processing_config_digest=_digest(),
         registry_digest=_digest(),
@@ -318,7 +321,8 @@ class TestSampleTokenizerCorpusCLI:
         assert corpus.exists()
         assert manifest.exists()
         assert corpus.stat().st_size > 0
-        assert data["corpus_sha256"] != "0" * 64
+        assert len(data["corpus_sha256"]) == 64
+        assert int(data["corpus_sha256"], 16) != 0
 
     def test_execute_deterministic(self, tmp_path: Path) -> None:
         root, mpath, apath = _setup_single_release(tmp_path)
@@ -485,7 +489,10 @@ class TestSampleTokenizerCorpusCLI:
             ]
         )
         assert result.returncode != 0
-        assert "shard not found" in result.stderr.lower()
+        assert (
+            "shard file count" in result.stderr.lower()
+            or "shard not found" in result.stderr.lower()
+        )
 
     def test_tampered_shard_fails(self, tmp_path: Path) -> None:
         root, mpath, apath = _setup_single_release(
@@ -508,7 +515,7 @@ class TestSampleTokenizerCorpusCLI:
             ]
         )
         assert result.returncode != 0
-        assert "sha256 mismatch" in result.stderr.lower()
+        assert "actual bytes" in result.stderr.lower() or "sha256 mismatch" in result.stderr.lower()
 
     def test_global_record_cap(self, tmp_path: Path) -> None:
         records = [{"text": f"r{i}", "accepted": True} for i in range(10)]

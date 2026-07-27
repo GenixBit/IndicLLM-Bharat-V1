@@ -6,7 +6,6 @@ import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -140,7 +139,6 @@ class ProvenanceRecord:
 @dataclass(frozen=True)
 class CorpusManifest:
     schema_version: str
-    created_at: str
     sampler_config: SamplerConfig
     releases: tuple[dict[str, str], ...]
     total_candidates: int
@@ -163,7 +161,6 @@ class CorpusManifest:
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "schema_version": self.schema_version,
-            "created_at": self.created_at,
             "sampler_config": self.sampler_config.to_dict(),
             "releases": list(self.releases),
             "total_candidates": self.total_candidates,
@@ -189,13 +186,8 @@ class CorpusManifest:
     def canonical_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
-    def canonical_json_no_created(self) -> str:
-        d = self.to_dict()
-        d.pop("created_at", None)
-        return json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-
     def compute_digest(self) -> str:
-        return hashlib.sha256(self.canonical_json_no_created().encode("utf-8")).hexdigest()
+        return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -268,6 +260,98 @@ def _check_symlink_escape(shard_path: Path, root: Path) -> None:
         resolved_shard.relative_to(resolved_root)
     except ValueError:
         raise ValueError(f"symlink escape: {shard_path} resolves outside {root}")
+
+
+def _compute_corpus_digest(selected: list[_Record], text_field: str) -> tuple[int, str]:
+    sha = hashlib.sha256()
+    total = 0
+    for r in selected:
+        line_bytes = serialize_record(r.text, text_field)
+        sha.update(line_bytes)
+        total += len(line_bytes)
+    return total, sha.hexdigest()
+
+
+def _validate_release_integrity(
+    release: DatasetRelease,
+    manifest: DatasetManifest,
+    audit: DatasetAuditReport,
+    root: Path,
+) -> None:
+    if release.shard_count != len(manifest.shards):
+        raise ValueError(
+            f"release.shard_count {release.shard_count} != "
+            f"manifest.shards count {len(manifest.shards)}"
+        )
+    if release.records != manifest.records:
+        raise ValueError(
+            f"release.records {release.records} != manifest.records {manifest.records}"
+        )
+    if release.bytes_utf8 != manifest.bytes_utf8:
+        raise ValueError(
+            f"release.bytes_utf8 {release.bytes_utf8} != "
+            f"manifest.bytes_utf8 {manifest.bytes_utf8}"
+        )
+    if audit.total_records != release.records:
+        raise ValueError(
+            f"audit.total_records {audit.total_records} != release.records {release.records}"
+        )
+    if audit.total_bytes_utf8 != release.bytes_utf8:
+        raise ValueError(
+            f"audit.total_bytes_utf8 {audit.total_bytes_utf8} != "
+            f"release.bytes_utf8 {release.bytes_utf8}"
+        )
+    sum_shard_records = sum(s.record_end - s.record_start for s in manifest.shards)
+    if sum_shard_records != manifest.records:
+        raise ValueError(
+            f"sum shard records {sum_shard_records} != manifest.records {manifest.records}"
+        )
+    sum_shard_bytes = sum(s.bytes_utf8 for s in manifest.shards)
+    if sum_shard_bytes != manifest.bytes_utf8:
+        raise ValueError(
+            f"sum shard bytes {sum_shard_bytes} != manifest.bytes_utf8 {manifest.bytes_utf8}"
+        )
+    shards_dir = root / "shards"
+    actual_shard_files = list(shards_dir.iterdir()) if shards_dir.is_dir() else []
+    if len(actual_shard_files) != release.shard_count:
+        raise ValueError(
+            f"actual shard file count {len(actual_shard_files)} != "
+            f"release.shard_count {release.shard_count}"
+        )
+    shards_dir = root / "shards"
+    actual_shard_files = list(shards_dir.iterdir()) if shards_dir.is_dir() else []
+    if len(actual_shard_files) != release.shard_count:
+        raise ValueError(
+            f"actual shard file count {len(actual_shard_files)} != "
+            f"release.shard_count {release.shard_count}"
+        )
+
+
+def _validate_output_paths(
+    corpus_path_str: str,
+    manifest_path_str: str,
+) -> tuple[Path, Path]:
+    corpus_path = _reject_remote(corpus_path_str).resolve()
+    manifest_path = _reject_remote(manifest_path_str).resolve()
+
+    if corpus_path == manifest_path:
+        raise ValueError(f"corpus and manifest paths resolve to the same file: {corpus_path}")
+
+    try:
+        corpus_real = corpus_path.resolve(strict=False)
+        manifest_real = manifest_path.resolve(strict=False)
+    except OSError:
+        corpus_real = corpus_path
+        manifest_real = manifest_path
+    if corpus_real == manifest_real:
+        raise ValueError(f"corpus and manifest paths are symlink aliases: {corpus_path}")
+
+    if corpus_path.exists():
+        raise FileExistsError(f"corpus already exists: {corpus_path}")
+    if manifest_path.exists():
+        raise FileExistsError(f"manifest already exists: {manifest_path}")
+
+    return corpus_path, manifest_path
 
 
 def sample_tokenizer_corpus(
@@ -402,6 +486,8 @@ def sample_tokenizer_corpus(
         if not approval.safety_reviewed:
             raise ValueError(f"safety_reviewed not true for {manifest.dataset_id}")
 
+        _validate_release_integrity(release, manifest, audit, release_root)
+
         releases_meta.append(
             {
                 "release_id": release.release_id,
@@ -426,6 +512,13 @@ def sample_tokenizer_corpus(
                 raise FileNotFoundError(f"shard not found: {shard_path}")
 
             _check_symlink_escape(shard_path, release_root)
+
+            actual_size = shard_path.stat().st_size
+            if actual_size != shard.bytes_utf8:
+                raise ValueError(
+                    f"shard {shard.shard_id} actual bytes {actual_size} != "
+                    f"declared {shard.bytes_utf8}"
+                )
 
             shard_bytes = shard_path.read_bytes()
             if shard.sha256:
@@ -602,7 +695,7 @@ def sample_tokenizer_corpus(
         domain_records[r.domain] = domain_records.get(r.domain, 0) + 1
         domain_bytes[r.domain] = domain_bytes.get(r.domain, 0) + r_bytes
 
-    total_corpus_bytes = sum(r.utf8_bytes for r in selected)
+    total_corpus_bytes, corpus_sha256 = _compute_corpus_digest(selected, config.text_field)
 
     records = tuple(
         ProvenanceRecord(
@@ -622,36 +715,33 @@ def sample_tokenizer_corpus(
         for r in selected
     )
 
+    base_manifest = CorpusManifest(
+        schema_version=_SCHEMA_VERSION,
+        sampler_config=config,
+        releases=tuple(releases_meta),
+        total_candidates=total_candidates,
+        total_selected=len(selected),
+        exact_dedup_removed=exact_dedup_removed,
+        per_source_cap_removed=per_source_cap_removed,
+        per_language_cap_removed=per_language_cap_removed,
+        global_cap_removed=global_cap_removed,
+        total_corpus_bytes=total_corpus_bytes,
+        per_source_records=dict(source_records),
+        per_source_bytes=dict(source_bytes),
+        per_language_records=dict(language_records),
+        per_language_bytes=dict(language_bytes),
+        per_domain_records=dict(domain_records),
+        per_domain_bytes=dict(domain_bytes),
+        corpus_sha256=corpus_sha256,
+        records=records,
+    )
+
     if config.dry_run:
-        return CorpusManifest(
-            schema_version=_SCHEMA_VERSION,
-            created_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            sampler_config=config,
-            releases=tuple(releases_meta),
-            total_candidates=total_candidates,
-            total_selected=len(selected),
-            exact_dedup_removed=exact_dedup_removed,
-            per_source_cap_removed=per_source_cap_removed,
-            per_language_cap_removed=per_language_cap_removed,
-            global_cap_removed=global_cap_removed,
-            total_corpus_bytes=total_corpus_bytes,
-            per_source_records=dict(source_records),
-            per_source_bytes=dict(source_bytes),
-            per_language_records=dict(language_records),
-            per_language_bytes=dict(language_bytes),
-            per_domain_records=dict(domain_records),
-            per_domain_bytes=dict(domain_bytes),
-            corpus_sha256="0" * 64,
-            records=records,
-        )
+        return base_manifest
 
-    corpus_path = Path(config.output_corpus)
-    manifest_path_out = Path(config.output_manifest)
-
-    if corpus_path.exists():
-        raise FileExistsError(f"corpus already exists: {corpus_path}")
-    if manifest_path_out.exists():
-        raise FileExistsError(f"manifest already exists: {manifest_path_out}")
+    corpus_path, manifest_path_out = _validate_output_paths(
+        config.output_corpus, config.output_manifest
+    )
 
     corpus_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path_out.parent.mkdir(parents=True, exist_ok=True)
@@ -659,65 +749,29 @@ def sample_tokenizer_corpus(
     tmp_corpus = corpus_path.parent / f".tmp.{os.getpid()}.{corpus_path.name}"
     tmp_manifest = manifest_path_out.parent / f".tmp.{os.getpid()}.{manifest_path_out.name}"
 
-    corpus_sha = hashlib.sha256()
-    total_bytes = 0
-
     try:
         with tmp_corpus.open("wb") as f:
             for r in selected:
-                line_bytes = serialize_record(r.text, config.text_field)
-                f.write(line_bytes)
-                corpus_sha.update(line_bytes)
-                total_bytes += len(line_bytes)
+                f.write(serialize_record(r.text, config.text_field))
 
         tmp_corpus_bytes = tmp_corpus.stat().st_size
-        if tmp_corpus_bytes != total_bytes:
+        if tmp_corpus_bytes != total_corpus_bytes:
             raise RuntimeError(
-                f"corpus byte count mismatch: " f"expected {total_bytes}, got {tmp_corpus_bytes}"
+                f"corpus byte count mismatch: "
+                f"expected {total_corpus_bytes}, got {tmp_corpus_bytes}"
             )
 
-        computed_corpus_sha = corpus_sha.hexdigest()
         read_back_sha = hashlib.sha256(tmp_corpus.read_bytes()).hexdigest()
-        if computed_corpus_sha != read_back_sha:
+        if corpus_sha256 != read_back_sha:
             raise RuntimeError(
                 f"corpus sha256 verification failed: "
-                f"write={computed_corpus_sha}, "
-                f"read_back={read_back_sha}"
+                f"expected {corpus_sha256}, read_back={read_back_sha}"
             )
-
-        if total_bytes != tmp_corpus.stat().st_size:
-            raise RuntimeError(
-                f"corpus size changed after flush: "
-                f"expected {total_bytes}, got {tmp_corpus.stat().st_size}"
-            )
-
-        base_manifest = CorpusManifest(
-            schema_version=_SCHEMA_VERSION,
-            created_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            sampler_config=config,
-            releases=tuple(releases_meta),
-            total_candidates=total_candidates,
-            total_selected=len(selected),
-            exact_dedup_removed=exact_dedup_removed,
-            per_source_cap_removed=per_source_cap_removed,
-            per_language_cap_removed=per_language_cap_removed,
-            global_cap_removed=global_cap_removed,
-            total_corpus_bytes=total_bytes,
-            per_source_records=dict(source_records),
-            per_source_bytes=dict(source_bytes),
-            per_language_records=dict(language_records),
-            per_language_bytes=dict(language_bytes),
-            per_domain_records=dict(domain_records),
-            per_domain_bytes=dict(domain_bytes),
-            corpus_sha256=computed_corpus_sha,
-            records=records,
-        )
 
         manifest_digest = base_manifest.compute_digest()
 
         final_manifest = CorpusManifest(
             schema_version=base_manifest.schema_version,
-            created_at=base_manifest.created_at,
             sampler_config=base_manifest.sampler_config,
             releases=base_manifest.releases,
             total_candidates=base_manifest.total_candidates,
