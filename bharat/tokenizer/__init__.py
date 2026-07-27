@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from bharat.tokenizer.base import BharatTokenizer
 from bharat.tokenizer.bpe import BPETokenizer, train_bpe
+from bharat.tokenizer.bpe_adapter import BharatBPETokenizer
 from bharat.tokenizer.loader import load_tokenizer
 from bharat.tokenizer.metadata import TokenizerMetadata, tokenizer_hash
 from bharat.tokenizer.sampler import (
@@ -12,6 +13,7 @@ from bharat.tokenizer.sampler import (
 )
 
 __all__ = [
+    "BharatBPETokenizer",
     "BharatTokenizer",
     "BPETokenizer",
     "CorpusManifest",
