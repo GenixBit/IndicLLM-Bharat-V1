@@ -86,7 +86,9 @@ def evaluate_tokenizer_acceptance(
     tokenizer_byte_coverage = _require_named_mapping(
         byte_coverage, tokenizer_name, "byte_coverage"
     )
-    tokenizer_languages = _require_named_mapping(per_language, tokenizer_name, "per_language")
+    tokenizer_languages = _require_named_mapping(
+        per_language, tokenizer_name, "per_language"
+    )
 
     record_count = _require_int(tokenizer_aggregate, "record_count")
     required_rate = _require_number(tokenizer_round_trip, "required_pass_rate")
@@ -190,6 +192,6 @@ def _require_int(payload: dict[str, Any], key: str) -> int:
 
 def _require_number(payload: dict[str, Any], key: str) -> float:
     value = payload.get(key)
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
+    if not isinstance(value, int | float) or isinstance(value, bool):
         raise ValueError(f"report metric {key!r} must be numeric")
     return float(value)
