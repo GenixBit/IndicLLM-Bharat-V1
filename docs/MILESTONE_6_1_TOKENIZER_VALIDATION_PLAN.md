@@ -190,10 +190,17 @@ PR C tests must prove:
 The 8 reserved entries (`<|reserved_0|>` through `<|reserved_7|>`) are actual special tokens occupying vocabulary slots 3–10. They:
 
 - Are added to the tokenizer before BPE training (via the `special_tokens` parameter of `BpeTrainer`).
-- Cannot be emitted from ordinary text accidentally (they never appear in training data).
 - Are excluded from BPE merge learning.
 - Remain unchanged after save/load.
 - Are documented as inactive (no embedding or LM head is trained to use them meaningfully at this stage).
+
+**Important encoding behavior**: Like all special tokens in the `tokenizers` BPE library, reserved placeholder IDs **can** be emitted if the literal token string (e.g., `"<|reserved_0|>"`) appears in the input text. This is NOT controlled by the `add_special_tokens` parameter (which only governs BOS/EOS prepending). The BPE model matches special token strings anywhere in the input during encoding.
+
+This means:
+- Ordinary natural text is safe: the string `<|reserved_0|>` will not appear organically.
+- Training data must be verified to contain no reserved token strings (automatically true for governed data; enforced by content scan during corpus sampling).
+- If a caller explicitly writes `"<|reserved_0|>"` in their input, the tokenizer will emit ID 3.
+- This is identical to the behavior of `<|pad|>`, `<|bos|>`, and `<|eos|>` — all special tokens are matched by literal string in input.
 
 If a future milestone requires additional special tokens (chat template markers, FIM tokens, etc.), the inactive placeholder at the corresponding slot is activated by updating the model's embedding table initialisation. If more slots are needed, `add_special_tokens` extends the vocabulary beyond 64,000, requiring a corresponding `vocab_size` increase in the model config.
 
@@ -239,7 +246,17 @@ Byte-level BPE produces no unknown tokens for any valid supported Unicode input,
 - They are not learned — they are excluded from the BPE merge learning
 - Reserved placeholders are inactive: the model may assign embeddings to them but should not be trained to produce them meaningfully
 
-### 4.4 Adding Special Tokens After Training
+### 4.4 Special-Token Encoding Behavior
+
+The `tokenizers` BPE library matches special token strings by literal string match during encoding:
+
+- If input text contains a substring that exactly matches a special token string (e.g., `"<|pad|>"`, `"<|reserved_0|>"`), the tokenizer emits the corresponding special token ID.
+- This behavior is **independent** of the `add_special_tokens` parameter. Setting `add_special_tokens=False` only suppresses automatic BOS/EOS prepending; it does NOT disable special-token string matching in the body of the text.
+- All special tokens (including reserved placeholders) behave identically in this regard.
+
+**Practical consequence**: The reserved token strings are long, contain pipe characters (`|`), and will not appear in any natural text or reasonable training corpus. Training data verification during corpus sampling (PR B) must confirm the absence of reserved token strings. For inference, callers who explicitly construct strings containing `<|reserved_0|>` will receive unexpected ID 3; this is documented as caller responsibility.
+
+### 4.5 Adding Special Tokens After Training
 
 If additional special tokens (e.g., `<|system|>`, `<|user|>`, `<|assistant|>`) are needed later, they must be added via `add_special_tokens` with a corresponding increase in `vocab_size` in the model config. The production wrapper must support this operation.
 
