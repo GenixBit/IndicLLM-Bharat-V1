@@ -51,17 +51,13 @@ class BharatBPETokenizer(BharatTokenizer):
             return [self.bos_token_id, *ids, self.eos_token_id]
         return ids
 
-    def encode_batch(
-        self, texts: list[str], add_special_tokens: bool = True
-    ) -> list[list[int]]:
+    def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
         return [self.encode(text, add_special_tokens=add_special_tokens) for text in texts]
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
         return self._tokenizer.decode(ids, skip_special_tokens=skip_special_tokens)
 
-    def decode_batch(
-        self, batch: list[list[int]], skip_special_tokens: bool = True
-    ) -> list[str]:
+    def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
         return [self.decode(ids, skip_special_tokens=skip_special_tokens) for ids in batch]
 
     def get_metadata(self) -> dict[str, Any]:

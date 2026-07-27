@@ -11,8 +11,7 @@ from bharat.tokenizer import BharatBPETokenizer, BharatTokenizer, train_bpe
 def _build_tokenizer(tmp_path: Path) -> BharatBPETokenizer:
     corpus = tmp_path / "corpus.jsonl"
     corpus.write_text(
-        "\n".join(json.dumps({"text": text}) for text in ["भारत", "hello", "भारत hello"])
-        + "\n",
+        "\n".join(json.dumps({"text": text}) for text in ["भारत", "hello", "भारत hello"]) + "\n",
         encoding="utf-8",
     )
     return BharatBPETokenizer(train_bpe(corpus, vocab_size=272))
