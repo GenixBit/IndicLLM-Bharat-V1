@@ -27,9 +27,7 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "Check a local tokenizer evaluation report against deterministic thresholds"
-        )
+        description="Check a local tokenizer evaluation report against deterministic thresholds"
     )
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--thresholds", required=True, type=Path)
@@ -78,7 +76,12 @@ def main(argv: list[str] | None = None) -> int:
 
     result = evaluate_tokenizer_acceptance(report, tokenizer_name, thresholds)
     serialized = (
-        json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        json.dumps(
+            result,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
         + "\n"
     )
 
