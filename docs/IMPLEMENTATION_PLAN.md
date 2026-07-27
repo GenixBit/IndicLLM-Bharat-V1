@@ -1,6 +1,10 @@
 # Bharat AI — Implementation Plan
 
-## Repository Audit Summary
+> **Note (2026-07-27):** The audit text below is historical (written 2025-07-06). Many items listed
+> as "not yet started" have since been completed. See the [Current Status](#current-status-2026-07-27)
+> section for the authoritative view of where each milestone stands today.
+
+## Repository Audit Summary (Historical — 2025-07-06)
 
 See `docs/CURRENT_STATE_AUDIT.md` for the full audit. Key findings (post-Milestone 3.1):
 
@@ -12,6 +16,20 @@ See `docs/CURRENT_STATE_AUDIT.md` for the full audit. Key findings (post-Milesto
 - **High-severity issues fixed:** Hardcoded GPT-2 tokenizer, no checkpoint metadata, wildcard CORS
 - **Still open:** Hardcoded `uint16` storage (H1-H3), test implementations are stubs, no streaming API, no authentication, no quality filtering/dedup, no data engine (Milestone 3.2+)
 - **Not yet started:** Milestone 3.2 (Quality Filters + Dedup), Milestone 4 (BharatBench), Milestone 5 (Production Serving)
+
+## Current Status (2026-07-27)
+
+The current implementation status reflects substantial progress beyond the 2025-07-06 audit:
+
+| Milestone | Status | Notes |
+|-----------|--------|-------|
+| Milestone 1 (Stabilisation) | ✅ Complete | All 14 criteria met at `637e2d3` |
+| Milestone 2 (Modern Architecture) | ✅ Complete | RoPE, RMSNorm, SwiGLU, GQA, configs, sizing |
+| Milestone 3 (Data Engine) | ✅ Complete | 3.1–3.5 all merged; 1062+ tests pass |
+| Milestone 4 (BharatBench) | ✅ Complete | Harness (4.1), adapters (4.2), local model (4.3), catalog (4.4), leaderboard (4.5) |
+| Milestone 5 (Production Serving) | ✅ Complete | Streaming (5.1), auth/metrics (5.2), export (5.3), Q8_0 GGUF (5.4) — all merged |
+| Milestone 6 (Bharat-350M Validation) | 🔲 **Active** | Milestone 6.1 tokenizer plan in progress |
+| Milestone 7 (Bharat-1B Release) | 🔲 Not started | Blocked on Milestone 6 completion
 
 ---
 
@@ -229,25 +247,78 @@ IndicLLM-Bharat-V1/
 - **Rollback:** Delete `bharat/serving/safetensors_writer.py`, `gguf_writer.py`, `gguf_tensor_writer.py`, `gguf_preflight.py`, `gguf_reader.py`, `export_writer.py`, `export_manifest*.py`, `export_path_readiness*.py`, `export_writer_readiness*.py`, `export_checkpoint_inventory*.py`, `scripts/run_export_plan.py`; revert CLI integrations
 - **Acceptance:** Models export to safetensors and GGUF F32 correctly; all existing tests pass; offline/CPU-only; no overwrite; `--execute` controlled by explicit flag; quantization out of scope
 
-### Milestone 6 — Bharat-350M Validation (PRs 19–20)
+### Milestone 6 — Bharat-350M Validation
 
 **Goal:** First validated Bharat model.
 
-#### PR 19: Tokenizer training + validation
-- **Files:** `bharat/tokenizer/train.py`, `bharat/tokenizer/evaluate.py`
-- **Content:** Train 64K BPE tokenizer on multilingual Indic + English + code data; evaluate compression, fertility, code efficiency
-- **Tests:** Tokenizer evaluation metrics, language-wise fertility
-- **Depends on:** PR 2
-- **Rollback:** Revert tokenizer training
-- **Acceptance:** Tokenizer compression ratio is better than GPT-2 on Indic languages
+**Status (2026-07-27):** Tokenizer architecture and validation plan defined. No tokenizer training started. See [MILESTONE_6_1_TOKENIZER_VALIDATION_PLAN.md](MILESTONE_6_1_TOKENIZER_VALIDATION_PLAN.md) for the complete specification.
 
-#### PR 20: Bharat-350M smoke test + benchmark
-- **Files:** Training configs, evaluation configs
+Milestone 6 is divided into three sub-milestones, with Milestone 6.1 (tokenizer) further broken into 7 phased PRs:
+
+#### Milestone 6.1 — 64K BPE Tokenizer Validation (PRs A–G)
+
+**Phased PR Plan:**
+
+##### PR A — Architecture and Evaluation Contract (Documentation)
+- **Files:** `docs/MILESTONE_6_1_TOKENIZER_VALIDATION_PLAN.md`, `docs/IMPLEMENTATION_PLAN.md`
+- **Content:** Architecture decisions, algorithm recommendation, vocabulary composition, special-token contract, normalization policy, training-data contract, evaluation metrics, baseline comparison, acceptance criteria, model compatibility, compute plan, safety rules, phased PR sequence
+- **Depends on:** Nothing (documentation only)
+- **Rollback:** Revert doc changes
+- **Acceptance:** All architecture decisions documented and approved
+
+##### PR B — Deterministic Tokenizer-Corpus Sampler
+- **Files:** `scripts/sample_tokenizer_corpus.py`, `bharat/tokenizer/sampler.py`, `tests/test_tokenizer_sampler.py`
+- **Content:** CLI to sample from approved local dataset releases; core sampling with deterministic ordering; sample manifest with corpus digest
+- **Depends on:** Milestone 3.5 (dataset approval + release packaging — complete)
+- **Rollback:** Delete sampler files
+- **Acceptance:** Repeated sampling from identical inputs produces identical corpus digest
+
+##### PR C — Tiny Tokenizer Training Harness
+- **Files:** `bharat/tokenizer/train.py` (updated), `bharat/tokenizer/loader.py` (add `_BPEWrapper`), `configs/tokenizers/bpe-64k.yaml`, `tests/test_tokenizer_train.py`, `tests/test_bpe_wrapper.py`
+- **Content:** Production configuration support; BPE wrapper returning `tokenizer_type="bpe"`; metadata and hashing tests
+- **Depends on:** PR 2
+- **Rollback:** Revert tokenizer wrapper changes
+- **Acceptance:** Reproducible training with synthetic data; correct metadata and hash
+
+##### PR D — Evaluation Framework
+- **Files:** `bharat/tokenizer/evaluate.py` (extended), `scripts/evaluate_tokenizer.py`, `tests/test_tokenizer_eval.py`, `tests/fixtures/tokenizer_eval.py`
+- **Content:** Per-language, per-domain, per-script metrics; baseline comparison (GPT-2); JSON report schema
+- **Depends on:** PR C
+- **Rollback:** Revert evaluate.py changes
+- **Acceptance:** All metrics produce deterministic output; baseline comparison works
+
+##### PR E — Production Training Configuration
+- **Files:** `configs/tokenizers/bpe-64k.yaml` (final review), normalization policy tests, acceptance thresholds
+- **Content:** Final tokenizer configuration; verified normalization tests; documented acceptance thresholds
+- **Depends on:** PR C
+- **Rollback:** Revert config changes
+- **Acceptance:** Configuration approved, no production training started
+
+##### PR F — Production Tokenizer Evidence
+- **Files:** Tokenizer config, evaluation report, sample manifest, corpus digest, tokenizer hash, approval record
+- **Content:** Train 64K tokenizer from approved corpus (outside CI); generate evaluation report; verify hash and metadata
+- **Depends on:** PR E, approved data release
+- **Rollback:** None (no production files changed)
+- **Acceptance:** All acceptance thresholds met or revised with evidence
+
+##### PR G — Bharat-350M Tokenizer Integration
+- **Files:** Model config updates if needed; smoke/overfit test configurations
+- **Content:** Model config compatibility; checkpoint metadata; smoke and overfit training
+- **Depends on:** PR F
+- **Rollback:** Revert model config changes
+- **Acceptance:** Tokenizer integrates with Bharat-350M config; smoke and overfit tests pass
+
+#### Milestone 6.2 — Bharat-350M Smoke Test + Overfit
+
 - **Content:** Overfit-one-batch test, small-scale training (100M tokens), benchmark report
-- **Tests:** Overfit test, distributed training test
-- **Depends on:** PR 9, PR 15, PR 19
-- **Rollback:** None (doesn't overwrite)
+- **Depends on:** Milestone 6.1 complete, Milestone 4 (BharatBench) complete
 - **Acceptance:** Model overfits one batch; distributed training converges; benchmark report generated
+
+#### Milestone 6.3 — Comprehensive Benchmark Report
+
+- **Content:** Full evaluation on BharatBench; model card; safety review
+- **Depends on:** Milestone 6.2 complete
+- **Acceptance:** All benchmark results documented; safety review passed; model card complete
 
 ### Milestone 7 — Bharat-1B (PRs 21–22)
 
@@ -293,8 +364,14 @@ IndicLLM-Bharat-V1/
 | 16 | feat: Streaming API and function calling | `bharat/serving/api.py`, `schemas.py`, `engine.py`, `streaming.py` | PR 2, 8 | 2-3 days |
 | 17 | feat: Auth, rate limiting, metrics | `bharat/serving/authentication.py`, `rate_limit.py`, `metrics.py` | PR 16 | 1-2 days |
 | 18 | feat: Export (safetensors + GGUF F32) | `bharat/serving/safetensors_writer.py`, `gguf_writer.py`, `gguf_tensor_writer.py`, `gguf_preflight.py`, `gguf_reader.py`, `export_writer.py`, `export_manifest*.py`, `export_writer_readiness*.py`, `export_path_readiness*.py`, `scripts/run_export_plan.py`, 15 milestone docs, 168 tests | PR 8 | 2 weeks | ✅ |
-| 19 | feat: Bharat 64K tokenizer training and validation | `bharat/tokenizer/train.py`, `evaluate.py` | PR 2 | 2-3 days |
-| 20 | test: Bharat-350M smoke test and benchmark | Training/eval configs | PR 9, 15, 19 | 1-2 weeks |
+| 19a | docs: Milestone 6.1 tokenizer validation plan | `docs/MILESTONE_6_1_TOKENIZER_VALIDATION_PLAN.md`, `docs/IMPLEMENTATION_PLAN.md` | — | 1 day | 🔲 |
+| 19b | feat: Deterministic tokenizer-corpus sampler | `bharat/tokenizer/sampler.py`, `scripts/sample_tokenizer_corpus.py` | Milestone 3.5 | 3 days | 🔲 |
+| 19c | feat: Tokenizer training harness + BPE wrapper | `bharat/tokenizer/train.py`, `loader.py`, `configs/tokenizers/bpe-64k.yaml` | PR 2 | 2-3 days | 🔲 |
+| 19d | feat: Extended evaluation framework | `bharat/tokenizer/evaluate.py`, `scripts/evaluate_tokenizer.py` | PR 19c | 3 days | 🔲 |
+| 19e | feat: Production tokenizer config + thresholds | `configs/tokenizers/bpe-64k.yaml` | PR 19c | 1 day | 🔲 |
+| 19f | feat: Production 64K tokenizer evidence | Tokenizer artifacts (outside CI) | PR 19e | 1-2 days | 🔲 |
+| 19g | feat: Bharat-350M tokenizer integration | Model config, smoke tests | PR 19f | 1-2 days | 🔲 |
+| 20 | test: Bharat-350M smoke test and benchmark | Training/eval configs | PR 9, 15, 19g | 1-2 weeks | 🔲 |
 | 21 | feat: Bharat-1B data mixture and compute plan | `bharat/data/mixture.py`, plan doc | PR 12 | 1 week |
 | 22 | feat: Bharat-1B training, evaluation, and release | Training, evaluation, model card | PR 20, 21 | 4-8 weeks |
 
