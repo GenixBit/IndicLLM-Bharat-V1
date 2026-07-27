@@ -27,7 +27,9 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Check a local tokenizer evaluation report against deterministic thresholds"
+        description=(
+            "Check a local tokenizer evaluation report against deterministic thresholds"
+        )
     )
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--thresholds", required=True, type=Path)
@@ -48,11 +50,16 @@ def main(argv: list[str] | None = None) -> int:
 
     report = _load_json_object(args.report, "evaluation report")
     threshold_payload = _load_json_object(args.thresholds, "threshold configuration")
-    if threshold_payload.get("schema_version") != "tokenizer-acceptance-thresholds-v1":
+    if (
+        threshold_payload.get("schema_version")
+        != "tokenizer-acceptance-thresholds-v1"
+    ):
         raise ValueError("unsupported threshold schema_version")
     raw_thresholds = threshold_payload.get("thresholds")
     if not isinstance(raw_thresholds, dict):
-        raise ValueError("threshold configuration field 'thresholds' must be an object")
+        raise ValueError(
+            "threshold configuration field 'thresholds' must be an object"
+        )
     thresholds = TokenizerAcceptanceThresholds.from_dict(raw_thresholds)
 
     tokenizer_name = args.tokenizer_name
@@ -64,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
             or not isinstance(names[0], str)
         ):
             raise ValueError(
-                "--tokenizer-name is required when the report does not contain exactly one tokenizer"
+                "--tokenizer-name is required when the report does not contain "
+                "exactly one tokenizer"
             )
         tokenizer_name = names[0]
 
