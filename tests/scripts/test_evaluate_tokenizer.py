@@ -172,10 +172,10 @@ def test_existing_output_rejected(eval_artifacts: tuple[Path, Path], tmp_path: P
         )
 
 
-# ── 6. Overwrite allowed by removing first ───────────────────────────
+# ── 6. Execute with output ──────────────────────────────────────────
 
 
-def test_execute_with_overwrite(eval_artifacts: tuple[Path, Path], tmp_path: Path) -> None:
+def test_execute_with_output(eval_artifacts: tuple[Path, Path], tmp_path: Path) -> None:
     tok_path, ds_path = eval_artifacts
     report_path = tmp_path / "report.json"
 
@@ -194,7 +194,6 @@ def test_execute_with_overwrite(eval_artifacts: tuple[Path, Path], tmp_path: Pat
             "--execute",
         ]
     )
-    # second call would fail, but first succeeds
     assert report_path.exists()
 
 
@@ -249,6 +248,7 @@ def test_cli_help() -> None:
     assert "--output-report" in help_text
     assert "--dry-run" in help_text
     assert "--execute" in help_text
+    assert "--tokenizer-type" in help_text
 
 
 # ── 9. No execute flag with output requires confirmation ─────────────
@@ -271,3 +271,106 @@ def test_cli_requires_execute_or_dry_run(eval_artifacts: tuple[Path, Path], tmp_
                 str(report_path),
             ]
         )
+
+
+# ── 10. Duplicate names rejected ─────────────────────────────────────
+
+
+def test_duplicate_names_rejected(eval_artifacts: tuple[Path, Path], tmp_path: Path) -> None:
+    tok_path, ds_path = eval_artifacts
+    report_path = tmp_path / "report.json"
+
+    from scripts.evaluate_tokenizer import main
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "--tokenizer",
+                str(tok_path),
+                "--name",
+                "dup",
+                "--tokenizer",
+                str(tok_path),
+                "--name",
+                "dup",
+                "--dataset",
+                str(ds_path),
+                "--output-report",
+                str(report_path),
+                "--execute",
+            ]
+        )
+
+
+# ── 11. Output-path collision rejected ───────────────────────────────
+
+
+def test_output_path_collision_rejected(eval_artifacts: tuple[Path, Path], tmp_path: Path) -> None:
+    tok_path, ds_path = eval_artifacts
+    report_path = tmp_path / "report.json"
+
+    from scripts.evaluate_tokenizer import main
+
+    with pytest.raises((ValueError, SystemExit)):
+        main(
+            [
+                "--tokenizer",
+                str(tok_path),
+                "--dataset",
+                str(ds_path),
+                "--output-report",
+                str(report_path),
+                "--detailed-records",
+                str(report_path),
+                "--execute",
+            ]
+        )
+
+
+# ── 12. Corrupted BPE artifact ───────────────────────────────────────
+
+
+def test_corrupted_bpe_artifact_fails_closed(tmp_path: Path) -> None:
+    bad_path = tmp_path / "bad.json"
+    bad_path.write_text('{"schema_version":"bpe-v1"}', encoding="utf-8")
+    from scripts.evaluate_tokenizer import main
+
+    with pytest.raises((ValueError, KeyError)):
+        main(
+            [
+                "--tokenizer",
+                str(bad_path),
+                "--tokenizer-type",
+                "bpe",
+                "--dataset",
+                str(_build_dataset(tmp_path)),
+                "--dry-run",
+            ]
+        )
+
+
+# ── 13. BPE type explicit load ───────────────────────────────────────
+
+
+def test_bpe_type_load(
+    eval_artifacts: tuple[Path, Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tok_path, ds_path = eval_artifacts
+    report_path = tmp_path / "report.json"
+
+    from scripts.evaluate_tokenizer import main
+
+    main(
+        [
+            "--tokenizer",
+            str(tok_path),
+            "--tokenizer-type",
+            "bpe",
+            "--dataset",
+            str(ds_path),
+            "--output-report",
+            str(report_path),
+            "--execute",
+        ]
+    )
+    assert report_path.exists()

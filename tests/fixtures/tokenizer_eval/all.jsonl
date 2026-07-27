@@ -1,28 +1,28 @@
-{"id":"hi-001","language":"hi","script":"Devanagari","domain":"general","text":"भारत एक विविध देश है।"}
-{"id":"hi-002","language":"hi","script":"Devanagari","domain":"general","text":"हिन्दी भाषा भारत की राजभाषा है।"}
-{"id":"hi-003","language":"hi","script":"Devanagari","domain":"general","text":"प्रौद्योगिकी के क्षेत्र में भारत तेजी से आगे बढ़ रहा है।"}
-{"id":"hi-004","language":"hi","script":"Devanagari","domain":"numbers","text":"१२३४५६७८९०"}
-{"id":"hi-005","language":"hi","script":"Devanagari","domain":"punctuation","text":"भारत! क्या तुम आओगे? हाँ, मैं आऊँगा।"}
-{"id":"mr-001","language":"mr","script":"Devanagari","domain":"general","text":"मराठी ही महाराष्ट्राची राजभाषा आहे।"}
-{"id":"mr-002","language":"mr","script":"Devanagari","domain":"general","text":"पुणे शहर शैक्षणिक केंद्र म्हणून प्रसिद्ध आहे।"}
-{"id":"bn-001","language":"bn","script":"Bengali","domain":"general","text":"বাংলা ভাষা ভারতের একটি প্রধান ভাষা।"}
-{"id":"bn-002","language":"bn","script":"Bengali","domain":"general","text":"কলকাতা শহর সাংস্কৃতিক রাজধানী নামে পরিচিত।"}
-{"id":"gu-001","language":"gu","script":"Gujarati","domain":"general","text":"ગુજરાતી ભાષા ગુજરાત રાજ્યની ભાષા છે।"}
-{"id":"pa-001","language":"pa","script":"Gurmukhi","domain":"general","text":"ਪੰਜਾਬੀ ਭਾਸ਼ਾ ਪੰਜਾਬ ਖੇਤਰ ਦੀ ਮੁੱਖ ਭਾਸ਼ਾ ਹੈ।"}
-{"id":"or-001","language":"or","script":"Odia","domain":"general","text":"ଓଡ଼ିଆ ଭାଷା ଓଡ଼ିଶାର ମୁଖ୍ୟ ଭାଷା।"}
-{"id":"ta-001","language":"ta","script":"Tamil","domain":"general","text":"தமிழ் மொழி உலகின் பழமையான மொழிகளில் ஒன்றாகும்।"}
-{"id":"te-001","language":"te","script":"Telugu","domain":"general","text":"తెలుగు భాష ఆంధ్రప్రదేశ్ రాష్ట్ర భాష।"}
-{"id":"kn-001","language":"kn","script":"Kannada","domain":"general","text":"ಕನ್ನಡ ಭಾಷೆ ಕರ್ನಾಟಕ ರಾಜ್ಯದ ಅಧಿಕೃತ ಭಾಷೆ।"}
-{"id":"ml-001","language":"ml","script":"Malayalam","domain":"general","text":"മലയാളം കേരളത്തിന്റെ ഔദ്യോഗിക ഭാഷയാണ്।"}
-{"id":"ur-001","language":"ur","script":"Arabic","domain":"general","text":"اردو ہندوستان کی ایک اہم زبان ہے۔"}
-{"id":"en-001","language":"en","script":"Latin","domain":"general","text":"India is a diverse country with many languages."}
-{"id":"en-002","language":"en","script":"Latin","domain":"general","text":"The quick brown fox jumps over the lazy dog."}
-{"id":"mixed-001","language":"hi","script":"Mixed","domain":"general","text":"भारत is a diverse country with many languages और संस्कृतियाँ।"}
-{"id":"emoji-001","language":"en","script":"Mixed","domain":"emoji","text":"Hello 🌍 World 🎉 Festival 🚀 Launch"}
-{"id":"zwj-001","language":"en","script":"Mixed","domain":"emoji","text":"Family 👨‍👩‍👧‍👦 together"}
-{"id":"combining-001","language":"en","script":"Latin","domain":"combining","text":"café déjà vu", "canonical_equivalent": "cafe\u0301 de\u0301ja\u0300 vu"}
-{"id":"nfc-001","language":"en","script":"Latin","domain":"nfc","text":"\u00e9\u00e0\u00fc\u00f1"}
-{"id":"digits-001","language":"en","script":"Latin","domain":"numbers","text":"12345 67890 100 2000"}
-{"id":"digits-hi-001","language":"hi","script":"Devanagari","domain":"numbers","text":"१२३ ४५६ ७८९"}
-{"id":"punct-001","language":"en","script":"Latin","domain":"punctuation","text":"Hello, world! How are you? (Fine.) \"Good.\""}
-{"id":"whitespace-001","language":"en","script":"Latin","domain":"whitespace","text":"line1\n\tline2\n  line3  "}
+{"domain": "general", "id": "bn-001", "language": "bn", "script": "Bengali", "text": "বাংলা ভাষা ভারতের একটি প্রধান ভাষা।"}
+{"domain": "general", "id": "bn-002", "language": "bn", "script": "Bengali", "text": "কলকাতা শহর সাংস্কৃতিক রাজধানী নামে পরিচিত।"}
+{"canonical_equivalent": "café déjà vu", "domain": "combining", "id": "combining-001", "language": "en", "script": "Latin", "text": "café déjà vu"}
+{"domain": "numbers", "id": "digits-001", "language": "en", "script": "Latin", "text": "12345 67890 100 2000"}
+{"domain": "emoji", "id": "emoji-001", "language": "en", "script": "Mixed", "text": "Hello 🌍 World 🎉 Festival 🚀 Launch"}
+{"domain": "general", "id": "en-001", "language": "en", "script": "Latin", "text": "India is a diverse country with many languages."}
+{"domain": "general", "id": "en-002", "language": "en", "script": "Latin", "text": "The quick brown fox jumps over the lazy dog."}
+{"domain": "nfc", "id": "nfc-001", "language": "en", "script": "Latin", "text": "éàüñ"}
+{"domain": "punctuation", "id": "punct-001", "language": "en", "script": "Latin", "text": "Hello, world! How are you? (Fine.) \"Good.\""}
+{"domain": "whitespace", "id": "whitespace-001", "language": "en", "script": "Latin", "text": "line1\n\tline2\n  line3  "}
+{"domain": "emoji", "id": "zwj-001", "language": "en", "script": "Mixed", "text": "Family 👨‍👩‍👧‍👦 together"}
+{"domain": "general", "id": "gu-001", "language": "gu", "script": "Gujarati", "text": "ગુજરાતી ભાષા ગુજરાત રાજ્યની ભાષા છે।"}
+{"domain": "numbers", "id": "digits-hi-001", "language": "hi", "script": "Devanagari", "text": "१२३ ४५६ ७८९"}
+{"domain": "general", "id": "hi-001", "language": "hi", "script": "Devanagari", "text": "भारत एक विविध देश है।"}
+{"domain": "general", "id": "hi-002", "language": "hi", "script": "Devanagari", "text": "हिन्दी भाषा भारत की राजभाषा है।"}
+{"domain": "general", "id": "hi-003", "language": "hi", "script": "Devanagari", "text": "प्रौद्योगिकी के क्षेत्र में भारत तेजी से आगे बढ़ रहा है।"}
+{"domain": "numbers", "id": "hi-004", "language": "hi", "script": "Devanagari", "text": "१२३४५६७८९०"}
+{"domain": "punctuation", "id": "hi-005", "language": "hi", "script": "Devanagari", "text": "भारत! क्या तुम आओगे? हाँ, मैं आऊँगा।"}
+{"domain": "general", "id": "mixed-001", "language": "hi", "script": "Mixed", "text": "भारत is a diverse country with many languages और संस्कृतियाँ।"}
+{"domain": "general", "id": "kn-001", "language": "kn", "script": "Kannada", "text": "ಕನ್ನಡ ಭಾಷೆ ಕರ್ನಾಟಕ ರಾಜ್ಯದ ಅಧಿಕೃತ ಭಾಷೆ।"}
+{"domain": "general", "id": "ml-001", "language": "ml", "script": "Malayalam", "text": "മലയാളം കേരളത്തിന്റെ ഔദ്യോഗിക ഭാഷയാണ്।"}
+{"domain": "general", "id": "mr-001", "language": "mr", "script": "Devanagari", "text": "मराठी ही महाराष्ट्राची राजभाषा आहे।"}
+{"domain": "general", "id": "mr-002", "language": "mr", "script": "Devanagari", "text": "पुणे शहर शैक्षणिक केंद्र म्हणून प्रसिद्ध आहे।"}
+{"domain": "general", "id": "or-001", "language": "or", "script": "Odia", "text": "ଓଡ଼ିଆ ଭାଷା ଓଡ଼ିଶାର ମୁଖ୍ୟ ଭାଷା।"}
+{"domain": "general", "id": "pa-001", "language": "pa", "script": "Gurmukhi", "text": "ਪੰਜਾਬੀ ਭਾਸ਼ਾ ਪੰਜਾਬ ਖੇਤਰ ਦੀ ਮੁੱਖ ਭਾਸ਼ਾ ਹੈ।"}
+{"domain": "general", "id": "ta-001", "language": "ta", "script": "Tamil", "text": "தமிழ் மொழி உலகின் பழமையான மொழிகளில் ஒன்றாகும்।"}
+{"domain": "general", "id": "te-001", "language": "te", "script": "Telugu", "text": "తెలుగు భాష ఆంధ్రప్రదేశ్ రాష్ట్ర భాష।"}
+{"domain": "general", "id": "ur-001", "language": "ur", "script": "Arabic", "text": "اردو ہندوستان کی ایک اہم زبان ہے۔"}

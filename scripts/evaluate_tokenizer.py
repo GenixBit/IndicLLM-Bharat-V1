@@ -11,20 +11,28 @@ from bharat.tokenizer import BharatBPETokenizer, BharatTokenizer, load_tokenizer
 from bharat.tokenizer.evaluation import TokenizerEvaluation
 
 
-def _load_tokenizer(path: str) -> BharatTokenizer:
+def _load_tokenizer(path: str, tokenizer_type: str) -> BharatTokenizer:
     p = Path(path)
     if not p.exists():
         msg = f"tokenizer artifact not found: {path}"
         raise FileNotFoundError(msg)
-    try:
+
+    if tokenizer_type == "bpe":
         return BharatBPETokenizer.load(p)
-    except Exception:
-        pass
-    loaded = load_tokenizer(path)
-    if loaded is None or not isinstance(loaded, BharatTokenizer):
-        msg = f"unable to load tokenizer from {path}"
-        raise ValueError(msg)
-    return loaded
+
+    if tokenizer_type == "auto":
+        try:
+            return BharatBPETokenizer.load(p)
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+            pass
+        loaded = load_tokenizer(path)
+        if loaded is None or not isinstance(loaded, BharatTokenizer):
+            msg = f"unable to load tokenizer from {path}"
+            raise ValueError(msg)
+        return loaded
+
+    msg = f"unsupported tokenizer type: {tokenizer_type!r}"
+    raise ValueError(msg)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -36,6 +44,12 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         dest="tokenizers",
         help="Tokenizer artifact path (repeatable)",
+    )
+    parser.add_argument(
+        "--tokenizer-type",
+        default="auto",
+        choices=["bpe", "auto"],
+        help="Tokenizer type (bpe, auto)",
     )
     parser.add_argument(
         "--name",
@@ -65,11 +79,15 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     tokenizer_paths = args.tokenizers
+    tokenizer_type = args.tokenizer_type
     names = args.names
     if names is None:
         names = [str(Path(p).stem) for p in tokenizer_paths]
     if len(names) != len(tokenizer_paths):
         msg = "number of --name values must match --tokenizer values"
+        parser.error(msg)
+    if len(names) != len(set(names)):
+        msg = "duplicate tokenizer display names are not allowed"
         parser.error(msg)
 
     if not args.dry_run and not args.execute:
@@ -79,7 +97,7 @@ def main(argv: list[str] | None = None) -> None:
 
     tokenizers: dict[str, BharatTokenizer] = {}
     for name, path in zip(names, tokenizer_paths, strict=False):
-        tokenizers[name] = _load_tokenizer(path)
+        tokenizers[name] = _load_tokenizer(path, tokenizer_type)
 
     eval_engine = TokenizerEvaluation(tokenizers)
     dataset_path = args.dataset
@@ -88,7 +106,6 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(msg)
 
     eval_engine.load_records(dataset_path)
-
     report = eval_engine.compute()
 
     summary_lines = [
@@ -99,12 +116,13 @@ def main(argv: list[str] | None = None) -> None:
     ]
     for name in report.get("tokenizer_names", []):
         agg = report.get("aggregate", {}).get(name, {})
+        rt = report.get("round_trip", {}).get(name, {})
         summary_lines.append(
             f"  {name}: {agg.get('record_count', 0)} records, "
             f"{agg.get('token_count', 0)} tokens, "
             f"fertility={agg.get('micro_fertility', '?'):.4f}, "
             f"unknown={agg.get('unknown_token_count', 0)}, "
-            f"round-trip={report.get('round_trip', {}).get(name, {}).get('exact_pass_rate', '?'):.2%}"
+            f"required-pass={rt.get('required_pass_rate', '?'):.2%}"
         )
 
     report_json = TokenizerEvaluation.serialize_report(report)
@@ -122,63 +140,75 @@ def main(argv: list[str] | None = None) -> None:
         print(report_json, end="")
         return
 
-    tmp_path = output_path.with_name(f".{output_path.name}.{secrets.token_hex(8)}.verify.tmp")
-    try:
-        tmp_path.write_text(report_json, encoding="utf-8")
+    detailed_path = args.detailed_records
 
-        loaded = json.loads(tmp_path.read_text(encoding="utf-8"))
+    if detailed_path is not None and detailed_path.resolve() == output_path.resolve():
+        msg = "output-report and detailed-records paths must differ"
+        raise ValueError(msg)
+
+    tmp_report = output_path.with_name(f".{output_path.name}.{secrets.token_hex(8)}.verify.tmp")
+    tmp_detailed: Path | None = None
+    if detailed_path is not None:
+        tmp_detailed = detailed_path.with_name(
+            f".{detailed_path.name}.{secrets.token_hex(8)}.verify.tmp"
+        )
+
+    paths_created: list[Path] = []
+
+    try:
+        tmp_report.write_text(report_json, encoding="utf-8")
+        loaded = json.loads(tmp_report.read_text(encoding="utf-8"))
         if loaded.get("report_sha256") != report.get("report_sha256"):
             msg = "report verification failed: hash mismatch"
             raise RuntimeError(msg)
+        verified_report = tmp_report.read_bytes()
 
-        verified_bytes = tmp_path.read_bytes()
+        if tmp_detailed is not None:
+            detailed_jsonl = _serialize_detailed(eval_engine)
+            tmp_detailed.write_text(detailed_jsonl, encoding="utf-8")
+            verified_detailed = tmp_detailed.read_bytes()
 
         try:
             with open(output_path, "xb") as f:
-                f.write(verified_bytes)
+                f.write(verified_report)
                 f.flush()
                 os.fsync(f.fileno())
+            paths_created.append(output_path)
         except FileExistsError:
             msg = f"refusing to overwrite existing file: {output_path}"
             raise FileExistsError(msg) from None
 
-        final_bytes = output_path.read_bytes()
-        if final_bytes != verified_bytes:
-            output_path.unlink()
+        if tmp_detailed is not None:
+            try:
+                with open(detailed_path, "xb") as f:
+                    f.write(verified_detailed)
+                    f.flush()
+                    os.fsync(f.fileno())
+                paths_created.append(detailed_path)
+            except FileExistsError:
+                msg = f"refusing to overwrite existing file: {detailed_path}"
+                raise FileExistsError(msg) from None
+
+        final_report = output_path.read_bytes()
+        if final_report != verified_report:
             msg = f"byte-verification failed after final write to {output_path}"
             raise RuntimeError(msg)
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
 
-    if args.detailed_records:
-        detailed = args.detailed_records
-        if detailed.exists():
-            msg = f"refusing to overwrite existing file: {detailed}"
-            raise FileExistsError(msg)
-        records_out: list[dict] = []
-        for name in tokenizers:
-            eval_metrics = eval_engine._metrics.get(name, [])
-            for m in eval_metrics:
-                records_out.append(
-                    {
-                        "tokenizer": name,
-                        "record_id": m.record_id,
-                        "char_count": m.char_count,
-                        "token_count": m.token_count,
-                        "tokens_per_char": round(m.tokens_per_char, 6),
-                        "unknown_token_count": m.unknown_token_count,
-                        "exact_round_trip": m.exact_round_trip,
-                        "nfc_round_trip": m.nfc_round_trip,
-                    }
-                )
-        detailed.write_text(
-            "".join(
-                json.dumps(r, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
-                for r in records_out
-            ),
-            encoding="utf-8",
-        )
+        if detailed_path is not None:
+            final_detailed = detailed_path.read_bytes()
+            if verified_detailed is None or final_detailed != verified_detailed:
+                msg = f"byte-verification failed after final write to {detailed_path}"
+                raise RuntimeError(msg)
+    except BaseException:
+        for p in paths_created:
+            if p.exists():
+                p.unlink()
+        raise
+    finally:
+        if tmp_report.exists():
+            tmp_report.unlink()
+        if tmp_detailed is not None and tmp_detailed.exists():
+            tmp_detailed.unlink()
 
     success = {
         "status": "ok",
@@ -186,6 +216,14 @@ def main(argv: list[str] | None = None) -> None:
         "report_sha256": report.get("report_sha256"),
     }
     print(json.dumps(success, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def _serialize_detailed(eval_engine: TokenizerEvaluation) -> str:
+    records = eval_engine.get_detailed_records()
+    lines = [
+        json.dumps(r, sort_keys=True, separators=(",", ":"), ensure_ascii=True) for r in records
+    ]
+    return "\n".join(lines) + "\n"
 
 
 if __name__ == "__main__":
