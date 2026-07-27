@@ -551,7 +551,7 @@ def test_validate_catches_self_referencing_merge(corpus_en: Path) -> None:
     if len(t.merges) >= 2:
         bad = dataclasses.replace(t.merges[1], token=t.merges[1].left)
         old_vocab = {k: v for k, v in t.vocab.items() if v != t.merges[1].token}
-        object.__setattr__(t, "merges", (t.merges[0], bad) + tuple(t.merges[2:]))
+        object.__setattr__(t, "merges", (t.merges[0], bad, *t.merges[2:]))
         object.__setattr__(t, "vocab", old_vocab)
         with pytest.raises(ValueError, match="self-referencing"):
             t.validate()
@@ -562,7 +562,7 @@ def test_validate_catches_reused_merge_id(corpus_en: Path) -> None:
     if len(t.merges) >= 2:
         reused = dataclasses.replace(t.merges[1], token=t.merges[0].token)
         old_vocab = {k: v for k, v in t.vocab.items() if v != t.merges[1].token}
-        object.__setattr__(t, "merges", (t.merges[0], reused) + tuple(t.merges[2:]))
+        object.__setattr__(t, "merges", (t.merges[0], reused, *t.merges[2:]))
         object.__setattr__(t, "vocab", old_vocab)
         with pytest.raises(ValueError, match="already exists"):
             t.validate()
@@ -572,7 +572,7 @@ def test_validate_catches_merge_rank_mismatch(corpus_en: Path) -> None:
     t = train_bpe(corpus_en, vocab_size=280)
     if len(t.merges) >= 2:
         bad = dataclasses.replace(t.merges[1], rank=0)
-        object.__setattr__(t, "merges", (t.merges[0], bad) + tuple(t.merges[2:]))
+        object.__setattr__(t, "merges", (t.merges[0], bad, *t.merges[2:]))
         with pytest.raises(ValueError, match="rank"):
             t.validate()
 
