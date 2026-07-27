@@ -7,207 +7,373 @@ from pathlib import Path
 import pytest
 
 from bharat.tokenizer.bpe import (
+    _SPECIAL_TOKENS,
     BPETokenizer,
-    _BPEMerge,
-    _build_byte_vocab,
-    compute_tokenizer_hash,
+    _build_base_vocab,
+    _read_corpus_records,
+    _validate_special_tokens,
+    _validate_vocab_size,
     train_bpe,
 )
 
-_SPECIAL = {"<pad>": 0, "<unk>": 1, "<bos>": 2, "<eos>": 3}
+_SPECIAL = dict(_SPECIAL_TOKENS)
 
 
-@pytest.fixture
-def tiny_corpus(tmp_path: Path) -> Path:
-    path = tmp_path / "corpus.jsonl"
-    lines = [
-        json.dumps({"text": "hello world"}) + "\n",
-        json.dumps({"text": "bpe tokenizer"}) + "\n",
-        json.dumps({"text": "deterministic"}) + "\n",
-        json.dumps({"text": "byte level bpe"}) + "\n",
-        json.dumps({"text": "hello again world"}) + "\n",
-    ]
-    path.write_text("".join(lines), encoding="utf-8")
+# ── helpers ────────────────────────────────────────────────────────
+
+
+def _write_jsonl(path: Path, texts: list[str]) -> Path:
+    path.write_text(
+        "".join(json.dumps({"text": t}, ensure_ascii=False) + "\n" for t in texts),
+        encoding="utf-8",
+    )
     return path
 
 
-# ── byte vocabulary ────────────────────────────────────────────────
+@pytest.fixture
+def corpus_en(tmp_path: Path) -> Path:
+    return _write_jsonl(
+        tmp_path / "corpus.jsonl",
+        ["hello world", "bpe tokenizer", "deterministic", "byte level bpe", "hello again world"],
+    )
 
 
-def test_byte_vocab_includes_special_tokens() -> None:
-    vocab = _build_byte_vocab(_SPECIAL)
-    assert vocab["<pad>"] == 0
-    assert vocab["<unk>"] == 1
-    assert vocab["<bos>"] == 2
-    assert vocab["<eos>"] == 3
-    assert len(vocab) == 260
+# ══════════════════════════════════════════════════════════════════
+# 1. Validation
+# ══════════════════════════════════════════════════════════════════
 
 
-def test_byte_vocab_all_256_bytes() -> None:
-    vocab = _build_byte_vocab(_SPECIAL)
+def test_no_special_byte_id_collision() -> None:
+    byte_vid, id2b, vocab = _build_base_vocab(_SPECIAL, {})
+    all_byte_ids = set(byte_vid.values())
+    all_special_ids = set(_SPECIAL.values())
+    assert all_byte_ids.isdisjoint(all_special_ids)
+
+
+def test_all_256_byte_values_have_valid_ids() -> None:
+    byte_vid, id2b, vocab = _build_base_vocab(_SPECIAL, {})
+    assert len(byte_vid) == 256
     for b in range(256):
-        token_str = f"<byte_{b:02x}>"
-        assert token_str in vocab
-    assert len(vocab) == 4 + 256
+        tid = byte_vid[b]
+        assert tid in id2b
+        assert id2b[tid] == bytes([b])
 
 
-def test_byte_vocab_ids_contiguous_after_special() -> None:
-    vocab = _build_byte_vocab(_SPECIAL)
-    expected_ids = list(range(260))
-    actual_ids = sorted(vocab.values())
-    assert actual_ids == expected_ids
+def test_byte_id_mapping_survives_save_load(tmp_path: Path) -> None:
+    byte_vid, id2b, vocab = _build_base_vocab(_SPECIAL, {})
+    t = BPETokenizer(
+        byte_value_to_id=byte_vid,
+        id_to_bytes=id2b,
+        vocab=vocab,
+    )
+    t.tokenizer_hash = t.compute_hash()
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    t2 = BPETokenizer.load(p)
+    assert t.byte_value_to_id == t2.byte_value_to_id
+    assert t.id_to_bytes == t2.id_to_bytes
 
 
-def test_byte_vocab_empty_special() -> None:
-    vocab = _build_byte_vocab({})
-    assert len(vocab) == 256, "should have exactly 256 byte tokens"
-    for b in range(256):
-        assert f"<byte_{b:02x}>" in vocab
+def test_duplicate_special_ids_rejected() -> None:
+    with pytest.raises(ValueError, match="duplicate special token ID"):
+        _validate_special_tokens({"<a>": 0, "<b>": 0})
 
 
-# ── training ────────────────────────────────────────────────────────
+def test_empty_special_string_rejected() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        _validate_special_tokens({"": 0})
 
 
-def test_train_bpe_returns_bpe_tokenizer(tiny_corpus: Path) -> None:
-    result = train_bpe(tiny_corpus, vocab_size=270, special_tokens=_SPECIAL)
-    assert isinstance(result, BPETokenizer)
-    assert len(result.vocab) == 270
-    assert len(result.merges) == 10
-    assert result.special_tokens == _SPECIAL
+def test_negative_special_id_rejected() -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        _validate_special_tokens({"<a>": -1})
 
 
-def test_train_bpe_minimal_vocab(tiny_corpus: Path) -> None:
-    result = train_bpe(tiny_corpus, vocab_size=260, special_tokens=_SPECIAL)
-    assert len(result.vocab) == 260
-    assert len(result.merges) == 0
+def test_vocab_size_below_base_rejected() -> None:
+    with pytest.raises(ValueError, match="less than base vocabulary size"):
+        _validate_vocab_size(4, 260)
 
 
-def test_train_bpe_empty_corpus(tmp_path: Path) -> None:
-    path = tmp_path / "empty.jsonl"
-    path.write_text("", encoding="utf-8")
-    result = train_bpe(path, vocab_size=260, special_tokens=_SPECIAL)
-    assert len(result.vocab) == 260
+def test_vocab_size_at_base_accepted() -> None:
+    _validate_vocab_size(260, 260)
 
 
-def test_train_bpe_save_and_load(tiny_corpus: Path, tmp_path: Path) -> None:
-    tokenizer_path = tmp_path / "tokenizer.json"
-    t1 = train_bpe(tiny_corpus, vocab_size=270, special_tokens=_SPECIAL)
-    t1.save(tokenizer_path)
-    t2 = BPETokenizer.load(tokenizer_path)
-    assert t1.vocab == t2.vocab
-    assert t1.merges == t2.merges
-    assert t1.special_tokens == t2.special_tokens
-    assert t1.tokenizer_hash == t2.tokenizer_hash
+def test_vocab_size_above_base_accepted() -> None:
+    _validate_vocab_size(300, 260)
 
 
-# ── determinism ────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+# 2. Training
+# ══════════════════════════════════════════════════════════════════
 
 
-def test_train_bpe_deterministic_vocab(tiny_corpus: Path) -> None:
-    r1 = train_bpe(tiny_corpus, vocab_size=280, special_tokens=_SPECIAL)
+def test_train_returns_bpe_tokenizer(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    assert isinstance(t, BPETokenizer)
+    assert t.vocab_size == 280
+
+
+def test_train_minimal_vocab(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    assert t.vocab_size == 260
+    assert len(t.merges) == 0
+
+
+def test_train_empty_corpus(tmp_path: Path) -> None:
+    path = _write_jsonl(tmp_path / "empty.jsonl", [])
+    t = train_bpe(path, vocab_size=260)
+    assert t.vocab_size == 260
+
+
+def test_unreachable_vocab_reports_actual_size(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=100000)
+    actual = t.vocab_size
+    assert actual < 100000
+    assert actual > 260
+    assert len(t.merges) > 0
+
+
+def test_merges_are_used_by_encode(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    ids = t.encode("hello world")
+    assert len(ids) < len(b"hello world")
+
+
+def test_decode_reconstructs_merged_tokens(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    text = "hello world"
+    ids = t.encode(text)
+    decoded = t.decode(ids)
+    assert decoded == text
+
+
+# ══════════════════════════════════════════════════════════════════
+# 3. Round-trip by language
+# ══════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "hello world",
+        "नमस्ते दुनिया",
+        "नमस्कार जग",
+        "ওহে বিশ্ব",
+        "હેલો વર્લ્ડ",
+        "வணக்கம் உலகம்",
+        "హలో వరల్డ్",
+        "ನಮಸ್ಕಾರ ವರ್ಲ್ಡ್",
+        "ഹലോ വേൾഡ്",
+        "ନମସ୍କାର ବିଶ୍ୱ",
+        "😀🌍🎉",
+        "hello\tworld\nline2",
+        "  spaces  ",
+    ],
+)
+def test_round_trip(tmp_path: Path, text: str) -> None:
+    path = _write_jsonl(tmp_path / "corpus.jsonl", [text, "padding for merges"])
+    t = train_bpe(path, vocab_size=280)
+    ids = t.encode(text)
+    decoded = t.decode(ids)
+    assert decoded == text
+
+
+# ══════════════════════════════════════════════════════════════════
+# 4. Determinism
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_repeated_vocab_equality(corpus_en: Path) -> None:
+    r1 = train_bpe(corpus_en, vocab_size=280)
     for _ in range(3):
-        r2 = train_bpe(tiny_corpus, vocab_size=280, special_tokens=_SPECIAL)
-        assert r1.vocab == r2.vocab, "vocab differs between runs"
-        assert r1.merges == r2.merges, "merges differ between runs"
-        assert r1.tokenizer_hash == r2.tokenizer_hash, "hash differs between runs"
+        r2 = train_bpe(corpus_en, vocab_size=280)
+        assert r1.vocab == r2.vocab
 
 
-def test_train_bpe_deterministic_with_delay(tiny_corpus: Path) -> None:
-    r1 = train_bpe(tiny_corpus, vocab_size=280, special_tokens=_SPECIAL)
+def test_repeated_merge_equality(corpus_en: Path) -> None:
+    r1 = train_bpe(corpus_en, vocab_size=280)
+    for _ in range(3):
+        r2 = train_bpe(corpus_en, vocab_size=280)
+        assert r1.merges == r2.merges
+
+
+def test_repeated_hash_equality(corpus_en: Path) -> None:
+    r1 = train_bpe(corpus_en, vocab_size=280)
+    for _ in range(3):
+        r2 = train_bpe(corpus_en, vocab_size=280)
+        assert r1.tokenizer_hash == r2.tokenizer_hash
+
+
+def test_deterministic_with_delay(corpus_en: Path) -> None:
+    r1 = train_bpe(corpus_en, vocab_size=280)
     time.sleep(3)
-    r2 = train_bpe(tiny_corpus, vocab_size=280, special_tokens=_SPECIAL)
+    r2 = train_bpe(corpus_en, vocab_size=280)
     assert r1.vocab == r2.vocab
     assert r1.merges == r2.merges
     assert r1.tokenizer_hash == r2.tokenizer_hash
 
 
-def test_train_bpe_different_vocab_size_changes_hash(tiny_corpus: Path) -> None:
-    r1 = train_bpe(tiny_corpus, vocab_size=270, special_tokens=_SPECIAL)
-    r2 = train_bpe(tiny_corpus, vocab_size=280, special_tokens=_SPECIAL)
-    assert r1.tokenizer_hash != r2.tokenizer_hash
+def test_byte_identical_artifact(corpus_en: Path, tmp_path: Path) -> None:
+    p1 = tmp_path / "t1.json"
+    p2 = tmp_path / "t2.json"
+    train_bpe(corpus_en, vocab_size=280).save(p1, overwrite=True)
+    train_bpe(corpus_en, vocab_size=280).save(p2, overwrite=True)
+    assert p1.read_bytes() == p2.read_bytes()
 
 
-def test_train_bpe_different_special_tokens_changes_hash(tiny_corpus: Path) -> None:
-    r1 = train_bpe(tiny_corpus, vocab_size=270, special_tokens=_SPECIAL)
-    alt = {"<pad>": 0, "<unk>": 1}
-    r2 = train_bpe(tiny_corpus, vocab_size=270, special_tokens=alt)
-    assert r1.tokenizer_hash != r2.tokenizer_hash
+# ══════════════════════════════════════════════════════════════════
+# 5. Encode/decode
+# ══════════════════════════════════════════════════════════════════
 
 
-def test_train_bpe_different_corpus_changes_hash(tmp_path: Path) -> None:
-    corpus_a = tmp_path / "a.jsonl"
-    corpus_a.write_text(json.dumps({"text": "alpha beta gamma"}) + "\n", encoding="utf-8")
-    corpus_b = tmp_path / "b.jsonl"
-    corpus_b.write_text(json.dumps({"text": "delta epsilon zeta"}) + "\n", encoding="utf-8")
-    r1 = train_bpe(corpus_a, vocab_size=270, special_tokens=_SPECIAL)
-    r2 = train_bpe(corpus_b, vocab_size=270, special_tokens=_SPECIAL)
-    assert r1.tokenizer_hash != r2.tokenizer_hash
+def test_unknown_token_in_decode_rejected(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    with pytest.raises(ValueError, match="unknown token ID"):
+        t.decode([99999])
 
 
-# ── serialization ──────────────────────────────────────────────────
+def test_inactive_special_not_emitted(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    ids = t.encode("hello world")
+    for sid in _SPECIAL.values():
+        assert sid not in ids
 
 
-def test_to_dict_round_trip(tiny_corpus: Path) -> None:
-    t = train_bpe(tiny_corpus, vocab_size=270, special_tokens=_SPECIAL)
-    data = t.to_dict()
-    assert "vocab" in data
-    assert "merges" in data
-    assert "special_tokens" in data
-    assert "tokenizer_hash" in data
-    reconstructed = BPETokenizer.from_dict(data)
-    assert t.vocab == reconstructed.vocab
-    assert t.merges == reconstructed.merges
-    assert t.tokenizer_hash == reconstructed.tokenizer_hash
+def test_special_parsing_only_when_enabled(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    text = "<pad>"
+    ids_no_special = t.encode(text, allow_special=False)
+    assert t.decode(ids_no_special) == "<pad>"
+    ids_special = t.encode(text, allow_special=True)
+    assert _SPECIAL["<pad>"] in ids_special
 
 
-def test_to_dict_merges_are_tuples_of_three(tiny_corpus: Path) -> None:
-    t = train_bpe(tiny_corpus, vocab_size=270, special_tokens=_SPECIAL)
-    data = t.to_dict()
-    for m in data["merges"]:
-        assert len(m) == 3
-        assert isinstance(m[0], int)
-        assert isinstance(m[1], int)
-        assert isinstance(m[2], int)
+def test_encode_lone_surrogate_rejected(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    with pytest.raises(ValueError, match="lone surrogate"):
+        t.encode("\ud800")
 
 
-def test_save_produces_valid_json(tiny_corpus: Path, tmp_path: Path) -> None:
-    t = train_bpe(tiny_corpus, vocab_size=270, special_tokens=_SPECIAL)
-    path = tmp_path / "t.json"
-    t.save(path)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert "vocab" in data
-    assert "merges" in data
+# ══════════════════════════════════════════════════════════════════
+# 6. JSONL reading
+# ══════════════════════════════════════════════════════════════════
 
 
-# ── tokenizer_hash ─────────────────────────────────────────────────
+def test_json_syntax_not_included_as_training_text(tmp_path: Path) -> None:
+    path = _write_jsonl(tmp_path / "corpus.jsonl", ["hello"])
+    raw = path.read_bytes()
+    records = _read_corpus_records(path)
+    total_bytes = sum(len(r) for r in records)
+    assert total_bytes < len(raw)
 
 
-def test_compute_tokenizer_hash_deterministic() -> None:
-    merges = (_BPEMerge(left=97, right=98, token=260),)
-    vocab = {"<byte_61>": 260, "<byte_62>": 97, "<byte_63>": 98}
-    h1 = compute_tokenizer_hash(vocab, merges)
-    for _ in range(3):
-        assert compute_tokenizer_hash(vocab, merges) == h1
+def test_pairs_do_not_cross_records(tmp_path: Path) -> None:
+    path = _write_jsonl(tmp_path / "corpus.jsonl", ["ab", "cd"])
+    records = _read_corpus_records(path)
+    all_ids = [b for rec in records for b in rec]
+    pair_at_boundary = (all_ids[1], all_ids[2])
+    t = train_bpe(path, vocab_size=270)
+    for merge in t.merges:
+        assert (merge.left, merge.right) != pair_at_boundary
 
 
-def test_hash_changes_when_merges_change() -> None:
-    base_merges = (_BPEMerge(left=97, right=98, token=260),)
-    other_merges = (_BPEMerge(left=99, right=100, token=260),)
-    vocab = {"<byte_61>": 260, "<byte_62>": 97, "<byte_63>": 98}
-    h1 = compute_tokenizer_hash(vocab, base_merges)
-    h2 = compute_tokenizer_hash(vocab, other_merges)
-    assert h1 != h2
+def test_malformed_jsonl_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad.jsonl"
+    path.write_text("not json\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed JSON"):
+        train_bpe(path, vocab_size=260)
 
 
-def test_hash_changes_when_vocab_changes() -> None:
-    merges = (_BPEMerge(left=97, right=98, token=260),)
-    vocab_a = {"<byte_61>": 260, "<byte_62>": 97}
-    vocab_b = {"<byte_61>": 261, "<byte_62>": 97}
-    assert compute_tokenizer_hash(vocab_a, merges) != compute_tokenizer_hash(vocab_b, merges)
+def test_malformed_utf8_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad.jsonl"
+    path.write_bytes(b'{"text": "\xff"}\n')
+    with pytest.raises(ValueError, match="malformed UTF-8"):
+        train_bpe(path, vocab_size=260)
 
 
-def test_hash_empty_merges() -> None:
-    vocab = _build_byte_vocab(_SPECIAL)
-    h = compute_tokenizer_hash(vocab, ())
-    assert isinstance(h, str)
-    assert len(h) == 64
+def test_lone_surrogate_in_jsonl_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad.jsonl"
+    path.write_bytes(b'{"text": "\\ud800"}\n')
+    with pytest.raises(ValueError, match="lone surrogate"):
+        train_bpe(path, vocab_size=260)
+
+
+def test_non_object_record_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad.jsonl"
+    path.write_text('"just a string"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="expected JSON object"):
+        train_bpe(path, vocab_size=260)
+
+
+def test_missing_text_field_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad.jsonl"
+    path.write_text('{"nope": "hello"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="missing 'text' field"):
+        train_bpe(path, vocab_size=260)
+
+
+def test_non_string_text_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad.jsonl"
+    path.write_text('{"text": 42}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="must be a string"):
+        train_bpe(path, vocab_size=260)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 7. Serialization
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_save_load_id_equality(corpus_en: Path, tmp_path: Path) -> None:
+    t1 = train_bpe(corpus_en, vocab_size=280)
+    p = tmp_path / "t.json"
+    t1.save(p, overwrite=True)
+    t2 = BPETokenizer.load(p)
+    assert t1.byte_value_to_id == t2.byte_value_to_id
+    assert t1.id_to_bytes == t2.id_to_bytes
+    assert t1.merges == t2.merges
+    assert t1.vocab == t2.vocab
+    assert t1.special_tokens == t2.special_tokens
+    assert t1.tokenizer_hash == t2.tokenizer_hash
+
+
+def test_hash_tampering_rejected(corpus_en: Path, tmp_path: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["tokenizer_hash"] = "0" * 64
+    p.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        BPETokenizer.load(p)
+
+
+def test_save_no_overwrite_by_default(corpus_en: Path, tmp_path: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    with pytest.raises(FileExistsError):
+        t.save(p)
+
+
+def test_save_overwrite_ok(corpus_en: Path, tmp_path: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    t.save(p, overwrite=True)
+
+
+def test_unsupported_schema_rejected(tmp_path: Path) -> None:
+    p = tmp_path / "bad.json"
+    p.write_text(json.dumps({"schema_version": "bogus-v2"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="unsupported schema version"):
+        BPETokenizer.load(p)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 8. CPU-only and offline execution
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_cpu_only_offline(corpus_en: Path) -> None:
+    train_bpe(corpus_en, vocab_size=280)

@@ -11,24 +11,25 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 
 
-def _run(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def _run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPTS_DIR / "train_tokenizer.py"), *args],
         capture_output=True,
         text=True,
-        cwd=cwd,
+    )
+
+
+def _write_jsonl(path: Path, texts: list[str]) -> None:
+    path.write_text(
+        "".join(json.dumps({"text": t}, ensure_ascii=False) + "\n" for t in texts),
+        encoding="utf-8",
     )
 
 
 @pytest.fixture
 def corpus_file(tmp_path: Path) -> Path:
     path = tmp_path / "corpus.jsonl"
-    lines = [
-        json.dumps({"text": "hello world"}) + "\n",
-        json.dumps({"text": "bpe tokenizer"}) + "\n",
-        json.dumps({"text": "deterministic"}) + "\n",
-    ]
-    path.write_text("".join(lines), encoding="utf-8")
+    _write_jsonl(path, ["hello world", "bpe tokenizer", "deterministic"])
     return path
 
 
@@ -44,7 +45,7 @@ def test_missing_corpus_fails(tmp_path: Path) -> None:
         str(tmp_path / "nope.jsonl"),
         "--vocab-size",
         "270",
-        "-o",
+        "--output",
         str(tmp_path / "out.json"),
     )
     assert result.returncode != 0
@@ -53,7 +54,7 @@ def test_missing_corpus_fails(tmp_path: Path) -> None:
 
 def test_train_basic(corpus_file: Path, tmp_path: Path) -> None:
     output = tmp_path / "tokenizer.json"
-    result = _run("--corpus", str(corpus_file), "--vocab-size", "270", "-o", str(output))
+    result = _run("--corpus", str(corpus_file), "--vocab-size", "270", "--output", str(output))
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert output.exists()
     data = json.loads(output.read_text(encoding="utf-8"))
@@ -70,7 +71,7 @@ def test_train_special_tokens(corpus_file: Path, tmp_path: Path) -> None:
         str(corpus_file),
         "--vocab-size",
         "270",
-        "-o",
+        "--output",
         str(output),
         "--special-tokens",
         special,
@@ -88,7 +89,7 @@ def test_train_invalid_special_tokens_json(corpus_file: Path, tmp_path: Path) ->
         str(corpus_file),
         "--vocab-size",
         "270",
-        "-o",
+        "--output",
         str(output),
         "--special-tokens",
         "not-json",
@@ -99,9 +100,9 @@ def test_train_invalid_special_tokens_json(corpus_file: Path, tmp_path: Path) ->
 def test_train_deterministic(corpus_file: Path, tmp_path: Path) -> None:
     output1 = tmp_path / "t1.json"
     output2 = tmp_path / "t2.json"
-    r1 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "-o", str(output1))
+    r1 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "--output", str(output1))
     assert r1.returncode == 0
-    r2 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "-o", str(output2))
+    r2 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "--output", str(output2))
     assert r2.returncode == 0
     d1 = json.loads(output1.read_text(encoding="utf-8"))
     d2 = json.loads(output2.read_text(encoding="utf-8"))
@@ -111,10 +112,10 @@ def test_train_deterministic(corpus_file: Path, tmp_path: Path) -> None:
 def test_train_deterministic_with_delay(corpus_file: Path, tmp_path: Path) -> None:
     output1 = tmp_path / "t1.json"
     output2 = tmp_path / "t2.json"
-    r1 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "-o", str(output1))
+    r1 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "--output", str(output1))
     assert r1.returncode == 0
     time.sleep(3)
-    r2 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "-o", str(output2))
+    r2 = _run("--corpus", str(corpus_file), "--vocab-size", "270", "--output", str(output2))
     assert r2.returncode == 0
     d1 = json.loads(output1.read_text(encoding="utf-8"))
     d2 = json.loads(output2.read_text(encoding="utf-8"))
@@ -123,7 +124,7 @@ def test_train_deterministic_with_delay(corpus_file: Path, tmp_path: Path) -> No
 
 def test_train_output_contains_hash(corpus_file: Path, tmp_path: Path) -> None:
     output = tmp_path / "tokenizer.json"
-    result = _run("--corpus", str(corpus_file), "--vocab-size", "270", "-o", str(output))
+    result = _run("--corpus", str(corpus_file), "--vocab-size", "270", "--output", str(output))
     assert result.returncode == 0
     data = json.loads(output.read_text(encoding="utf-8"))
     assert "tokenizer_hash" in data
@@ -132,6 +133,27 @@ def test_train_output_contains_hash(corpus_file: Path, tmp_path: Path) -> None:
 
 def test_train_output_directory_created(corpus_file: Path, tmp_path: Path) -> None:
     output = tmp_path / "subdir" / "nested" / "tokenizer.json"
-    result = _run("--corpus", str(corpus_file), "--vocab-size", "270", "-o", str(output))
+    result = _run("--corpus", str(corpus_file), "--vocab-size", "270", "--output", str(output))
     assert result.returncode == 0
+    assert output.exists()
+
+
+def test_train_text_field(corpus_file: Path, tmp_path: Path) -> None:
+    path = tmp_path / "custom.jsonl"
+    path.write_text(
+        "".join(json.dumps({"content": t}, ensure_ascii=False) + "\n" for t in ["alpha", "beta"]),
+        encoding="utf-8",
+    )
+    output = tmp_path / "tokenizer.json"
+    result = _run(
+        "--corpus",
+        str(path),
+        "--vocab-size",
+        "270",
+        "--output",
+        str(output),
+        "--text-field",
+        "content",
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
     assert output.exists()
