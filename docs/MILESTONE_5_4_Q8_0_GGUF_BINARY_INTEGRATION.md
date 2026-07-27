@@ -80,7 +80,7 @@ Exports `GGML_TYPE_Q8_0`, `build_gguf_q8_0_payload`, `write_gguf_q8_0_tensors`.
 4. **Quantizer reused** — `quantize_q8_0` and `dequantize_q8_0` are called
    directly; no duplicate quantisation logic.
 
-## File Inventory
+## PR #53 Changes — Q8_0 Binary Integration (Merged)
 
 | File | Lines |
 |------|-------|
@@ -89,3 +89,15 @@ Exports `GGML_TYPE_Q8_0`, `build_gguf_q8_0_payload`, `write_gguf_q8_0_tensors`.
 | `bharat/serving/gguf_tensor_writer.py` | +90 |
 | `bharat/serving/__init__.py` | +5 / −0 |
 | `tests/serving/test_gguf_q8_0_integration.py` | +554 (new) |
+
+## PR #54 Changes — Registry, CLI, Manifest Integration (Draft)
+
+| File | Lines |
+|------|-------|
+| `bharat/serving/export.py` | +16 / −1 |
+| `bharat/serving/gguf_preflight.py` | +17 / −0 |
+| `bharat/serving/export_writer.py` | +73 / −3 |
+| `bharat/serving/export_manifest.py` | +15 / −2 |
+| `bharat/serving/__init__.py` | +4 / −0 |
+| `scripts/run_export_plan.py` | +34 / −0 |
+| `tests/scripts/test_run_export_execute.py` | +890 / −0 |

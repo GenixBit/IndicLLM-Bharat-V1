@@ -21,6 +21,9 @@ class ExportManifest:
     writer_name: str
     bytes_written: int
     schema_version: str = EXPORT_MANIFEST_SCHEMA_VERSION
+    gguf_tensor_type: str | None = None
+    f32_tensor_count: int | None = None
+    q8_0_tensor_count: int | None = None
 
     @classmethod
     def from_plan_and_result(
@@ -40,10 +43,13 @@ class ExportManifest:
             dry_run=result.dry_run,
             writer_name=result.writer_name,
             bytes_written=result.bytes_written,
+            gguf_tensor_type=result.gguf_tensor_type,
+            f32_tensor_count=result.f32_tensor_count,
+            q8_0_tensor_count=result.q8_0_tensor_count,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "bytes_written": self.bytes_written,
             "checkpoint_path": str(self.checkpoint_path),
             "dry_run": self.dry_run,
@@ -53,6 +59,13 @@ class ExportManifest:
             "schema_version": self.schema_version,
             "writer_name": self.writer_name,
         }
+        if self.gguf_tensor_type is not None:
+            d["gguf_tensor_type"] = self.gguf_tensor_type
+        if self.f32_tensor_count is not None:
+            d["f32_tensor_count"] = self.f32_tensor_count
+        if self.q8_0_tensor_count is not None:
+            d["q8_0_tensor_count"] = self.q8_0_tensor_count
+        return d
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
