@@ -94,8 +94,10 @@ class BPETokenizer:
         if self.schema_version != _SCHEMA_VERSION:
             msg = f"unsupported schema version: {self.schema_version}"
             raise ValueError(msg)
-        if self.normalization not in ("nfc", "none"):
-            msg = f"unsupported normalization policy: {self.normalization}"
+        if self.normalization != "nfc":
+            msg = (
+                f"unsupported normalization policy: {self.normalization!r}; only 'nfc' is supported"
+            )
             raise ValueError(msg)
 
         _validate_special_and_reserved_tokens(self.special_tokens, self.reserved_tokens)
@@ -182,8 +184,8 @@ class BPETokenizer:
         if data.get("schema_version", _SCHEMA_VERSION) != _SCHEMA_VERSION:
             msg = f"unsupported schema version: {data.get('schema_version')}"
             raise ValueError(msg)
-        if data.get("normalization", _NORMALIZATION) not in ("nfc", "none"):
-            msg = f"unsupported normalization policy: {data.get('normalization')}"
+        if data.get("normalization", _NORMALIZATION) != "nfc":
+            msg = f"unsupported normalization policy: {data.get('normalization')!r}; only 'nfc' is supported"
             raise ValueError(msg)
 
         raw_byte_value_to_id = data.get("byte_value_to_id", {})
