@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import time
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -11,7 +13,7 @@ from bharat.tokenizer.bpe import (
     BPETokenizer,
     _build_base_vocab,
     _read_corpus_records,
-    _validate_special_tokens,
+    _validate_special_and_reserved_tokens,
     _validate_vocab_size,
     train_bpe,
 )
@@ -75,18 +77,18 @@ def test_byte_id_mapping_survives_save_load(tmp_path: Path) -> None:
 
 
 def test_duplicate_special_ids_rejected() -> None:
-    with pytest.raises(ValueError, match="duplicate special token ID"):
-        _validate_special_tokens({"<a>": 0, "<b>": 0})
+    with pytest.raises(ValueError, match="duplicate token ID 0"):
+        _validate_special_and_reserved_tokens({"<a>": 0, "<b>": 0}, {})
 
 
 def test_empty_special_string_rejected() -> None:
-    with pytest.raises(ValueError, match="must not be empty"):
-        _validate_special_tokens({"": 0})
+    with pytest.raises(ValueError, match="must be a non-empty string"):
+        _validate_special_and_reserved_tokens({"": 0}, {})
 
 
 def test_negative_special_id_rejected() -> None:
-    with pytest.raises(ValueError, match="non-negative"):
-        _validate_special_tokens({"<a>": -1})
+    with pytest.raises(ValueError, match="must be non-negative"):
+        _validate_special_and_reserved_tokens({"<a>": -1}, {})
 
 
 def test_vocab_size_below_base_rejected() -> None:
@@ -377,3 +379,275 @@ def test_unsupported_schema_rejected(tmp_path: Path) -> None:
 
 def test_cpu_only_offline(corpus_en: Path) -> None:
     train_bpe(corpus_en, vocab_size=280)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 9. NFC normalization
+# ══════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize(
+    "decomposed,composed",
+    [
+        ("e\u0301", "\u00e9"),
+        ("a\u0301", "\u00e1"),
+        ("\u0041\u0300", "\u00c0"),
+        ("\u0041\u0301", "\u00c1"),
+        ("\u0041\u0302", "\u00c2"),
+        ("\u006f\u0308", "\u00f6"),
+        ("\u004e\u0303", "\u00d1"),
+        ("\u0063\u0327", "\u00e7"),
+    ],
+)
+def test_nfc_normalization(tmp_path: Path, decomposed: str, composed: str) -> None:
+    path = tmp_path / "corpus.jsonl"
+    path.write_text(f'{{"text": "{decomposed}"}}\n', encoding="utf-8")
+    t = train_bpe(path, vocab_size=300)
+    encoded = t.encode(composed)
+    decoded = t.decode(encoded)
+    assert decoded == composed
+
+
+def test_nfc_normalization_decode_encode_non_nfc(tmp_path: Path) -> None:
+    path = tmp_path / "corpus.jsonl"
+    decomposed = "e\u0301"
+    path.write_text(f'{{"text": "{decomposed}"}}\n', encoding="utf-8")
+    t = train_bpe(path, vocab_size=300)
+    encoded = t.encode(decomposed)
+    decoded = t.decode(encoded)
+    assert decoded == unicodedata.normalize("NFC", decomposed)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 10. Combined special/reserved token validation
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_special_reserved_id_collision_rejected() -> None:
+    with pytest.raises(ValueError, match="duplicate token ID 0"):
+        _validate_special_and_reserved_tokens({"<a>": 0}, {"<b>": 0})
+
+
+def test_special_reserved_string_collision_rejected() -> None:
+    with pytest.raises(ValueError, match="duplicate token string"):
+        _validate_special_and_reserved_tokens({"<a>": 0}, {"<a>": 1})
+
+
+def test_boolean_special_id_rejected() -> None:
+    with pytest.raises(ValueError, match="non-negative integer"):
+        _validate_special_and_reserved_tokens({"<a>": True}, {})
+
+
+def test_special_id_collides_with_byte(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    path.write_text('{"text": "hello"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate token ID|byte IDs collide"):
+        train_bpe(path, vocab_size=260, special_tokens={"<x>": 4})
+
+
+# ══════════════════════════════════════════════════════════════════
+# 11. Decode with skip_special_tokens
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_decode_default_preserves_special(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    ids = [t.special_tokens["<bos>"], t.byte_value_to_id[ord("a")], t.special_tokens["<eos>"]]
+    decoded = t.decode(ids)
+    assert "<bos>" in decoded
+    assert "<eos>" in decoded
+
+
+def test_decode_skip_special_omits_them(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    ids = [t.special_tokens["<bos>"], t.byte_value_to_id[ord("a")], t.special_tokens["<eos>"]]
+    decoded = t.decode(ids, skip_special_tokens=True)
+    assert "<bos>" not in decoded
+    assert "<eos>" not in decoded
+    assert decoded.strip() == "a"
+
+
+def test_decode_mixed_special_and_text(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    ids = [t.byte_value_to_id[ord("h")], t.special_tokens["<pad>"], t.byte_value_to_id[ord("i")]]
+    decoded_default = t.decode(ids)
+    assert "h" in decoded_default and "i" in decoded_default and "<pad>" in decoded_default
+
+
+def test_decode_skip_special_multiple(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    ids = [
+        t.special_tokens["<bos>"],
+        t.byte_value_to_id[ord("a")],
+        t.special_tokens["<pad>"],
+        t.byte_value_to_id[ord("b")],
+        t.special_tokens["<eos>"],
+    ]
+    decoded = t.decode(ids, skip_special_tokens=True)
+    assert decoded == "ab"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 12. Artifact validation
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_validate_byte_id_range(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    path.write_text('{"text": "hello"}\n', encoding="utf-8")
+    t = train_bpe(path, vocab_size=260)
+    t.validate()
+
+
+def test_validate_catches_missing_byte(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    del t.byte_value_to_id[0]
+    with pytest.raises(ValueError, match="must have exactly 256"):
+        t.validate()
+
+
+def test_validate_catches_byte_id_collision(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    t.byte_value_to_id[0] = t.special_tokens["<pad>"]
+    with pytest.raises(ValueError, match="byte IDs collide"):
+        t.validate()
+
+
+def test_validate_catches_bad_merge_chain(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    if t.merges:
+        bad_merge = dataclasses.replace(t.merges[0], left=99999)
+        object.__setattr__(t, "merges", (bad_merge,) + t.merges[1:])
+        with pytest.raises(ValueError, match="not in vocabulary"):
+            t.validate()
+
+
+def test_validate_hash_tampered(corpus_en: Path, tmp_path: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["tokenizer_hash"] = "0" * 64
+    p.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        BPETokenizer.load(p)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 13. Vocabulary behavior
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_base_vocab_size_produces_no_merges(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    assert len(t.merges) == 0
+
+
+def test_larger_vocab_produces_expected_merges(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=270)
+    assert len(t.merges) == 10
+
+
+def test_insufficient_pairs_reports_actual_size(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=10000)
+    assert t.vocab_size < 10000
+    assert t.vocab_size > 260
+
+
+def test_merge_tokens_emitted_by_encode(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    ids = t.encode("hello world")
+    merge_ids = {m.token for m in t.merges}
+    used_merge_ids = merge_ids & set(ids)
+    assert len(used_merge_ids) > 0
+
+
+def test_decode_reconstructs_merge_payload(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    for m in t.merges:
+        left_bytes = t.id_to_bytes[m.left]
+        right_bytes = t.id_to_bytes[m.right]
+        merge_bytes = t.id_to_bytes[m.token]
+        assert merge_bytes == left_bytes + right_bytes
+
+
+def test_all_256_bytes_reachable_after_save_load(corpus_en: Path, tmp_path: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    t2 = BPETokenizer.load(p)
+    for b in range(256):
+        assert b in t2.byte_value_to_id
+        tid = t2.byte_value_to_id[b]
+        assert tid in t2.id_to_bytes
+        assert t2.id_to_bytes[tid] == bytes([b])
+
+
+def test_no_unk_for_valid_unicode(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    texts = ["hello", "नमस्ते", "😀", "日本語", "中文", "Español", "Français"]
+    for text in texts:
+        ids = t.encode(text)
+        unk_id = t.special_tokens.get("<unk>", 1)
+        assert unk_id not in ids, f"<unk> emitted for {text!r}"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 14. Canonical serialization
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_canonical_serialization_minified(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    serialized = t._compact_serialize()
+    assert "\n" not in serialized
+    assert "  " not in serialized
+
+
+def test_hashed_vs_saved_consistent(corpus_en: Path, tmp_path: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    h = t.compute_hash()
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    t2 = BPETokenizer.load(p)
+    assert t2.compute_hash() == h
+
+
+# ══════════════════════════════════════════════════════════════════
+# 15. No-overwrite publication
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_save_no_overwrite_default(corpus_en: Path, tmp_path: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=260)
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    with pytest.raises(FileExistsError):
+        t.save(p)
+
+
+def test_save_failure_cleans_temp(corpus_en: Path, tmp_path: Path) -> None:
+    import dataclasses
+
+    t = train_bpe(corpus_en, vocab_size=260)
+    p = tmp_path / "t.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    broken = dataclasses.replace(t, schema_version="bad")
+    with pytest.raises(ValueError):
+        broken.save(p, overwrite=True)
+    assert not any(
+        f.name.startswith(f".{p.name}") and f.name.endswith(".tmp") for f in p.parent.iterdir()
+    )
+
+
+def test_save_atomic_no_destruction_on_failure(corpus_en: Path, tmp_path: Path) -> None:
+    import dataclasses
+
+    t = train_bpe(corpus_en, vocab_size=260)
+    p = tmp_path / "t.json"
+    t.save(p, overwrite=True)
+    original = p.read_bytes()
+    broken = dataclasses.replace(t, schema_version="bad")
+    with pytest.raises(ValueError):
+        broken.save(p, overwrite=True)
+    assert p.read_bytes() == original

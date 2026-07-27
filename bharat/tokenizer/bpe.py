@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
+import secrets
+import unicodedata
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -54,6 +55,10 @@ class BPETokenizer:
     def vocab_size(self) -> int:
         return len(self.vocab)
 
+    def _compact_serialize(self) -> str:
+        payload = self.to_dict()
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
     def _canonical_payload(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
@@ -67,7 +72,9 @@ class BPETokenizer:
         }
 
     def compute_hash(self) -> str:
-        payload = json.dumps(self._canonical_payload(), sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(
+            self._canonical_payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
@@ -83,44 +90,188 @@ class BPETokenizer:
             "tokenizer_hash": self.tokenizer_hash,
         }
 
+    def validate(self) -> None:
+        if self.schema_version != _SCHEMA_VERSION:
+            msg = f"unsupported schema version: {self.schema_version}"
+            raise ValueError(msg)
+        if self.normalization not in ("nfc", "none"):
+            msg = f"unsupported normalization policy: {self.normalization}"
+            raise ValueError(msg)
+
+        _validate_special_and_reserved_tokens(self.special_tokens, self.reserved_tokens)
+
+        if len(self.byte_value_to_id) != 256:
+            msg = (
+                f"byte_value_to_id must have exactly 256 entries, got {len(self.byte_value_to_id)}"
+            )
+            raise ValueError(msg)
+        for b in range(256):
+            if b not in self.byte_value_to_id:
+                msg = f"missing byte value {b} in byte_value_to_id"
+                raise ValueError(msg)
+        byte_ids = set(self.byte_value_to_id.values())
+        if len(byte_ids) != 256:
+            msg = f"byte_value_to_id values must be unique, got {len(byte_ids)} unique IDs"
+            raise ValueError(msg)
+
+        special_reserved_ids = set(self.special_tokens.values()) | set(
+            self.reserved_tokens.values()
+        )
+        if byte_ids & special_reserved_ids:
+            msg = "byte IDs collide with special/reserved IDs"
+            raise ValueError(msg)
+
+        for b, tid in self.byte_value_to_id.items():
+            expected = bytes([b])
+            if self.id_to_bytes.get(tid) != expected:
+                msg = f"id_to_bytes[{tid}] mismatch: expected {expected!r}, got {self.id_to_bytes.get(tid)!r}"
+                raise ValueError(msg)
+
+        all_ids = set(self.vocab.values())
+        if len(all_ids) != len(self.vocab):
+            msg = "vocabulary contains duplicate IDs"
+            raise ValueError(msg)
+
+        for token_str, token_id in self.vocab.items():
+            if token_id in special_reserved_ids:
+                continue
+            if token_id in byte_ids:
+                continue
+            found = any(m.token == token_id for m in self.merges)
+            if not found:
+                msg = f"token ID {token_id} ({token_str!r}) not found in any category"
+                raise ValueError(msg)
+
+        seen_ranks: set[int] = set()
+        seen_merge_tokens: set[int] = set()
+        base_ids = special_reserved_ids | byte_ids
+        for i, m in enumerate(self.merges):
+            if m.left not in all_ids:
+                msg = f"merge {i}: left ID {m.left} not in vocabulary"
+                raise ValueError(msg)
+            if m.right not in all_ids:
+                msg = f"merge {i}: right ID {m.right} not in vocabulary"
+                raise ValueError(msg)
+            if m.token in base_ids:
+                msg = f"merge {i}: token ID {m.token} collides with base ID"
+                raise ValueError(msg)
+            if m.token in seen_merge_tokens:
+                msg = f"merge {i}: duplicate merge token ID {m.token}"
+                raise ValueError(msg)
+            if m.rank in seen_ranks:
+                msg = f"merge {i}: duplicate rank {m.rank}"
+                raise ValueError(msg)
+            if m.rank != i:
+                msg = f"merge {i}: rank {m.rank} != expected {i}"
+                raise ValueError(msg)
+            expected_bytes = self.id_to_bytes.get(m.left, b"") + self.id_to_bytes.get(m.right, b"")
+            actual_bytes = self.id_to_bytes.get(m.token, b"")
+            if actual_bytes != expected_bytes:
+                msg = f"merge {i}: id_to_bytes[{m.token}] = {actual_bytes!r}, expected {expected_bytes!r}"
+                raise ValueError(msg)
+            seen_ranks.add(m.rank)
+            seen_merge_tokens.add(m.token)
+
+        computed = self.compute_hash()
+        if self.tokenizer_hash and computed != self.tokenizer_hash:
+            msg = f"tokenizer hash mismatch: stored {self.tokenizer_hash} != computed {computed}"
+            raise ValueError(msg)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BPETokenizer:
         if data.get("schema_version", _SCHEMA_VERSION) != _SCHEMA_VERSION:
             msg = f"unsupported schema version: {data.get('schema_version')}"
             raise ValueError(msg)
+        if data.get("normalization", _NORMALIZATION) not in ("nfc", "none"):
+            msg = f"unsupported normalization policy: {data.get('normalization')}"
+            raise ValueError(msg)
 
-        byte_value_to_id = {int(k): v for k, v in data["byte_value_to_id"].items()}
-        id_to_bytes = {int(k): bytes.fromhex(v) for k, v in data["id_to_bytes"].items()}
+        raw_byte_value_to_id = data.get("byte_value_to_id", {})
+        if not isinstance(raw_byte_value_to_id, dict):
+            msg = "byte_value_to_id must be a dict"
+            raise ValueError(msg)
+        byte_value_to_id: dict[int, int] = {}
+        for k, v in raw_byte_value_to_id.items():
+            if not isinstance(v, int) or isinstance(v, bool):
+                msg = f"byte_value_to_id values must be integers, got {v!r}"
+                raise ValueError(msg)
+            try:
+                byte_value_to_id[int(k)] = v
+            except (ValueError, TypeError):
+                msg = f"byte_value_to_id key must be an integer, got {k!r}"
+                raise ValueError(msg)
+
+        raw_id_to_bytes = data.get("id_to_bytes", {})
+        if not isinstance(raw_id_to_bytes, dict):
+            msg = "id_to_bytes must be a dict"
+            raise ValueError(msg)
+        id_to_bytes: dict[int, bytes] = {}
+        for k, v in raw_id_to_bytes.items():
+            if not isinstance(v, str):
+                msg = f"id_to_bytes values must be hex strings, got {v!r}"
+                raise ValueError(msg)
+            try:
+                id_to_bytes[int(k)] = bytes.fromhex(v)
+            except (ValueError, TypeError):
+                msg = f"id_to_bytes contains invalid hex: key={k!r} value={v!r}"
+                raise ValueError(msg)
+
+        raw_special: dict[str, int] = data.get("special_tokens", {})
+        raw_reserved: dict[str, int] = data.get("reserved_tokens", {})
+        for label, raw in [("special_tokens", raw_special), ("reserved_tokens", raw_reserved)]:
+            for k, v in raw.items():
+                if not isinstance(k, str):
+                    msg = f"{label} keys must be strings, got {k!r}"
+                    raise ValueError(msg)
+                if not isinstance(v, int) or isinstance(v, bool):
+                    msg = f"{label} values must be integers, got {v!r}"
+                    raise ValueError(msg)
+                if v < 0:
+                    msg = f"{label} values must be non-negative, got {v}"
+                    raise ValueError(msg)
 
         raw_merges: list[BPEMerge] = []
-        for m in data["merges"]:
+        for m in data.get("merges", ()):
+            if not isinstance(m, list | tuple):
+                msg = f"merge entry must be a list/tuple, got {type(m).__name__}"
+                raise ValueError(msg)
             if len(m) == 4:
                 raw_merges.append(BPEMerge(left=m[0], right=m[1], token=m[2], rank=m[3]))
             elif len(m) == 3:
                 rank = len(raw_merges)
                 raw_merges.append(BPEMerge(left=m[0], right=m[1], token=m[2], rank=rank))
             else:
-                msg = f"invalid merge entry: {m}"
+                msg = f"invalid merge entry length {len(m)}: {m}"
+                raise ValueError(msg)
+
+        raw_vocab = data.get("vocab", {})
+        if not isinstance(raw_vocab, dict):
+            msg = "vocab must be a dict"
+            raise ValueError(msg)
+        for k, v in raw_vocab.items():
+            if not isinstance(k, str):
+                msg = f"vocab keys must be strings, got {k!r}"
+                raise ValueError(msg)
+            if not isinstance(v, int) or isinstance(v, bool):
+                msg = f"vocab values must be integers, got {v!r}"
+                raise ValueError(msg)
+            if v < 0:
+                msg = f"vocab values must be non-negative, got {v}"
                 raise ValueError(msg)
 
         t = cls(
             schema_version=data.get("schema_version", _SCHEMA_VERSION),
             normalization=data.get("normalization", _NORMALIZATION),
-            special_tokens=data.get("special_tokens", {}),
-            reserved_tokens=data.get("reserved_tokens", {}),
+            special_tokens=raw_special,
+            reserved_tokens=raw_reserved,
             byte_value_to_id=byte_value_to_id,
             id_to_bytes=id_to_bytes,
-            vocab=data.get("vocab", {}),
+            vocab=raw_vocab,
             merges=tuple(raw_merges),
             tokenizer_hash=data.get("tokenizer_hash", ""),
         )
 
-        stored_hash = data.get("tokenizer_hash", "")
-        if stored_hash:
-            computed = t.compute_hash()
-            if stored_hash != computed:
-                msg = f"tokenizer hash mismatch: stored {stored_hash} != computed {computed}"
-                raise ValueError(msg)
+        t.validate()
 
         return t
 
@@ -129,15 +280,18 @@ class BPETokenizer:
             msg = f"refusing to overwrite existing file: {path}"
             raise FileExistsError(msg)
 
-        tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+        tmp_name = f".{path.name}.{secrets.token_hex(8)}.tmp"
+        tmp_path = path.with_name(tmp_name)
         try:
-            tmp_path.write_text(
-                json.dumps(self.to_dict(), indent=2, sort_keys=True), encoding="utf-8"
-            )
+            serialized = self._compact_serialize()
+            tmp_path.write_text(serialized, encoding="utf-8")
+            tmp_path.resolve().stat()
+
             loaded = BPETokenizer.load(tmp_path)
             if loaded.compute_hash() != self.compute_hash():
                 msg = "save verification failed: hash mismatch"
                 raise RuntimeError(msg)
+
             tmp_path.rename(path)
         except BaseException:
             if tmp_path.exists():
@@ -150,7 +304,9 @@ class BPETokenizer:
         return cls.from_dict(raw)
 
     def encode(self, text: str, *, allow_special: bool = False) -> list[int]:
-        for surrogate in re.findall(r"[\ud800-\udfff]", text):
+        normalized = unicodedata.normalize("NFC", text)
+
+        for surrogate in re.findall(r"[\ud800-\udfff]", normalized):
             msg = f"lone surrogate in input: U+{ord(surrogate):04X}"
             raise ValueError(msg)
 
@@ -158,11 +314,11 @@ class BPETokenizer:
 
         ids: list[int] = []
         i = 0
-        while i < len(text):
+        while i < len(normalized):
             if special_map is not None:
                 matched = False
                 for token_str, token_id in sorted(special_map.items(), key=lambda x: -len(x[0])):
-                    if text[i:].startswith(token_str):
+                    if normalized[i:].startswith(token_str):
                         ids.append(token_id)
                         i += len(token_str)
                         matched = True
@@ -170,7 +326,7 @@ class BPETokenizer:
                 if matched:
                     continue
 
-            byte_val = text[i].encode("utf-8")
+            byte_val = normalized[i].encode("utf-8")
             for b in byte_val:
                 ids.append(self.byte_value_to_id[b])
             i += 1
@@ -189,13 +345,26 @@ class BPETokenizer:
 
         return ids
 
-    def decode(self, ids: Sequence[int]) -> str:
+    def decode(self, ids: Sequence[int], *, skip_special_tokens: bool = False) -> str:
+        special_ids = set(self.special_tokens.values())
+        reserved_ids = set(self.reserved_tokens.values())
+        all_special_reserved = special_ids | reserved_ids
+
         result = bytearray()
         for tid in ids:
             if tid in self.id_to_bytes:
                 result.extend(self.id_to_bytes[tid])
-            elif tid in self.special_tokens.values():
-                pass
+            elif tid in all_special_reserved:
+                if not skip_special_tokens:
+                    for token_str, token_id in self.special_tokens.items():
+                        if token_id == tid:
+                            result.extend(token_str.encode("utf-8"))
+                            break
+                    else:
+                        for token_str, token_id in self.reserved_tokens.items():
+                            if token_id == tid:
+                                result.extend(token_str.encode("utf-8"))
+                                break
             else:
                 msg = f"unknown token ID: {tid}"
                 raise ValueError(msg)
@@ -206,24 +375,32 @@ class BPETokenizer:
             raise ValueError(msg) from e
 
 
-def _validate_special_tokens(special: dict[str, int]) -> None:
+def _validate_special_and_reserved_tokens(
+    special_tokens: dict[str, int],
+    reserved_tokens: dict[str, int],
+) -> None:
     seen_ids: set[int] = set()
     seen_strings: set[str] = set()
-    for token_str, token_id in special.items():
-        if not isinstance(token_id, int) or token_id < 0:
-            msg = f"special token ID must be non-negative integer, got {token_id}"
-            raise ValueError(msg)
-        if not token_str:
-            msg = "special token string must not be empty"
-            raise ValueError(msg)
-        if token_id in seen_ids:
-            msg = f"duplicate special token ID: {token_id}"
-            raise ValueError(msg)
-        if token_str in seen_strings:
-            msg = f"duplicate special token string: {token_str}"
-            raise ValueError(msg)
-        seen_ids.add(token_id)
-        seen_strings.add(token_str)
+
+    for label, tokens in [("special", special_tokens), ("reserved", reserved_tokens)]:
+        for token_str, token_id in tokens.items():
+            if not isinstance(token_str, str) or not token_str:
+                msg = f"{label} token string must be a non-empty string, got {token_str!r}"
+                raise ValueError(msg)
+            if not isinstance(token_id, int) or isinstance(token_id, bool):
+                msg = f"{label} token ID must be a non-negative integer, got {token_id!r}"
+                raise ValueError(msg)
+            if token_id < 0:
+                msg = f"{label} token ID must be non-negative, got {token_id}"
+                raise ValueError(msg)
+            if token_id in seen_ids:
+                msg = f"duplicate token ID {token_id} across special/reserved"
+                raise ValueError(msg)
+            if token_str in seen_strings:
+                msg = f"duplicate token string {token_str!r} across special/reserved"
+                raise ValueError(msg)
+            seen_ids.add(token_id)
+            seen_strings.add(token_str)
 
 
 def _validate_vocab_size(vocab_size: int, base_size: int) -> None:
@@ -299,7 +476,8 @@ def _read_corpus_records(corpus_path: Path, text_field: str = "text") -> list[by
             msg = f"line {line_num}: lone surrogate U+{ord(surrogate):04X}"
             raise ValueError(msg)
 
-        encoded = text_val.encode("utf-8")
+        normalized = unicodedata.normalize("NFC", text_val)
+        encoded = normalized.encode("utf-8")
         records.append(encoded)
 
     return records
@@ -314,10 +492,11 @@ def train_bpe(
 ) -> BPETokenizer:
     if special_tokens is None:
         special_tokens = dict(_SPECIAL_TOKENS)
-    _validate_special_tokens(special_tokens)
 
     if reserved_tokens is None:
         reserved_tokens = dict(_RESERVED_TOKENS)
+
+    _validate_special_and_reserved_tokens(special_tokens, reserved_tokens)
 
     byte_value_to_id, id_to_bytes, vocab = _build_base_vocab(special_tokens, reserved_tokens)
     _validate_vocab_size(vocab_size, len(vocab))
@@ -383,5 +562,6 @@ def train_bpe(
     )
 
     tokenizer.tokenizer_hash = tokenizer.compute_hash()
+    tokenizer.validate()
 
     return tokenizer
