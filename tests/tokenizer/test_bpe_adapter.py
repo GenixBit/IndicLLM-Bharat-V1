@@ -63,7 +63,7 @@ def test_metadata_and_fingerprint_are_deterministic(tmp_path: Path) -> None:
 def test_load_round_trip(tmp_path: Path) -> None:
     tokenizer = _build_tokenizer(tmp_path)
     artifact = tmp_path / "tokenizer.json"
-    tokenizer._tokenizer.save(artifact)
+    tokenizer.save(artifact)
 
     loaded = BharatBPETokenizer.load(artifact)
 
