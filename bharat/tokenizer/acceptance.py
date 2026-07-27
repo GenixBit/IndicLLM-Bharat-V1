@@ -167,7 +167,10 @@ def evaluate_tokenizer_acceptance(
         "checks": checks_payload,
     }
     canonical = json.dumps(
-        result, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        result,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
     )
     result["acceptance_sha256"] = hashlib.sha256(
         canonical.encode("utf-8")
