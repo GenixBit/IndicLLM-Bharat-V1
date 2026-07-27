@@ -71,7 +71,9 @@ def evaluate_tokenizer_acceptance(
     thresholds: TokenizerAcceptanceThresholds,
 ) -> dict[str, Any]:
     names = report.get("tokenizer_names")
-    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+    if not isinstance(names, list) or not all(
+        isinstance(name, str) for name in names
+    ):
         raise ValueError("report tokenizer_names must be a list of strings")
     if tokenizer_name not in names:
         raise ValueError(f"tokenizer {tokenizer_name!r} is not present in report")
@@ -82,7 +84,9 @@ def evaluate_tokenizer_acceptance(
     per_language = _require_mapping(report, "per_language")
 
     tokenizer_aggregate = _require_named_mapping(aggregate, tokenizer_name, "aggregate")
-    tokenizer_round_trip = _require_named_mapping(round_trip, tokenizer_name, "round_trip")
+    tokenizer_round_trip = _require_named_mapping(
+        round_trip, tokenizer_name, "round_trip"
+    )
     tokenizer_byte_coverage = _require_named_mapping(
         byte_coverage, tokenizer_name, "byte_coverage"
     )
@@ -162,8 +166,12 @@ def evaluate_tokenizer_acceptance(
         "passed": all(check.passed for check in checks),
         "checks": checks_payload,
     }
-    canonical = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    result["acceptance_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    canonical = json.dumps(
+        result, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    result["acceptance_sha256"] = hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
     return result
 
 
