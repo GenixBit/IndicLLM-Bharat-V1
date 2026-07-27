@@ -18,6 +18,9 @@ class BharatBPETokenizer(BharatTokenizer):
     def load(cls, path: str | Path) -> BharatBPETokenizer:
         return cls(BPETokenizer.load(Path(path)))
 
+    def save(self, path: str | Path, *, overwrite: bool = False) -> None:
+        self._tokenizer.save(Path(path), overwrite=overwrite)
+
     @property
     def vocab_size(self) -> int:
         return self._tokenizer.vocab_size
