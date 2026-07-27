@@ -9,10 +9,7 @@ import torch
 
 from bharat.serving.export import GGUF_TENSOR_TYPE_VALUES, ExportFormat, ExportPlan
 from bharat.serving.gguf_preflight import GGUFPreflightResult
-from bharat.serving.gguf_tensor_writer import (
-    write_gguf_f32_tensors,
-    write_gguf_q8_0_tensors,
-)
+from bharat.serving.gguf_tensor_writer import write_gguf_f32_tensors, write_gguf_q8_0_tensors
 from bharat.serving.safetensors_writer import write_safetensors_checkpoint
 
 
@@ -180,11 +177,7 @@ class LocalGGUFF32ExportWriter:
             preflight=self.preflight,
         )
         tensors = _load_f32_state_dict(plan.checkpoint_path)
-        result = write_gguf_f32_tensors(
-            self.preflight,
-            tensors,
-            plan.output_path.resolve(),
-        )
+        result = write_gguf_f32_tensors(self.preflight, tensors, plan.output_path.resolve())
         return ExportWriteResult(
             output_path=result.output_path,
             export_format=self.export_format,
@@ -215,11 +208,7 @@ class LocalGGUFQ8_0ExportWriter:  # noqa: N801
             preflight=self.preflight,
         )
         tensors = _load_f32_state_dict(plan.checkpoint_path)
-        result = write_gguf_q8_0_tensors(
-            self.preflight,
-            tensors,
-            plan.output_path.resolve(),
-        )
+        result = write_gguf_q8_0_tensors(self.preflight, tensors, plan.output_path.resolve())
         return ExportWriteResult(
             output_path=result.output_path,
             export_format=self.export_format,
