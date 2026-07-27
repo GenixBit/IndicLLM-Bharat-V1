@@ -154,6 +154,9 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(1)
 
+    output_corpus = str(Path(args.output_corpus).resolve()) if args.output_corpus else ""
+    output_manifest = str(Path(args.output_manifest).resolve()) if args.output_manifest else ""
+
     try:
         max_records_per_source = _parse_caps(args.max_records_per_source)
         max_bytes_per_source = _parse_caps(args.max_bytes_per_source)
@@ -176,8 +179,8 @@ def main(argv: list[str] | None = None) -> None:
         language_field=args.language_field,
         domain_field=args.domain_field,
         exact_dedup=args.exact_dedup,
-        output_corpus=args.output_corpus,
-        output_manifest=args.output_manifest,
+        output_corpus=output_corpus,
+        output_manifest=output_manifest,
     )
 
     try:

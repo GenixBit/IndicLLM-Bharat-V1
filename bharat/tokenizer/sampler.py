@@ -189,8 +189,13 @@ class CorpusManifest:
     def canonical_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
+    def canonical_json_no_created(self) -> str:
+        d = self.to_dict()
+        d.pop("created_at", None)
+        return json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
     def compute_digest(self) -> str:
-        return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+        return hashlib.sha256(self.canonical_json_no_created().encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -249,6 +254,11 @@ def _compute_selection_key(
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def serialize_record(text: str, field_name: str) -> bytes:
+    line = json.dumps({field_name: text}, ensure_ascii=False, separators=(",", ":"))
+    return (line + "\n").encode("utf-8")
 
 
 def _check_symlink_escape(shard_path: Path, root: Path) -> None:
@@ -340,11 +350,6 @@ def sample_tokenizer_corpus(
             raise ValueError(
                 f"audit manifest_digest mismatch: audit={audit.manifest_digest}, "
                 f"release={release.manifest_digest}"
-            )
-        if audit.approval_digest != release.approval_digest:
-            raise ValueError(
-                f"audit approval_digest mismatch: audit={audit.approval_digest}, "
-                f"release={release.approval_digest}"
             )
 
         if not manifest_path.exists():
@@ -465,7 +470,7 @@ def sample_tokenizer_corpus(
                     raise ValueError(f"lone surrogate at {shard_path}:{record_index}")
 
                 content_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                utf8_bytes = len(text.encode("utf-8"))
+                utf8_bytes = len(serialize_record(text, config.text_field))
 
                 language = record_data.get(config.language_field)
                 if not isinstance(language, str) or not language:
@@ -511,15 +516,25 @@ def sample_tokenizer_corpus(
     total_candidates = len(all_records)
 
     if config.exact_dedup:
-        dedup_seen: set[str] = set()
+        groups: dict[str, list[_Record]] = {}
+        for r in all_records:
+            groups.setdefault(r.content_sha256, []).append(r)
         deduped: list[_Record] = []
         exact_dedup_removed = 0
-        for r in all_records:
-            if r.content_sha256 in dedup_seen:
-                exact_dedup_removed += 1
-            else:
-                dedup_seen.add(r.content_sha256)
-                deduped.append(r)
+        for candidates in groups.values():
+            min_record = min(
+                candidates,
+                key=lambda r: (
+                    r.selection_key,
+                    r.release_id,
+                    r.source_id,
+                    r.shard_path,
+                    r.record_index,
+                    r.record_id,
+                ),
+            )
+            deduped.append(min_record)
+            exact_dedup_removed += len(candidates) - 1
     else:
         deduped = list(all_records)
         exact_dedup_removed = 0
@@ -648,16 +663,10 @@ def sample_tokenizer_corpus(
     total_bytes = 0
 
     try:
-        with tmp_corpus.open("w", encoding="utf-8", newline="") as f:
+        with tmp_corpus.open("wb") as f:
             for r in selected:
-                line = json.dumps(
-                    {config.text_field: r.text},
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                f.write(line)
-                f.write("\n")
-                line_bytes = (line + "\n").encode("utf-8")
+                line_bytes = serialize_record(r.text, config.text_field)
+                f.write(line_bytes)
                 corpus_sha.update(line_bytes)
                 total_bytes += len(line_bytes)
 

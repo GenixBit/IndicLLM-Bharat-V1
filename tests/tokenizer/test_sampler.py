@@ -754,7 +754,7 @@ class TestSampleExecution:
         assert result.per_language_cap_removed == 7
 
     def test_per_source_byte_cap(self, tmp_path: Path) -> None:
-        records = [{"text": chr(ord("a") + i) * 50, "accepted": True} for i in range(10)]
+        records = [{"text": chr(ord("a") + i) * 48, "accepted": True} for i in range(10)]
         root, mpath, apath = _setup_single_release(
             tmp_path,
             shard_records=records,
