@@ -1,0 +1,11 @@
+{
+  "schema_version": "tokenizer-acceptance-thresholds-v1",
+  "thresholds": {
+    "max_language_micro_fertility": 2.5,
+    "max_micro_fertility": 2.0,
+    "max_unknown_token_rate": 0.0,
+    "min_record_count": 1,
+    "min_required_round_trip_rate": 1.0,
+    "require_complete_byte_coverage": true
+  }
+}
