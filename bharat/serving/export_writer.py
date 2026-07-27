@@ -245,10 +245,7 @@ class ExportWriterRegistry:
                 f"unsupported GGUF tensor type: {gguf_tensor_type!r}; "
                 f"expected one of {sorted(GGUF_TENSOR_TYPE_VALUES)}"
             )
-        if (
-            gguf_preflight is not None
-            and gguf_preflight.gguf_tensor_type != gguf_tensor_type
-        ):
+        if gguf_preflight is not None and gguf_preflight.gguf_tensor_type != gguf_tensor_type:
             raise ValueError(
                 "GGUF preflight tensor type does not match registry selection: "
                 f"{gguf_preflight.gguf_tensor_type!r} != {gguf_tensor_type!r}"
