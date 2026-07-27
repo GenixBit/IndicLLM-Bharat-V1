@@ -1,6 +1,6 @@
 # Milestone 5.4 — GGUF Q8_0 Closure
 
-**Status:** Complete  
+**Status:** Complete
 **Date:** 2026-07-27
 
 ## Scope completed
