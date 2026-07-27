@@ -418,6 +418,21 @@ def test_nfc_normalization_decode_encode_non_nfc(tmp_path: Path) -> None:
     assert decoded == unicodedata.normalize("NFC", decomposed)
 
 
+def test_nfc_composed_decomposed_identical(tmp_path: Path) -> None:
+    composed_path = tmp_path / "composed.jsonl"
+    decomposed_path = tmp_path / "decomposed.jsonl"
+    text = "\u00e9"  # é in NFC
+    nfd_text = "e\u0301"  # é in NFD
+    composed_path.write_text(f'{{"text": "{text}"}}\n', encoding="utf-8")
+    decomposed_path.write_text(f'{{"text": "{nfd_text}"}}\n', encoding="utf-8")
+
+    t_composed = train_bpe(composed_path, vocab_size=300)
+    t_decomposed = train_bpe(decomposed_path, vocab_size=300)
+
+    assert t_composed.compute_hash() == t_decomposed.compute_hash()
+    assert t_composed._compact_serialize() == t_decomposed._compact_serialize()
+
+
 # ══════════════════════════════════════════════════════════════════
 # 10. Combined special/reserved token validation
 # ══════════════════════════════════════════════════════════════════
@@ -518,7 +533,47 @@ def test_validate_catches_bad_merge_chain(corpus_en: Path) -> None:
     if t.merges:
         bad_merge = dataclasses.replace(t.merges[0], left=99999)
         object.__setattr__(t, "merges", (bad_merge,) + t.merges[1:])
-        with pytest.raises(ValueError, match="not in vocabulary"):
+        with pytest.raises(ValueError, match="not available at rank 0"):
+            t.validate()
+
+
+def test_validate_catches_forward_reference(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    if len(t.merges) >= 2:
+        fwd = dataclasses.replace(t.merges[0], left=t.merges[1].token)
+        object.__setattr__(t, "merges", (fwd,) + t.merges[1:])
+        with pytest.raises(ValueError, match="forward reference"):
+            t.validate()
+
+
+def test_validate_catches_self_referencing_merge(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    if len(t.merges) >= 2:
+        bad = dataclasses.replace(t.merges[1], token=t.merges[1].left)
+        old_vocab = {k: v for k, v in t.vocab.items() if v != t.merges[1].token}
+        object.__setattr__(t, "merges", (t.merges[0], bad) + tuple(t.merges[2:]))
+        object.__setattr__(t, "vocab", old_vocab)
+        with pytest.raises(ValueError, match="self-referencing"):
+            t.validate()
+
+
+def test_validate_catches_reused_merge_id(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    if len(t.merges) >= 2:
+        reused = dataclasses.replace(t.merges[1], token=t.merges[0].token)
+        old_vocab = {k: v for k, v in t.vocab.items() if v != t.merges[1].token}
+        object.__setattr__(t, "merges", (t.merges[0], reused) + tuple(t.merges[2:]))
+        object.__setattr__(t, "vocab", old_vocab)
+        with pytest.raises(ValueError, match="already exists"):
+            t.validate()
+
+
+def test_validate_catches_merge_rank_mismatch(corpus_en: Path) -> None:
+    t = train_bpe(corpus_en, vocab_size=280)
+    if len(t.merges) >= 2:
+        bad = dataclasses.replace(t.merges[1], rank=0)
+        object.__setattr__(t, "merges", (t.merges[0], bad) + tuple(t.merges[2:]))
+        with pytest.raises(ValueError, match="rank"):
             t.validate()
 
 
@@ -651,3 +706,21 @@ def test_save_atomic_no_destruction_on_failure(corpus_en: Path, tmp_path: Path) 
     with pytest.raises(ValueError):
         broken.save(p, overwrite=True)
     assert p.read_bytes() == original
+
+
+def test_save_exclusive_creation_no_race(tmp_path: Path) -> None:
+    path = tmp_path / "exclusive.json"
+    assert not path.exists()
+    t = train_bpe(
+        _write_jsonl(tmp_path / "tmp.jsonl", ["x"]),
+        vocab_size=260,
+    )
+    t.save(path)
+    assert path.exists()
+    t2 = train_bpe(
+        _write_jsonl(tmp_path / "tmp2.jsonl", ["y"]),
+        vocab_size=260,
+    )
+    with pytest.raises(FileExistsError):
+        t2.save(path)
+    assert path.read_bytes() == t._compact_serialize().encode("utf-8")

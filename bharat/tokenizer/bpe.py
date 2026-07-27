@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import unicodedata
@@ -144,24 +145,19 @@ class BPETokenizer:
                 msg = f"token ID {token_id} ({token_str!r}) not found in any category"
                 raise ValueError(msg)
 
-        seen_ranks: set[int] = set()
-        seen_merge_tokens: set[int] = set()
-        base_ids = special_reserved_ids | byte_ids
+        available_ids: set[int] = special_reserved_ids | byte_ids
         for i, m in enumerate(self.merges):
-            if m.left not in all_ids:
-                msg = f"merge {i}: left ID {m.left} not in vocabulary"
+            if m.left not in available_ids:
+                msg = f"merge {i}: left ID {m.left} not available at rank {i} (forward reference)"
                 raise ValueError(msg)
-            if m.right not in all_ids:
-                msg = f"merge {i}: right ID {m.right} not in vocabulary"
+            if m.right not in available_ids:
+                msg = f"merge {i}: right ID {m.right} not available at rank {i} (forward reference)"
                 raise ValueError(msg)
-            if m.token in base_ids:
-                msg = f"merge {i}: token ID {m.token} collides with base ID"
+            if m.token == m.left or m.token == m.right:
+                msg = f"merge {i}: self-referencing token (token={m.token}, left={m.left}, right={m.right})"
                 raise ValueError(msg)
-            if m.token in seen_merge_tokens:
-                msg = f"merge {i}: duplicate merge token ID {m.token}"
-                raise ValueError(msg)
-            if m.rank in seen_ranks:
-                msg = f"merge {i}: duplicate rank {m.rank}"
+            if m.token in available_ids:
+                msg = f"merge {i}: token ID {m.token} already exists (reused merge ID)"
                 raise ValueError(msg)
             if m.rank != i:
                 msg = f"merge {i}: rank {m.rank} != expected {i}"
@@ -171,8 +167,7 @@ class BPETokenizer:
             if actual_bytes != expected_bytes:
                 msg = f"merge {i}: id_to_bytes[{m.token}] = {actual_bytes!r}, expected {expected_bytes!r}"
                 raise ValueError(msg)
-            seen_ranks.add(m.rank)
-            seen_merge_tokens.add(m.token)
+            available_ids.add(m.token)
 
         computed = self.compute_hash()
         if self.tokenizer_hash and computed != self.tokenizer_hash:
@@ -278,27 +273,38 @@ class BPETokenizer:
         return t
 
     def save(self, path: Path, *, overwrite: bool = False) -> None:
-        if path.exists() and not overwrite:
-            msg = f"refusing to overwrite existing file: {path}"
-            raise FileExistsError(msg)
+        serialized = self._compact_serialize()
+        verified_bytes = serialized.encode("utf-8")
 
-        tmp_name = f".{path.name}.{secrets.token_hex(8)}.tmp"
+        tmp_name = f".{path.name}.{secrets.token_hex(8)}.verify.tmp"
         tmp_path = path.with_name(tmp_name)
         try:
-            serialized = self._compact_serialize()
-            tmp_path.write_text(serialized, encoding="utf-8")
-            tmp_path.resolve().stat()
-
+            tmp_path.write_bytes(verified_bytes)
             loaded = BPETokenizer.load(tmp_path)
             if loaded.compute_hash() != self.compute_hash():
                 msg = "save verification failed: hash mismatch"
                 raise RuntimeError(msg)
-
-            tmp_path.rename(path)
-        except BaseException:
+        finally:
             if tmp_path.exists():
                 tmp_path.unlink()
-            raise
+
+        if overwrite:
+            path.write_bytes(verified_bytes)
+        else:
+            try:
+                with open(path, "xb") as f:
+                    f.write(verified_bytes)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except FileExistsError:
+                msg = f"refusing to overwrite existing file: {path}"
+                raise FileExistsError(msg) from None
+
+        final_bytes = path.read_bytes()
+        if final_bytes != verified_bytes:
+            path.unlink()
+            msg = f"byte-verification failed after final write to {path}"
+            raise RuntimeError(msg)
 
     @classmethod
     def load(cls, path: Path) -> BPETokenizer:
@@ -306,7 +312,7 @@ class BPETokenizer:
         return cls.from_dict(raw)
 
     def encode(self, text: str, *, allow_special: bool = False) -> list[int]:
-        normalized = unicodedata.normalize("NFC", text)
+        normalized = _normalize(text)
 
         for surrogate in re.findall(r"[\ud800-\udfff]", normalized):
             msg = f"lone surrogate in input: U+{ord(surrogate):04X}"
@@ -375,6 +381,10 @@ class BPETokenizer:
         except UnicodeDecodeError as e:
             msg = "invalid UTF-8 in decoded output"
             raise ValueError(msg) from e
+
+
+def _normalize(text: str) -> str:
+    return unicodedata.normalize("NFC", text)
 
 
 def _validate_special_and_reserved_tokens(
@@ -478,7 +488,7 @@ def _read_corpus_records(corpus_path: Path, text_field: str = "text") -> list[by
             msg = f"line {line_num}: lone surrogate U+{ord(surrogate):04X}"
             raise ValueError(msg)
 
-        normalized = unicodedata.normalize("NFC", text_val)
+        normalized = _normalize(text_val)
         encoded = normalized.encode("utf-8")
         records.append(encoded)
 
