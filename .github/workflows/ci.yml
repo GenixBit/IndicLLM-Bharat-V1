@@ -170,3 +170,4 @@ jobs:
             git diff --check "origin/${{ github.base_ref }}...HEAD"
           else
             git show --check --oneline --decorate HEAD
+          fi
