@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from bharat.tokenizer.acceptance import (
+    AcceptanceCheck,
+    TokenizerAcceptanceThresholds,
+    evaluate_tokenizer_acceptance,
+)
 from bharat.tokenizer.base import BharatTokenizer
 from bharat.tokenizer.bpe import BPETokenizer, train_bpe
 from bharat.tokenizer.bpe_adapter import BharatBPETokenizer
@@ -14,6 +19,7 @@ from bharat.tokenizer.sampler import (
 )
 
 __all__ = [
+    "AcceptanceCheck",
     "BharatBPETokenizer",
     "BharatTokenizer",
     "BPETokenizer",
@@ -21,8 +27,10 @@ __all__ = [
     "EvaluationRecord",
     "ProvenanceRecord",
     "SamplerConfig",
+    "TokenizerAcceptanceThresholds",
     "TokenizerEvaluation",
     "TokenizerMetadata",
+    "evaluate_tokenizer_acceptance",
     "load_tokenizer",
     "sample_tokenizer_corpus",
     "tokenizer_hash",
