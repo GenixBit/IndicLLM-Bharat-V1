@@ -170,7 +170,9 @@ def evaluate_tokenizer_acceptance(
         separators=(",", ":"),
         ensure_ascii=True,
     )
-    result["acceptance_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    result["acceptance_sha256"] = hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
     return result
 
 
@@ -182,7 +184,9 @@ def _require_mapping(payload: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def _require_named_mapping(
-    payload: dict[str, Any], name: str, field_name: str
+    payload: dict[str, Any],
+    name: str,
+    field_name: str,
 ) -> dict[str, Any]:
     value = payload.get(name)
     if not isinstance(value, dict):
