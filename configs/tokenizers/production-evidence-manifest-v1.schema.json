@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genixbit.example/schemas/tokenizer-production-evidence-manifest-v1.json",
+  "title": "Tokenizer production evidence manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "evidence_scope",
+    "repository_commit_sha",
+    "tokenizer",
+    "evaluation_input",
+    "evaluation_report",
+    "acceptance_decision",
+    "threshold_configuration",
+    "language_coverage",
+    "generating_commands"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "tokenizer-production-evidence-manifest-v1"
+    },
+    "status": {
+      "enum": ["candidate", "accepted"]
+    },
+    "evidence_scope": {
+      "const": "production-local-approved"
+    },
+    "repository_commit_sha": {
+      "$ref": "#/$defs/gitObjectId"
+    },
+    "tokenizer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_path",
+        "artifact_sha256",
+        "fingerprint",
+        "vocab_size",
+        "normalization",
+        "byte_alphabet_complete"
+      ],
+      "properties": {
+        "artifact_path": { "$ref": "#/$defs/relativePath" },
+        "artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "fingerprint": { "$ref": "#/$defs/sha256" },
+        "vocab_size": { "type": "integer", "minimum": 1 },
+        "normalization": { "const": "NFC" },
+        "byte_alphabet_complete": { "type": "boolean" }
+      }
+    },
+    "evaluation_input": {
+      "$ref": "#/$defs/fileReference"
+    },
+    "evaluation_report": {
+      "$ref": "#/$defs/fileReference"
+    },
+    "acceptance_decision": {
+      "$ref": "#/$defs/fileReference"
+    },
+    "threshold_configuration": {
+      "$ref": "#/$defs/fileReference"
+    },
+    "language_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_languages", "record_counts"],
+      "properties": {
+        "required_languages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        },
+        "record_counts": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "generating_commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "accepted" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "tokenizer": {
+            "properties": {
+              "byte_alphabet_complete": { "const": true }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "gitObjectId": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          { "pattern": "^/" },
+          { "pattern": "^[A-Za-z]:[\\\\/]" },
+          { "pattern": "(^|[\\\\/])\\.\\.([\\\\/]|$)" }
+        ]
+      }
+    },
+    "fileReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
