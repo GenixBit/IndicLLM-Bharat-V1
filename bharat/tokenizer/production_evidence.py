@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
-from bharat.tokenizer.acceptance import ThresholdConfiguration
+from bharat.tokenizer.acceptance import (
+    ThresholdConfiguration,
+    evaluate_tokenizer_acceptance,
+)
+from bharat.tokenizer.bpe import BPETokenizer
 from bharat.tokenizer.evaluation import validate_evaluation_report
 from bharat.tokenizer.loader import load_tokenizer
 
@@ -79,7 +83,12 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _resolve_file(root: Path, value: Any, label: str, errors: list[str]) -> Path | None:
+def _resolve_file(
+    root: Path,
+    value: Any,
+    label: str,
+    errors: list[str],
+) -> Path | None:
     if not isinstance(value, str) or not value:
         errors.append(f"{label}: path must be a non-empty string")
         return None
@@ -146,13 +155,159 @@ def _validate_manifest_shape(manifest: Any, errors: list[str]) -> bool:
     return not missing and not unknown
 
 
+def _validate_tokenizer(
+    root: Path,
+    tokenizer: Any,
+    errors: list[str],
+) -> tuple[Any | None, BPETokenizer | None]:
+    if not isinstance(tokenizer, dict):
+        errors.append("tokenizer must be an object")
+        tokenizer = {}
+    expected_keys = {
+        "artifact_path",
+        "artifact_sha256",
+        "fingerprint",
+        "vocab_size",
+        "normalization",
+        "byte_alphabet_complete",
+    }
+    if set(tokenizer) != expected_keys:
+        errors.append("tokenizer has missing or unknown keys")
+    if tokenizer.get("normalization") != "NFC":
+        errors.append("tokenizer.normalization must be NFC")
+
+    artifact_path = _resolve_file(
+        root,
+        tokenizer.get("artifact_path"),
+        "tokenizer.artifact_path",
+        errors,
+    )
+    artifact_digest = tokenizer.get("artifact_sha256")
+    if not isinstance(artifact_digest, str) or _SHA256.fullmatch(artifact_digest) is None:
+        errors.append("tokenizer.artifact_sha256: invalid SHA-256")
+    elif artifact_path is not None and artifact_digest != _sha256(artifact_path):
+        errors.append("tokenizer artifact SHA-256 mismatch")
+
+    loaded_tokenizer = None
+    bpe_tokenizer = None
+    if artifact_path is not None:
+        try:
+            loaded_tokenizer = load_tokenizer(str(artifact_path))
+            if loaded_tokenizer.fingerprint() != tokenizer.get("fingerprint"):
+                errors.append("tokenizer fingerprint mismatch")
+            if loaded_tokenizer.vocab_size != tokenizer.get("vocab_size"):
+                errors.append("tokenizer vocab_size mismatch")
+            normalization = loaded_tokenizer.get_metadata().get("normalization")
+            if normalization != "nfc":
+                errors.append("tokenizer artifact normalization is not nfc")
+        except Exception as exc:
+            errors.append(f"tokenizer cannot be validated: {exc}")
+        try:
+            bpe_tokenizer = BPETokenizer.load(artifact_path)
+        except Exception as exc:
+            errors.append(f"tokenizer byte alphabet cannot be validated: {exc}")
+
+    return loaded_tokenizer, bpe_tokenizer
+
+
+def _byte_alphabet_complete(tokenizer: BPETokenizer | None) -> bool:
+    if tokenizer is None:
+        return False
+    if set(tokenizer.byte_value_to_id) != set(range(256)):
+        return False
+    token_ids = list(tokenizer.byte_value_to_id.values())
+    if len(set(token_ids)) != 256:
+        return False
+    return all(
+        tokenizer.id_to_bytes.get(token_id) == bytes([byte_value])
+        for byte_value, token_id in tokenizer.byte_value_to_id.items()
+    )
+
+
+def _validate_language_coverage(
+    coverage: Any,
+    report: Any,
+    tokenizer_name: str | None,
+    errors: list[str],
+) -> None:
+    if not isinstance(coverage, dict) or set(coverage) != {
+        "required_languages",
+        "record_counts",
+    }:
+        errors.append(
+            "language_coverage must contain exactly required_languages and record_counts"
+        )
+        return
+
+    required = coverage.get("required_languages")
+    counts = coverage.get("record_counts")
+    if (
+        not isinstance(required, list)
+        or not required
+        or len(required) != len(set(required))
+        or not all(isinstance(language, str) and language for language in required)
+    ):
+        errors.append("required_languages must be a non-empty unique string array")
+        return
+    if not isinstance(counts, dict):
+        errors.append("record_counts must be an object")
+        return
+
+    report_counts: dict[str, Any] = {}
+    if isinstance(report, dict) and tokenizer_name is not None:
+        per_language = report.get("per_language")
+        if isinstance(per_language, dict):
+            tokenizer_languages = per_language.get(tokenizer_name)
+            if isinstance(tokenizer_languages, dict):
+                report_counts = tokenizer_languages
+
+    for language in required:
+        count = counts.get(language)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            errors.append(f"record count for {language!r} must be a positive integer")
+            continue
+        metrics = report_counts.get(language)
+        report_count = metrics.get("record_count") if isinstance(metrics, dict) else None
+        if report_count != count:
+            errors.append(
+                f"record count for {language!r} does not match evaluation report"
+            )
+
+
+def _validate_decision(
+    decision: Any,
+    report: Any,
+    threshold_configuration: ThresholdConfiguration | None,
+    errors: list[str],
+) -> str | None:
+    if not isinstance(decision, dict):
+        errors.append("acceptance_decision must be an object")
+        return None
+    tokenizer_name = decision.get("tokenizer_name")
+    if not isinstance(tokenizer_name, str) or not tokenizer_name:
+        errors.append("acceptance_decision tokenizer_name must be a non-empty string")
+        return None
+    if not isinstance(report, dict) or threshold_configuration is None:
+        return tokenizer_name
+    try:
+        expected = evaluate_tokenizer_acceptance(
+            report,
+            tokenizer_name,
+            threshold_configuration,
+        )
+    except Exception as exc:
+        errors.append(f"acceptance_decision cannot be recomputed: {exc}")
+        return tokenizer_name
+    if decision != expected:
+        errors.append("acceptance_decision does not match recomputed decision")
+    return tokenizer_name
+
+
 def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValidation:
     errors: list[str] = []
     manifest = _load_canonical_json(manifest_path, errors, "manifest")
     manifest_digest = _sha256(manifest_path) if manifest_path.is_file() else "0" * 64
-    status = (
-        manifest.get("status", "invalid") if isinstance(manifest, dict) else "invalid"
-    )
+    status = manifest.get("status", "invalid") if isinstance(manifest, dict) else "invalid"
     if not _validate_manifest_shape(manifest, errors):
         return ProductionEvidenceValidation(
             manifest_digest,
@@ -163,47 +318,12 @@ def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValid
 
     assert isinstance(manifest, dict)
     root = manifest_path.parent.resolve()
-    tokenizer = manifest.get("tokenizer")
-    if not isinstance(tokenizer, dict):
-        errors.append("tokenizer must be an object")
-        tokenizer = {}
-    expected_tokenizer_keys = {
-        "artifact_path",
-        "artifact_sha256",
-        "fingerprint",
-        "vocab_size",
-        "normalization",
-        "byte_alphabet_complete",
-    }
-    if set(tokenizer) != expected_tokenizer_keys:
-        errors.append("tokenizer has missing or unknown keys")
-    artifact_path = _resolve_file(
+    tokenizer_manifest = manifest.get("tokenizer")
+    loaded_tokenizer, bpe_tokenizer = _validate_tokenizer(
         root,
-        tokenizer.get("artifact_path"),
-        "tokenizer.artifact_path",
+        tokenizer_manifest,
         errors,
     )
-    artifact_digest = tokenizer.get("artifact_sha256")
-    if (
-        not isinstance(artifact_digest, str)
-        or _SHA256.fullmatch(artifact_digest) is None
-    ):
-        errors.append("tokenizer.artifact_sha256: invalid SHA-256")
-    elif artifact_path is not None and artifact_digest != _sha256(artifact_path):
-        errors.append("tokenizer artifact SHA-256 mismatch")
-
-    loaded_tokenizer = None
-    if artifact_path is not None:
-        try:
-            loaded_tokenizer = load_tokenizer(str(artifact_path))
-            if loaded_tokenizer.fingerprint() != tokenizer.get("fingerprint"):
-                errors.append("tokenizer fingerprint mismatch")
-            if loaded_tokenizer.vocab_size != tokenizer.get("vocab_size"):
-                errors.append("tokenizer vocab_size mismatch")
-            if loaded_tokenizer.get_metadata().get("normalization") != "NFC":
-                errors.append("tokenizer normalization is not NFC")
-        except Exception as exc:
-            errors.append(f"tokenizer cannot be validated: {exc}")
 
     input_path = _file_reference(
         root,
@@ -257,57 +377,34 @@ def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValid
             except Exception as exc:
                 errors.append(f"threshold_configuration: {exc}")
 
-    coverage = manifest.get("language_coverage")
-    if not isinstance(coverage, dict) or set(coverage) != {
-        "required_languages",
-        "record_counts",
-    }:
-        errors.append(
-            "language_coverage must contain exactly required_languages and record_counts"
-        )
-    else:
-        required = coverage.get("required_languages")
-        counts = coverage.get("record_counts")
-        if (
-            not isinstance(required, list)
-            or not required
-            or len(required) != len(set(required))
-        ):
-            errors.append("required_languages must be a non-empty unique array")
-        if not isinstance(counts, dict):
-            errors.append("record_counts must be an object")
-        elif isinstance(required, list):
-            for language in required:
-                if not isinstance(language, str) or language not in counts:
-                    errors.append(
-                        f"required language missing from record_counts: {language!r}"
-                    )
-                elif not isinstance(counts[language], int) or isinstance(
-                    counts[language], bool
-                ):
-                    errors.append(f"record count for {language!r} must be an integer")
+    tokenizer_name = _validate_decision(
+        decision,
+        report,
+        threshold_configuration,
+        errors,
+    )
+    _validate_language_coverage(
+        manifest.get("language_coverage"),
+        report,
+        tokenizer_name,
+        errors,
+    )
 
     if status == "accepted":
-        if tokenizer.get("byte_alphabet_complete") is not True:
-            errors.append("accepted evidence requires complete byte coverage")
+        complete = _byte_alphabet_complete(bpe_tokenizer)
+        if not isinstance(tokenizer_manifest, dict):
+            tokenizer_manifest = {}
+        if tokenizer_manifest.get("byte_alphabet_complete") is not True or not complete:
+            errors.append("accepted evidence requires independently verified byte coverage")
         if not isinstance(decision, dict) or decision.get("passed") is not True:
             errors.append("accepted evidence requires a passing acceptance decision")
-        if (
-            threshold_configuration is None
-            or threshold_configuration.status != "production"
-        ):
+        if threshold_configuration is None or threshold_configuration.status != "production":
             errors.append("accepted evidence requires production thresholds")
         if (
             threshold_configuration is not None
             and threshold_configuration.evidence_scope != "approved-evaluation-set"
         ):
             errors.append("accepted evidence requires approved-evaluation-set thresholds")
-        if (
-            isinstance(decision, dict)
-            and isinstance(report, dict)
-            and decision.get("input_report_sha256") != report.get("report_sha256")
-        ):
-            errors.append("acceptance decision does not reference the evaluation report")
         if input_path is None or loaded_tokenizer is None:
             errors.append("accepted evidence is not independently verifiable")
 
