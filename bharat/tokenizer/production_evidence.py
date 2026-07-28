@@ -151,9 +151,7 @@ def _validate_manifest_shape(manifest: Any, errors: list[str]) -> bool:
     return not missing and not unknown
 
 
-def validate_production_evidence(
-    manifest_path: Path,
-) -> ProductionEvidenceValidation:
+def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValidation:
     errors: list[str] = []
     manifest = _load_canonical_json(manifest_path, errors, "manifest")
     manifest_digest = _sha256(manifest_path) if manifest_path.is_file() else "0" * 64
