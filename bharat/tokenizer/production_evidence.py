@@ -80,7 +80,10 @@ def _sha256(path: Path) -> str:
 
 
 def _resolve_file(
-    root: Path, value: Any, label: str, errors: list[str]
+    root: Path,
+    value: Any,
+    label: str,
+    errors: list[str],
 ) -> Path | None:
     if not isinstance(value, str) or not value:
         errors.append(f"{label}: path must be a non-empty string")
