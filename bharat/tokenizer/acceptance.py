@@ -35,10 +35,15 @@ class TokenizerAcceptanceThresholds:
     require_complete_byte_coverage: bool = True
     max_micro_fertility: float | None = None
     max_language_micro_fertility: float | None = None
+    min_canonical_evaluated_count: int = 0
     required_languages: tuple[str, ...] = ()
     min_records_per_required_language: int = 1
 
-    _INT_FIELDS = ("min_record_count", "min_records_per_required_language")
+    _INT_FIELDS = (
+        "min_record_count",
+        "min_records_per_required_language",
+        "min_canonical_evaluated_count",
+    )
     _RATE_FIELDS = (
         "min_required_round_trip_rate",
         "min_canonical_pass_rate",
@@ -77,6 +82,8 @@ class TokenizerAcceptanceThresholds:
 
         if self.min_records_per_required_language < 1:
             raise ValueError("min_records_per_required_language must be at least 1")
+        if self.min_canonical_evaluated_count < 0:
+            raise ValueError("min_canonical_evaluated_count must be non-negative")
 
     def to_canonical_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -94,6 +101,7 @@ class TokenizerAcceptanceThresholds:
             "min_record_count",
             "min_required_round_trip_rate",
             "min_canonical_pass_rate",
+            "min_canonical_evaluated_count",
             "max_unknown_token_rate",
             "require_complete_byte_coverage",
             "max_micro_fertility",
@@ -112,7 +120,10 @@ class TokenizerAcceptanceThresholds:
                     raise ValueError(
                         f"threshold {name!r} must be an integer, got {type(v).__name__}"
                     )
-                if v < (1 if name == "min_record_count" else 1):
+                if name == "min_canonical_evaluated_count":
+                    if v < 0:
+                        raise ValueError(f"threshold {name!r} must be >= 0")
+                elif v < 1:
                     raise ValueError(f"threshold {name!r} must be >= 1")
 
         for name in cls._RATE_FIELDS:
@@ -144,9 +155,13 @@ class TokenizerAcceptanceThresholds:
             if v is not None:
                 if not isinstance(v, list | tuple):
                     raise ValueError(f"threshold {name!r} must be a list, got {type(v).__name__}")
+                seen: set[str] = set()
                 for item in v:
-                    if not isinstance(item, str) or not item:
+                    if not isinstance(item, str) or not item.strip():
                         raise ValueError(f"threshold {name!r} items must be non-empty strings")
+                    if item.strip() in seen:
+                        raise ValueError(f"threshold {name!r} contains duplicate: {item.strip()!r}")
+                    seen.add(item.strip())
 
         filtered = {k: v for k, v in payload.items() if k in allowed and v is not None}
         return cls(**filtered)
@@ -172,6 +187,12 @@ class ThresholdConfiguration:
             raise ValueError(msg)
         if self.evidence_scope not in _ALLOWED_EVIDENCE_SCOPE_VALUES:
             msg = f"unknown evidence_scope: {self.evidence_scope!r}"
+            raise ValueError(msg)
+        if self.status == "production" and self.evidence_scope != "approved-evaluation-set":
+            msg = (
+                f"status=production requires evidence_scope="
+                f"'approved-evaluation-set', got {self.evidence_scope!r}"
+            )
             raise ValueError(msg)
 
     def to_canonical_dict(self) -> dict[str, Any]:
@@ -214,7 +235,9 @@ class ThresholdConfiguration:
         notes_raw = payload.get("notes", [])
         if not isinstance(notes_raw, list):
             raise ValueError("notes must be a list")
-        notes = tuple(str(n) for n in notes_raw)
+        if not all(isinstance(n, str) for n in notes_raw):
+            raise ValueError("all notes must be strings")
+        notes = tuple(notes_raw)
 
         raw_thresholds = payload.get("thresholds")
         if not isinstance(raw_thresholds, dict):
@@ -255,10 +278,9 @@ class AcceptanceCheck:
 def evaluate_tokenizer_acceptance(
     report: dict[str, Any],
     tokenizer_name: str,
-    thresholds: TokenizerAcceptanceThresholds,
-    threshold_config: ThresholdConfiguration | None = None,
+    threshold_config: ThresholdConfiguration,
 ) -> dict[str, Any]:
-    """Evaluate whether *report* satisfies *thresholds* for *tokenizer_name*.
+    """Evaluate whether *report* satisfies *threshold_config* for *tokenizer_name*.
 
     Steps:
     1. Validate the evaluation report integrity and structure.
@@ -291,6 +313,8 @@ def evaluate_tokenizer_acceptance(
     fingerprint = report.get("tokenizer_fingerprints", {}).get(tokenizer_name, "")
     input_dataset_sha256 = report.get("input_dataset_sha256", "")
     input_report_sha256 = report.get("report_sha256", "")
+
+    thresholds = threshold_config.thresholds
 
     record_count = _require_int(tokenizer_aggregate, "record_count")
     required_rate = _require_number(tokenizer_round_trip, "required_pass_rate")
@@ -345,11 +369,6 @@ def evaluate_tokenizer_acceptance(
         ).encode("utf-8")
     ).hexdigest()
 
-    if threshold_config is None:
-        threshold_config = ThresholdConfiguration(
-            schema_version=_THRESHOLD_SCHEMA_VERSION,
-            thresholds=thresholds,
-        )
     config_sha256 = threshold_config.configuration_sha256()
 
     result: dict[str, Any] = {
@@ -473,6 +492,19 @@ def _add_canonical_pass_checks(
                 passed,
                 canonical_pass_rate,
                 f">= {thresholds.min_canonical_pass_rate}",
+            )
+        )
+
+    if thresholds.min_canonical_evaluated_count > 0:
+        evaluated_count = round_trip.get("canonical_evaluated_count", 0)
+        if not isinstance(evaluated_count, int) or isinstance(evaluated_count, bool):
+            evaluated_count = 0
+        checks.append(
+            AcceptanceCheck(
+                "canonical_evaluated_count",
+                evaluated_count >= thresholds.min_canonical_evaluated_count,
+                evaluated_count,
+                f">= {thresholds.min_canonical_evaluated_count}",
             )
         )
 

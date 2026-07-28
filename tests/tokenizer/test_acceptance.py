@@ -48,6 +48,7 @@ def _minimal_valid_report() -> dict[str, object]:
                 "required_pass_count": 12,
                 "canonical_pass_rate": 1.0,
                 "canonical_pass_count": 12,
+                "canonical_evaluated_count": 12,
             }
         },
         "byte_coverage": {
@@ -84,6 +85,13 @@ def _thresholds() -> TokenizerAcceptanceThresholds:
         require_complete_byte_coverage=True,
         max_micro_fertility=2.0,
         max_language_micro_fertility=2.0,
+    )
+
+
+def _config(thresh: TokenizerAcceptanceThresholds | None = None) -> ThresholdConfiguration:
+    return ThresholdConfiguration(
+        schema_version="tokenizer-acceptance-thresholds-v1",
+        thresholds=thresh or _thresholds(),
     )
 
 
@@ -216,15 +224,15 @@ def test_inf_fertility_rejected() -> None:
 
 
 def test_acceptance_passes_and_is_deterministic() -> None:
-    first = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
-    second = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
+    first = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config())
+    second = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config())
     assert first == second
     assert first["passed"] is True
     assert len(first["acceptance_sha256"]) == 64
 
 
 def test_acceptance_includes_provenance() -> None:
-    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config())
     assert result["tokenizer_name"] == "bharat-bpe"
     assert result["tokenizer_fingerprint"] == "fp123"
     assert result["input_dataset_sha256"] == "b" * 64
@@ -240,16 +248,16 @@ def test_acceptance_includes_provenance() -> None:
 
 
 def test_acceptance_sha256_deterministic() -> None:
-    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config())
     dig = result["acceptance_sha256"]
     assert isinstance(dig, str)
     assert len(dig) == 64
-    result2 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
+    result2 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config())
     assert result2["acceptance_sha256"] == dig
 
 
 def test_acceptance_includes_configuration_digest() -> None:
-    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config())
     cd = result["threshold_configuration_sha256"]
     assert isinstance(cd, str)
     assert len(cd) == 64
@@ -265,14 +273,11 @@ def test_provisional_metadata_changes_config_digest() -> None:
     config2 = ThresholdConfiguration(
         schema_version="tokenizer-acceptance-thresholds-v1",
         status="production",
+        evidence_scope="approved-evaluation-set",
         thresholds=t1,
     )
-    r1 = evaluate_tokenizer_acceptance(
-        _realistic_report(), "bharat-bpe", t1, threshold_config=config1
-    )
-    r2 = evaluate_tokenizer_acceptance(
-        _realistic_report(), "bharat-bpe", t1, threshold_config=config2
-    )
+    r1 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", config1)
+    r2 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", config2)
     assert r1["threshold_configuration_sha256"] != r2["threshold_configuration_sha256"]
     assert r1["acceptance_sha256"] != r2["acceptance_sha256"]
 
@@ -290,7 +295,7 @@ def test_unknown_config_field_rejected() -> None:
 
 def test_acceptance_rejects_low_record_count() -> None:
     thresh = TokenizerAcceptanceThresholds(min_record_count=13)
-    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config(thresh))
     assert result["passed"] is False
     failed = {c["name"] for c in result["checks"] if not c["passed"]}
     assert "record_count" in failed
@@ -301,7 +306,7 @@ def test_acceptance_rejects_elevated_unknown_rate() -> None:
     report["aggregate"]["bharat-bpe"]["unknown_token_rate"] = 0.01  # type: ignore[index]
     report["aggregate"]["bharat-bpe"]["unknown_token_count"] = 1  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
     assert result["passed"] is False
     failed = {c["name"] for c in result["checks"] if not c["passed"]}
     assert "unknown_token_rate" in failed
@@ -309,7 +314,7 @@ def test_acceptance_rejects_elevated_unknown_rate() -> None:
 
 def test_acceptance_rejects_high_fertility() -> None:
     thresh = TokenizerAcceptanceThresholds(max_micro_fertility=1.0)
-    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config(thresh))
     assert result["passed"] is False
     failed = {c["name"] for c in result["checks"] if not c["passed"]}
     assert "micro_fertility" in failed
@@ -323,10 +328,11 @@ def test_acceptance_rejects_low_round_trip_rate() -> None:
     report["round_trip"]["bharat-bpe"]["required_pass_count"] = 99  # type: ignore[index]
     report["round_trip"]["bharat-bpe"]["canonical_pass_count"] = 99  # type: ignore[index]
     report["round_trip"]["bharat-bpe"]["canonical_pass_rate"] = 0.99  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_evaluated_count"] = 100  # type: ignore[index]
     report["per_language"]["bharat-bpe"]["en"]["record_count"] = 50  # type: ignore[index]
     report["per_language"]["bharat-bpe"]["hi"]["record_count"] = 50  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
     assert result["passed"] is False
     failed = {c["name"] for c in result["checks"] if not c["passed"]}
     assert "required_round_trip_rate" in failed
@@ -341,7 +347,7 @@ def test_acceptance_byte_coverage_checks_values() -> None:
         "missing_byte_values": [],
     }
     report["report_sha256"] = _compute_digest(report)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
     assert result["passed"] is False
     bc_check = next(c for c in result["checks"] if c["name"] == "complete_byte_coverage")
     assert bc_check["passed"] is False
@@ -356,7 +362,7 @@ def test_acceptance_byte_coverage_complete_passes() -> None:
         "missing_byte_values": [],
     }
     report["report_sha256"] = _compute_digest(report)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
     assert result["passed"] is True
 
 
@@ -364,7 +370,7 @@ def test_acceptance_rejects_language_fertility_failure() -> None:
     report = _realistic_report()
     report["per_language"]["bharat-bpe"]["hi"]["micro_fertility"] = 2.1  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
     language_check = next(
         check for check in result["checks"] if check["name"] == "language_micro_fertility"
     )
@@ -379,7 +385,7 @@ def test_thresholds_reject_unknown_fields() -> None:
 
 def test_acceptance_requires_named_tokenizer() -> None:
     with pytest.raises(ValueError, match="is not present"):
-        evaluate_tokenizer_acceptance(_realistic_report(), "missing", _thresholds())
+        evaluate_tokenizer_acceptance(_realistic_report(), "missing", _config())
 
 
 def test_acceptance_rejects_unsupported_evaluator_version() -> None:
@@ -387,7 +393,7 @@ def test_acceptance_rejects_unsupported_evaluator_version() -> None:
     report["evaluator_version"] = "0.0.1"
     report["report_sha256"] = _compute_digest(report)
     with pytest.raises(ValueError, match="unsupported evaluator_version"):
-        evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+        evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
 
 
 def test_threshold_string_rejected_for_int_field() -> None:
@@ -435,7 +441,7 @@ def test_threshold_none_int_field_uses_default() -> None:
 def test_required_languages_missing() -> None:
     thresh = TokenizerAcceptanceThresholds(required_languages=["fr", "de"])
     report = _realistic_report()
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
     lang_check = next(c for c in result["checks"] if c["name"] == "required_languages_present")
     assert lang_check["passed"] is False
     assert "fr" in str(lang_check["actual"])
@@ -445,13 +451,13 @@ def test_required_languages_missing() -> None:
 def test_required_languages_present() -> None:
     thresh = TokenizerAcceptanceThresholds(required_languages=["en", "hi"])
     report = _realistic_report()
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
     lang_check = next(c for c in result["checks"] if c["name"] == "required_languages_present")
     assert lang_check["passed"] is True
 
 
 def test_acceptance_includes_thresholds_sha256() -> None:
-    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config())
     ts = result["thresholds_sha256"]
     assert isinstance(ts, str)
     assert len(ts) == 64
@@ -460,8 +466,8 @@ def test_acceptance_includes_thresholds_sha256() -> None:
 def test_changing_threshold_changes_digests() -> None:
     t1 = TokenizerAcceptanceThresholds(max_micro_fertility=2.0)
     t2 = TokenizerAcceptanceThresholds(max_micro_fertility=3.0)
-    r1 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", t1)
-    r2 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", t2)
+    r1 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config(t1))
+    r2 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _config(t2))
     assert r1["thresholds_sha256"] != r2["thresholds_sha256"]
     assert r1["acceptance_sha256"] != r2["acceptance_sha256"]
 
@@ -477,7 +483,7 @@ def test_canonical_rate_zero_fails() -> None:
     report["round_trip"]["bharat-bpe"]["required_pass_rate"] = 0.0  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
     thresh = TokenizerAcceptanceThresholds(min_canonical_pass_rate=0.5)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
     cp_check = next(c for c in result["checks"] if c["name"] == "canonical_equivalent_pass_rate")
     assert cp_check["passed"] is False
 
@@ -491,7 +497,7 @@ def test_canonical_rate_below_minimum_fails() -> None:
     report["round_trip"]["bharat-bpe"]["required_pass_rate"] = 10.0 / 12.0  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
     thresh = TokenizerAcceptanceThresholds(min_canonical_pass_rate=0.95)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
     cp_check = next(c for c in result["checks"] if c["name"] == "canonical_equivalent_pass_rate")
     assert cp_check["passed"] is False
 
@@ -499,7 +505,7 @@ def test_canonical_rate_below_minimum_fails() -> None:
 def test_canonical_rate_meets_minimum() -> None:
     report = _realistic_report()
     thresh = TokenizerAcceptanceThresholds(min_canonical_pass_rate=0.95)
-    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
     cp_check = next(c for c in result["checks"] if c["name"] == "canonical_equivalent_pass_rate")
     assert cp_check["passed"] is True
 
@@ -512,7 +518,7 @@ def test_nan_overall_fertility_rejected() -> None:
     report["aggregate"]["bharat-bpe"]["micro_fertility"] = float("nan")  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
     with pytest.raises(ValueError, match="finite"):
-        evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+        evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
 
 
 def test_inf_overall_fertility_rejected() -> None:
@@ -520,7 +526,7 @@ def test_inf_overall_fertility_rejected() -> None:
     report["aggregate"]["bharat-bpe"]["micro_fertility"] = float("inf")  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
     with pytest.raises(ValueError, match="finite"):
-        evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+        evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
 
 
 def test_nan_per_language_fertility_rejected() -> None:
@@ -529,9 +535,110 @@ def test_nan_per_language_fertility_rejected() -> None:
     report["report_sha256"] = _compute_digest(report)
     thresh = TokenizerAcceptanceThresholds(max_language_micro_fertility=5.0)
     with pytest.raises(ValueError, match="finite"):
-        evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+        evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
 
 
 def test_inf_threshold_rejected() -> None:
     with pytest.raises(ValueError, match="must be a finite number"):
         TokenizerAcceptanceThresholds(min_required_round_trip_rate=float("inf"))
+
+
+# ── Canonical evaluated count tests ──────────────────────────────────
+
+
+def test_canonical_evaluated_count_check() -> None:
+    thresh = TokenizerAcceptanceThresholds(min_canonical_evaluated_count=5)
+    report = _realistic_report()
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
+    cec_check = next(c for c in result["checks"] if c["name"] == "canonical_evaluated_count")
+    assert cec_check["passed"] is True
+    assert cec_check["actual"] == 12
+
+
+def test_canonical_evaluated_count_fails() -> None:
+    thresh = TokenizerAcceptanceThresholds(min_canonical_evaluated_count=20)
+    report = _realistic_report()
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
+    cec_check = next(c for c in result["checks"] if c["name"] == "canonical_evaluated_count")
+    assert cec_check["passed"] is False
+    assert cec_check["actual"] == 12
+
+
+def test_canonical_evaluated_count_zero_by_default() -> None:
+    thresh = TokenizerAcceptanceThresholds()
+    assert thresh.min_canonical_evaluated_count == 0
+
+
+# ── Config validation hardening ──────────────────────────────────────
+
+
+def test_non_string_notes_rejected() -> None:
+    with pytest.raises(ValueError, match="all notes must be strings"):
+        ThresholdConfiguration.from_payload(
+            {
+                "schema_version": "tokenizer-acceptance-thresholds-v1",
+                "thresholds": {"min_record_count": 1},
+                "notes": [123],
+            }
+        )
+
+
+def test_duplicate_language_names_rejected() -> None:
+    with pytest.raises(ValueError, match="contains duplicate"):
+        TokenizerAcceptanceThresholds.from_dict(
+            {
+                "min_record_count": 1,
+                "required_languages": ["en", "en"],
+            }
+        )
+
+
+def test_empty_language_name_rejected() -> None:
+    with pytest.raises(ValueError, match="must be non-empty"):
+        TokenizerAcceptanceThresholds.from_dict(
+            {
+                "min_record_count": 1,
+                "required_languages": [""],
+            }
+        )
+
+
+def test_whitespace_language_name_rejected() -> None:
+    with pytest.raises(ValueError, match="must be non-empty"):
+        TokenizerAcceptanceThresholds.from_dict(
+            {
+                "min_record_count": 1,
+                "required_languages": ["  "],
+            }
+        )
+
+
+def test_production_requires_approved_evidence_scope() -> None:
+    with pytest.raises(ValueError, match="production requires evidence_scope"):
+        ThresholdConfiguration(
+            schema_version="tokenizer-acceptance-thresholds-v1",
+            status="production",
+            evidence_scope="synthetic-local-only",
+            thresholds=TokenizerAcceptanceThresholds(),
+        )
+
+
+def test_production_allows_approved_evidence_scope() -> None:
+    config = ThresholdConfiguration(
+        schema_version="tokenizer-acceptance-thresholds-v1",
+        status="production",
+        evidence_scope="approved-evaluation-set",
+        thresholds=TokenizerAcceptanceThresholds(),
+    )
+    assert config.status == "production"
+
+
+def test_acceptance_result_includes_canonical_evaluated_count() -> None:
+    report = _realistic_report()
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config())
+    assert "min_canonical_evaluated_count" in result.get("thresholds", {})
+
+
+def test_min_canonical_evaluated_count_validation() -> None:
+    with pytest.raises(ValueError, match="must be non-negative"):
+        TokenizerAcceptanceThresholds(min_canonical_evaluated_count=-1)

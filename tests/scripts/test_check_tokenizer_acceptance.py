@@ -44,6 +44,7 @@ def _make_report(tmp_path: Path, overrides: dict | None = None) -> Path:
                 "required_pass_count": 12,
                 "canonical_pass_rate": 1.0,
                 "canonical_pass_count": 12,
+                "canonical_evaluated_count": 12,
             }
         },
         "byte_coverage": {
@@ -283,6 +284,20 @@ def test_output_bytes_and_digest_verified(tmp_path: Path) -> None:
     canonical = json.dumps(excluded, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     assert dig == expected
+
+
+def test_dry_run_with_failing_thresholds_returns_two(tmp_path: Path) -> None:
+    report = _make_report(tmp_path)
+    thresh = _thresholds_path(tmp_path, {"thresholds": {"min_record_count": 100}})
+    code = _run_main(["--report", str(report), "--thresholds", str(thresh), "--dry-run"])
+    assert code == 2
+
+
+def test_dry_run_with_passing_thresholds_returns_zero(tmp_path: Path) -> None:
+    report = _make_report(tmp_path)
+    thresh = _thresholds_path(tmp_path)
+    code = _run_main(["--report", str(report), "--thresholds", str(thresh), "--dry-run"])
+    assert code == 0
 
 
 def test_unsupported_threshold_schema_version(tmp_path: Path) -> None:

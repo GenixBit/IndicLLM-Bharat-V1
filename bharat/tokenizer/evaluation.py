@@ -288,6 +288,7 @@ class RecordMetrics:
     decoded_text: str
     exact_round_trip: bool
     nfc_round_trip: bool
+    canonical_evaluated: bool
     canonical_round_trip: bool
     required_pass: bool
 
@@ -344,8 +345,9 @@ def _compute_record_metrics(
 
     exact_round_trip = decoded == text
     nfc_round_trip = decoded == nfc_text
+    canonical_evaluated = record.canonical_equivalent is not None
     canonical_round_trip = True
-    if record.canonical_equivalent is not None:
+    if canonical_evaluated:
         canonical_ids = tokenizer.encode(record.canonical_equivalent, add_special_tokens=False)
         canonical_decoded = tokenizer.decode(canonical_ids)
         canonical_round_trip = canonical_decoded == nfc_text
@@ -374,6 +376,7 @@ def _compute_record_metrics(
         decoded_text=decoded,
         exact_round_trip=exact_round_trip,
         nfc_round_trip=nfc_round_trip,
+        canonical_evaluated=canonical_evaluated,
         canonical_round_trip=canonical_round_trip,
         required_pass=required_pass,
     )
@@ -432,6 +435,7 @@ class RoundTripSummary:
     nfc_pass_rate: float
     canonical_pass_count: int
     canonical_pass_rate: float
+    canonical_evaluated_count: int
     required_pass_count: int
     required_pass_rate: float
     failure_records: list[dict[str, str]]
@@ -443,7 +447,8 @@ def _compute_round_trip(
     total = len(metrics)
     exact_pass = sum(1 for m in metrics if m.exact_round_trip)
     nfc_pass = sum(1 for m in metrics if m.nfc_round_trip)
-    canonical_pass = sum(1 for m in metrics if m.canonical_round_trip)
+    canonical_evaluated_count = sum(1 for m in metrics if m.canonical_evaluated)
+    canonical_pass = sum(1 for m in metrics if m.canonical_evaluated and m.canonical_round_trip)
     required_pass = sum(1 for m in metrics if m.required_pass)
 
     failure_records: list[dict[str, str]] = []
@@ -476,7 +481,10 @@ def _compute_round_trip(
         nfc_pass_count=nfc_pass,
         nfc_pass_rate=nfc_pass / total if total > 0 else 1.0,
         canonical_pass_count=canonical_pass,
-        canonical_pass_rate=canonical_pass / total if total > 0 else 1.0,
+        canonical_pass_rate=(
+            canonical_pass / canonical_evaluated_count if canonical_evaluated_count > 0 else 1.0
+        ),
+        canonical_evaluated_count=canonical_evaluated_count,
         required_pass_count=required_pass,
         required_pass_rate=required_pass / total if total > 0 else 1.0,
         failure_records=failure_records,
@@ -715,6 +723,12 @@ def _validate_round_trip_values(round_trip: dict[str, Any], names: list[str]) ->
         if cpr is not None and not 0.0 <= float(cpr) <= 1.0:
             msg = f"round_trip.{n}.canonical_pass_rate must be between 0 and 1"
             raise ValueError(msg)
+        cec = entry.get("canonical_evaluated_count")
+        if cec is not None and not (
+            isinstance(cec, int) and not isinstance(cec, bool) and cec >= 0
+        ):
+            msg = f"round_trip.{n}.canonical_evaluated_count must be a non-negative integer"
+            raise ValueError(msg)
 
 
 def _validate_byte_coverage_structure(byte_coverage: dict[str, Any], names: list[str]) -> None:
@@ -793,16 +807,21 @@ def _validate_cross_field_consistency(report: dict[str, Any], names: list[str]) 
             raise ValueError(msg)
 
         cp_count = rt_entry.get("canonical_pass_count")
+        cp_cec = rt_entry.get("canonical_evaluated_count")
         if cp_count is not None:
             if not (isinstance(cp_count, int) and not isinstance(cp_count, bool)):
                 msg = f"round_trip.{n}.canonical_pass_count must be an integer"
                 raise ValueError(msg)
-            if cp_count < 0 or cp_count > record_count:
-                msg = f"round_trip.{n}.canonical_pass_count out of range"
+            evaluated = cp_cec if isinstance(cp_cec, int) and not isinstance(cp_cec, bool) else 0
+            if cp_count < 0:
+                msg = f"round_trip.{n}.canonical_pass_count must be non-negative"
+                raise ValueError(msg)
+            if cp_count > evaluated:
+                msg = f"round_trip.{n}.canonical_pass_count > canonical_evaluated_count"
                 raise ValueError(msg)
             cp_rate = rt_entry.get("canonical_pass_rate")
             if cp_rate is not None:
-                computed_cp = cp_count / record_count if record_count > 0 else 1.0
+                computed_cp = cp_count / evaluated if evaluated > 0 else 1.0
                 if abs(float(computed_cp) - float(cp_rate)) > 1e-12:
                     msg = (
                         f"round_trip.{n}: canonical_pass_rate mismatch: "
@@ -881,6 +900,7 @@ class TokenizerEvaluation:
                         "merged_token_count": m.merged_token_count,
                         "exact_round_trip": m.exact_round_trip,
                         "nfc_round_trip": m.nfc_round_trip,
+                        "canonical_evaluated": m.canonical_evaluated,
                         "canonical_round_trip": m.canonical_round_trip,
                         "required_pass": m.required_pass,
                     }
@@ -961,6 +981,7 @@ class TokenizerEvaluation:
                 "nfc_pass_rate": rt.nfc_pass_rate,
                 "canonical_pass_count": rt.canonical_pass_count,
                 "canonical_pass_rate": rt.canonical_pass_rate,
+                "canonical_evaluated_count": rt.canonical_evaluated_count,
                 "required_pass_count": rt.required_pass_count,
                 "required_pass_rate": rt.required_pass_rate,
                 "failure_records": rt.failure_records,

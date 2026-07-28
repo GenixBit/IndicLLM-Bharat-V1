@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -88,6 +89,21 @@ def _publish(
             msg = f"byte-verification failed after final write: {output_path}"
             raise RuntimeError(msg)
 
+        reread_parsed = json.loads(reread)
+        recomputed = json.dumps(
+            {k: v for k, v in reread_parsed.items() if k != "acceptance_sha256"},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        recomputed_digest = hashlib.sha256(recomputed.encode("utf-8")).hexdigest()
+        if recomputed_digest != expected_digest:
+            msg = (
+                f"acceptance digest recomputation mismatch after write: "
+                f"expected {expected_digest}, got {recomputed_digest}"
+            )
+            raise RuntimeError(msg)
+
         return written_path
     except BaseException:
         if written_path is not None and written_path.exists():
@@ -121,9 +137,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         tokenizer_name = names[0]
 
-    result = evaluate_tokenizer_acceptance(
-        report, tokenizer_name, config.thresholds, threshold_config=config
-    )
+    result = evaluate_tokenizer_acceptance(report, tokenizer_name, config)
 
     result_json = (
         json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
@@ -133,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--- dry-run: validation passed ---")
         print(result_json, end="")
         sys.stdout.flush()
-        return _EXIT_SUCCESS
+        return _EXIT_SUCCESS if result["passed"] else _EXIT_THRESHOLD_FAILURE
 
     if args.output is not None:
         expected_digest = result.get("acceptance_sha256", "")
