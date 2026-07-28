@@ -24,9 +24,10 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _generate(tmp: Path) -> dict[str, Any]:
-    report_path = tmp / "evaluation-report.json"
-    decision_path = tmp / "acceptance-decision.json"
+def _generate(output_dir: Path) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=False)
+    report_path = output_dir / "evaluation-report.json"
+    decision_path = output_dir / "acceptance-decision.json"
 
     result = subprocess.run(
         [
@@ -129,9 +130,9 @@ def _build_manifest(
         },
         "generating_commands": [
             "python -m scripts.evaluate_tokenizer "
-            "--tokenizer toys/tiny_bpe_tokenizer.json "
+            "--tokenizer tests/fixtures/tiny_bpe_tokenizer.json "
             "--name tiny-bpe "
-            "--dataset fixtures/tokenizer_eval/all.jsonl "
+            "--dataset tests/fixtures/tokenizer_eval/all.jsonl "
             "--execute --output-report <tmp>/evaluation-report.json",
             "python -m scripts.check_tokenizer_acceptance "
             "--report <tmp>/evaluation-report.json "
@@ -154,6 +155,36 @@ def _canonical_digest(obj: dict[str, Any], exclude: str | None = None) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _compare_generations(run1: dict[str, Any], run2: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+
+    _compare_byte("evaluation report", run1["report_path"], run2["report_path"], errors)
+    _compare_byte("acceptance decision", run1["decision_path"], run2["decision_path"], errors)
+
+    m1 = json.dumps(run1["manifest"], sort_keys=True, indent=2)
+    m2 = json.dumps(run2["manifest"], sort_keys=True, indent=2)
+    if m1 != m2:
+        errors.append("manifest payload mismatch between generations")
+
+    r1_digest = _canonical_digest(run1["report"], "report_sha256")
+    r2_digest = _canonical_digest(run2["report"], "report_sha256")
+    if r1_digest != r2_digest:
+        errors.append("report internal digest mismatch between generations")
+    if run1["report"].get("report_sha256") != run2["report"].get("report_sha256"):
+        errors.append("report_sha256 mismatch between generations")
+
+    d1_digest = _canonical_digest(run1["decision"], "acceptance_sha256")
+    d2_digest = _canonical_digest(run2["decision"], "acceptance_sha256")
+    if d1_digest != d2_digest:
+        errors.append("decision internal digest mismatch between generations")
+    if run1["decision"].get("acceptance_sha256") != run2["decision"].get(
+        "acceptance_sha256"
+    ):
+        errors.append("acceptance_sha256 mismatch between generations")
+
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Deterministic regeneration of synthetic tokenizer evidence"
@@ -167,41 +198,10 @@ def main(argv: list[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory() as tmp_str:
         tmp = Path(tmp_str)
-        run1 = _generate(tmp)
+        run1 = _generate(tmp / "run1")
+        run2 = _generate(tmp / "run2")
 
-        run2_dir = tmp / "run2"
-        run2_dir.mkdir()
-        for f in ["evaluation-report.json", "acceptance-decision.json"]:
-            (run1["report_path"].parent / f).rename(run2_dir / f)
-        run2 = _generate(tmp)
-
-        errors: list[str] = []
-
-        # Compare byte-for-byte
-        _compare_byte("evaluation report", run1["report_path"], run2["report_path"], errors)
-        _compare_byte("acceptance decision", run1["decision_path"], run2["decision_path"], errors)
-
-        # Compare manifests
-        m1 = json.dumps(run1["manifest"], sort_keys=True, indent=2)
-        m2 = json.dumps(run2["manifest"], sort_keys=True, indent=2)
-        if m1 != m2:
-            errors.append("manifest payload mismatch between generations")
-
-        # Compare internal digests
-        r1_digest = _canonical_digest(run1["report"], "report_sha256")
-        r2_digest = _canonical_digest(run2["report"], "report_sha256")
-        if r1_digest != r2_digest:
-            errors.append("report internal digest mismatch between generations")
-        if run1["report"].get("report_sha256") != run2["report"].get("report_sha256"):
-            errors.append("report_sha256 mismatch between generations")
-
-        d1_digest = _canonical_digest(run1["decision"], "acceptance_sha256")
-        d2_digest = _canonical_digest(run2["decision"], "acceptance_sha256")
-        if d1_digest != d2_digest:
-            errors.append("decision internal digest mismatch between generations")
-        if run1["decision"].get("acceptance_sha256") != run2["decision"].get("acceptance_sha256"):
-            errors.append("acceptance_sha256 mismatch between generations")
-
+        errors = _compare_generations(run1, run2)
         if errors:
             for err in errors:
                 print(f"error: {err}", file=sys.stderr)
