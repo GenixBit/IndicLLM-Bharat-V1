@@ -28,7 +28,7 @@
       "const": "production-local-approved"
     },
     "repository_commit_sha": {
-      "$ref": "#/$defs/sha256"
+      "$ref": "#/$defs/gitObjectId"
     },
     "tokenizer": {
       "type": "object",
@@ -69,6 +69,7 @@
       "properties": {
         "required_languages": {
           "type": "array",
+          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -79,6 +80,9 @@
         "record_counts": {
           "type": "object",
           "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
           "additionalProperties": {
             "type": "integer",
             "minimum": 0
@@ -95,7 +99,30 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "accepted" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "tokenizer": {
+            "properties": {
+              "byte_alphabet_complete": { "const": true }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
+    "gitObjectId": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
