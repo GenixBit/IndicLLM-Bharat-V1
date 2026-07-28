@@ -1,5 +1,7 @@
 {
   "schema_version": "tokenizer-acceptance-thresholds-v1",
+  "status": "provisional",
+  "evidence_scope": "synthetic-local-only",
   "thresholds": {
     "max_language_micro_fertility": 2.5,
     "max_micro_fertility": 2.0,
@@ -7,5 +9,9 @@
     "min_record_count": 1,
     "min_required_round_trip_rate": 1.0,
     "require_complete_byte_coverage": true
-  }
+  },
+  "notes": [
+    "Infrastructure configuration — thresholds have not been calibrated on an approved production evaluation set.",
+    "Passing this gate does not authorize production 64K training or release."
+  ]
 }

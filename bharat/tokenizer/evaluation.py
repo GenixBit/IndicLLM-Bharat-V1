@@ -554,6 +554,171 @@ class TokenizerProtocol(Protocol):
     def fingerprint(self) -> str: ...
 
 
+# ── Evaluation report validation ────────────────────────────────────
+
+
+def validate_evaluation_report(report: dict[str, Any]) -> None:
+    """Validate the structure and integrity of an evaluation report.
+
+    Checks:
+    * Supported schema version
+    * Required top-level fields
+    * report_sha256 is a lowercase 64-char hex string and matches
+      the canonical digest
+    * Input dataset SHA-256 is valid hex
+    * tokenizer_names is a non-empty list of non-empty strings, unique
+    * All required sub-sections exist and have the expected shape
+
+    Raises ``ValueError`` on the first integrity failure.
+    """
+    required_keys: set[str] = {
+        "schema_version",
+        "evaluator_version",
+        "report_sha256",
+        "input_dataset_sha256",
+        "tokenizer_names",
+        "tokenizer_fingerprints",
+        "aggregate",
+        "per_language",
+        "round_trip",
+        "byte_coverage",
+        "fragmentation",
+        "comparison",
+        "failed_records",
+    }
+    missing = required_keys - report.keys()
+    if missing:
+        msg = f"report missing required keys: {', '.join(sorted(missing))}"
+        raise ValueError(msg)
+
+    if report.get("schema_version") != _SCHEMA_VERSION:
+        msg = f"unsupported schema_version: {report.get('schema_version')!r}"
+        raise ValueError(msg)
+
+    _validate_sha256(report, "input_dataset_sha256")
+
+    names = report.get("tokenizer_names")
+    if not isinstance(names, list) or len(names) == 0:
+        msg = "tokenizer_names must be a non-empty list"
+        raise ValueError(msg)
+    if len(names) != len(set(names)):
+        msg = "duplicate tokenizer_names entries"
+        raise ValueError(msg)
+    for n in names:
+        if not isinstance(n, str) or not n:
+            msg = f"invalid tokenizer name: {n!r}"
+            raise ValueError(msg)
+
+    fingerprints = report.get("tokenizer_fingerprints")
+    if not isinstance(fingerprints, dict):
+        msg = "tokenizer_fingerprints must be an object"
+        raise ValueError(msg)
+    for n in names:
+        fp = fingerprints.get(n)
+        if not isinstance(fp, str) or not fp:
+            msg = f"tokenizer {n!r} has missing or empty fingerprint"
+            raise ValueError(msg)
+
+    _validate_sha256(report, "report_sha256")
+
+    expected_digest = TokenizerEvaluation._compute_report_digest(report)
+    actual_digest = report["report_sha256"]
+    if expected_digest != actual_digest:
+        msg = f"report digest mismatch: expected {expected_digest}, " f"got {actual_digest}"
+        raise ValueError(msg)
+
+    for section in ("aggregate", "round_trip", "byte_coverage", "per_language"):
+        obj = report.get(section)
+        if not isinstance(obj, dict):
+            msg = f"report.{section} must be an object"
+            raise ValueError(msg)
+        for n in names:
+            if n not in obj:
+                msg = f"report.{section} missing entry for {n!r}"
+                raise ValueError(msg)
+            if not isinstance(obj[n], dict):
+                msg = f"report.{section}.{n} must be an object"
+                raise ValueError(msg)
+
+    _validate_aggregate_values(report.get("aggregate", {}), names)
+    _validate_round_trip_values(report.get("round_trip", {}), names)
+    _validate_byte_coverage_structure(report.get("byte_coverage", {}), names)
+
+
+def _validate_sha256(report: dict[str, Any], key: str) -> None:
+    value = report.get(key)
+    if not isinstance(value, str):
+        msg = f"{key} must be a string"
+        raise ValueError(msg)
+    if not re.fullmatch(r"[0-9a-f]{64}", value):
+        msg = f"{key} must be a lowercase 64-character hex string"
+        raise ValueError(msg)
+
+
+def _validate_aggregate_values(aggregate: dict[str, Any], names: list[str]) -> None:
+    for n in names:
+        entry = aggregate[n]
+        for field in ("record_count", "token_count", "unknown_token_count"):
+            v = entry.get(field)
+            if not (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+                msg = f"aggregate.{n}.{field} must be a non-negative integer"
+                raise ValueError(msg)
+        for field in ("micro_fertility", "macro_fertility"):
+            v = entry.get(field)
+            if not (isinstance(v, int | float) and not isinstance(v, bool)):
+                msg = f"aggregate.{n}.{field} must be a finite number"
+                raise ValueError(msg)
+            if v is not None and (not isinstance(v, int | float) or isinstance(v, bool)):
+                msg = f"aggregate.{n}.{field} must be a finite number"
+                raise ValueError(msg)
+        for rate_field in ("unknown_token_rate",):
+            v = entry.get(rate_field)
+            if not (isinstance(v, int | float) and not isinstance(v, bool)):
+                msg = f"aggregate.{n}.{rate_field} must be a number"
+                raise ValueError(msg)
+            if not 0.0 <= float(v) <= 1.0:
+                msg = f"aggregate.{n}.{rate_field} must be between 0 and 1"
+                raise ValueError(msg)
+
+
+def _validate_round_trip_values(round_trip: dict[str, Any], names: list[str]) -> None:
+    for n in names:
+        entry = round_trip[n]
+        for field in ("required_pass_rate", "required_pass_count"):
+            v = entry.get(field)
+            if not (isinstance(v, int | float) and not isinstance(v, bool)):
+                msg = f"round_trip.{n}.{field} must be a number"
+                raise ValueError(msg)
+        rate = entry.get("required_pass_rate", -1)
+        if not 0.0 <= float(rate) <= 1.0:
+            msg = f"round_trip.{n}.required_pass_rate must be between 0 and 1"
+            raise ValueError(msg)
+
+
+def _validate_byte_coverage_structure(byte_coverage: dict[str, Any], names: list[str]) -> None:
+    for n in names:
+        entry = byte_coverage.get(n)
+        if not isinstance(entry, dict):
+            msg = f"byte_coverage.{n} must be an object"
+            raise ValueError(msg)
+        bc_complete = entry.get("complete")
+        if not isinstance(bc_complete, bool):
+            msg = f"byte_coverage.{n}.complete must be a boolean"
+            raise ValueError(msg)
+        bc_status = entry.get("status")
+        if not isinstance(bc_status, str):
+            msg = f"byte_coverage.{n}.status must be a string"
+            raise ValueError(msg)
+        rc = entry.get("reachable_count")
+        if not (isinstance(rc, int) and not isinstance(rc, bool)):
+            msg = f"byte_coverage.{n}.reachable_count must be an integer"
+            raise ValueError(msg)
+        missing = entry.get("missing_byte_values")
+        if not isinstance(missing, list):
+            msg = f"byte_coverage.{n}.missing_byte_values must be a list"
+            raise ValueError(msg)
+
+
 # ── Main evaluation class ────────────────────────────────────────────
 
 
