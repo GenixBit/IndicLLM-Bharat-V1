@@ -138,10 +138,7 @@ def test_accepted_manifest_requires_independent_byte_verification(tmp_path: Path
 
     _update_manifest(manifest, mark_accepted)
     result = validate_production_evidence(manifest)
-    assert (
-        "accepted evidence requires independently verified byte coverage"
-        in result.errors
-    )
+    assert "accepted evidence requires independently verified byte coverage" in result.errors
 
 
 def test_cli_refuses_overwrite(tmp_path: Path) -> None:
