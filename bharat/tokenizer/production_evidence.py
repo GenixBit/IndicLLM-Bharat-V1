@@ -135,7 +135,9 @@ def _validate_manifest_shape(manifest: Any, errors: list[str]) -> bool:
         errors.append("manifest evidence_scope must be production-local-approved")
     commit = manifest.get("repository_commit_sha")
     if not isinstance(commit, str) or _GIT_OBJECT_ID.fullmatch(commit) is None:
-        errors.append("repository_commit_sha must be a lowercase 40- or 64-character Git object ID")
+        errors.append(
+            "repository_commit_sha must be a lowercase 40- or 64-character Git object ID"
+        )
     commands = manifest.get("generating_commands")
     if not isinstance(commands, list) or not commands or not all(
         isinstance(command, str) and command for command in commands
@@ -144,13 +146,22 @@ def _validate_manifest_shape(manifest: Any, errors: list[str]) -> bool:
     return not missing and not unknown
 
 
-def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValidation:
+def validate_production_evidence(
+    manifest_path: Path,
+) -> ProductionEvidenceValidation:
     errors: list[str] = []
     manifest = _load_canonical_json(manifest_path, errors, "manifest")
     manifest_digest = _sha256(manifest_path) if manifest_path.is_file() else "0" * 64
-    status = manifest.get("status", "invalid") if isinstance(manifest, dict) else "invalid"
+    status = (
+        manifest.get("status", "invalid") if isinstance(manifest, dict) else "invalid"
+    )
     if not _validate_manifest_shape(manifest, errors):
-        return ProductionEvidenceValidation(manifest_digest, str(status), False, tuple(errors))
+        return ProductionEvidenceValidation(
+            manifest_digest,
+            str(status),
+            False,
+            tuple(errors),
+        )
 
     assert isinstance(manifest, dict)
     root = manifest_path.parent.resolve()
@@ -175,7 +186,10 @@ def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValid
         errors,
     )
     artifact_digest = tokenizer.get("artifact_sha256")
-    if not isinstance(artifact_digest, str) or _SHA256.fullmatch(artifact_digest) is None:
+    if (
+        not isinstance(artifact_digest, str)
+        or _SHA256.fullmatch(artifact_digest) is None
+    ):
         errors.append("tokenizer.artifact_sha256: invalid SHA-256")
     elif artifact_path is not None and artifact_digest != _sha256(artifact_path):
         errors.append("tokenizer artifact SHA-256 mismatch")
@@ -193,8 +207,18 @@ def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValid
         except Exception as exc:
             errors.append(f"tokenizer cannot be validated: {exc}")
 
-    input_path = _file_reference(root, manifest.get("evaluation_input"), "evaluation_input", errors)
-    report_path = _file_reference(root, manifest.get("evaluation_report"), "evaluation_report", errors)
+    input_path = _file_reference(
+        root,
+        manifest.get("evaluation_input"),
+        "evaluation_input",
+        errors,
+    )
+    report_path = _file_reference(
+        root,
+        manifest.get("evaluation_report"),
+        "evaluation_report",
+        errors,
+    )
     decision_path = _file_reference(
         root,
         manifest.get("acceptance_decision"),
@@ -224,7 +248,11 @@ def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValid
     )
     threshold_configuration = None
     if thresholds_path is not None:
-        payload = _load_canonical_json(thresholds_path, errors, "threshold_configuration")
+        payload = _load_canonical_json(
+            thresholds_path,
+            errors,
+            "threshold_configuration",
+        )
         if isinstance(payload, dict):
             try:
                 threshold_configuration = ThresholdConfiguration.from_payload(payload)
@@ -232,20 +260,33 @@ def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValid
                 errors.append(f"threshold_configuration: {exc}")
 
     coverage = manifest.get("language_coverage")
-    if not isinstance(coverage, dict) or set(coverage) != {"required_languages", "record_counts"}:
-        errors.append("language_coverage must contain exactly required_languages and record_counts")
+    if not isinstance(coverage, dict) or set(coverage) != {
+        "required_languages",
+        "record_counts",
+    }:
+        errors.append(
+            "language_coverage must contain exactly required_languages and record_counts"
+        )
     else:
         required = coverage.get("required_languages")
         counts = coverage.get("record_counts")
-        if not isinstance(required, list) or not required or len(required) != len(set(required)):
+        if (
+            not isinstance(required, list)
+            or not required
+            or len(required) != len(set(required))
+        ):
             errors.append("required_languages must be a non-empty unique array")
         if not isinstance(counts, dict):
             errors.append("record_counts must be an object")
         elif isinstance(required, list):
             for language in required:
                 if not isinstance(language, str) or language not in counts:
-                    errors.append(f"required language missing from record_counts: {language!r}")
-                elif not isinstance(counts[language], int) or isinstance(counts[language], bool):
+                    errors.append(
+                        f"required language missing from record_counts: {language!r}"
+                    )
+                elif not isinstance(counts[language], int) or isinstance(
+                    counts[language], bool
+                ):
                     errors.append(f"record count for {language!r} must be an integer")
 
     if status == "accepted":
@@ -253,13 +294,22 @@ def validate_production_evidence(manifest_path: Path) -> ProductionEvidenceValid
             errors.append("accepted evidence requires complete byte coverage")
         if not isinstance(decision, dict) or decision.get("passed") is not True:
             errors.append("accepted evidence requires a passing acceptance decision")
-        if threshold_configuration is None or threshold_configuration.status != "production":
+        if (
+            threshold_configuration is None
+            or threshold_configuration.status != "production"
+        ):
             errors.append("accepted evidence requires production thresholds")
-        if threshold_configuration is not None and threshold_configuration.evidence_scope != "approved-evaluation-set":
+        if (
+            threshold_configuration is not None
+            and threshold_configuration.evidence_scope != "approved-evaluation-set"
+        ):
             errors.append("accepted evidence requires approved-evaluation-set thresholds")
-        if isinstance(decision, dict) and isinstance(report, dict):
-            if decision.get("input_report_sha256") != report.get("report_sha256"):
-                errors.append("acceptance decision does not reference the evaluation report")
+        if (
+            isinstance(decision, dict)
+            and isinstance(report, dict)
+            and decision.get("input_report_sha256") != report.get("report_sha256")
+        ):
+            errors.append("acceptance decision does not reference the evaluation report")
         if input_path is None or loaded_tokenizer is None:
             errors.append("accepted evidence is not independently verifiable")
 
