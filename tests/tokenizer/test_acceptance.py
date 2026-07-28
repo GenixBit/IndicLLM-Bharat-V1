@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -642,3 +643,55 @@ def test_acceptance_result_includes_canonical_evaluated_count() -> None:
 def test_min_canonical_evaluated_count_validation() -> None:
     with pytest.raises(ValueError, match="must be non-negative"):
         TokenizerAcceptanceThresholds(min_canonical_evaluated_count=-1)
+
+
+# ── Zero-example canonical rate tests ────────────────────────────────
+
+
+def test_committed_config_passes_realistic_report() -> None:
+    import json
+
+    config_path = Path(__file__).parents[2] / "configs" / "tokenizers" / "bpe-64k-acceptance.json"
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    config = ThresholdConfiguration.from_payload(payload)
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", config)
+    assert result["passed"] is True
+
+
+def test_zero_canonical_evidence_fails_committed_policy() -> None:
+    """Report with zero canonical-equivalence examples must fail when
+    min_canonical_evaluated_count is 1 (as in the committed config)."""
+    import json
+
+    config_path = Path(__file__).parents[2] / "configs" / "tokenizers" / "bpe-64k-acceptance.json"
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    config = ThresholdConfiguration.from_payload(payload)
+    assert config.thresholds.min_canonical_evaluated_count == 1
+
+    report = _realistic_report()
+    report["round_trip"]["bharat-bpe"]["canonical_evaluated_count"] = 0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_count"] = 0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_rate"] = None  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", config)
+    assert result["passed"] is False
+    cec_check = next(c for c in result["checks"] if c["name"] == "canonical_evaluated_count")
+    assert cec_check["passed"] is False
+    assert cec_check["actual"] == 0
+
+
+def test_zero_canonical_evidence_passes_without_check() -> None:
+    """Report with zero canonical-equivalence examples passes when
+    min_canonical_evaluated_count is 0 (default)."""
+    report = _realistic_report()
+    report["round_trip"]["bharat-bpe"]["canonical_evaluated_count"] = 0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_count"] = 0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_rate"] = None  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+
+    thresh = TokenizerAcceptanceThresholds(min_canonical_evaluated_count=0)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _config(thresh))
+    assert result["passed"] is True
+    names = {c["name"] for c in result["checks"]}
+    assert "canonical_evaluated_count" not in names

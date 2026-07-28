@@ -4,8 +4,11 @@ import hashlib
 import json
 import secrets
 from pathlib import Path
+from unittest.mock import patch
 
-from scripts.check_tokenizer_acceptance import main
+import pytest
+
+from scripts.check_tokenizer_acceptance import _publish, main
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -202,6 +205,21 @@ def test_existing_output_is_preserved(tmp_path: Path) -> None:
     )
     assert code == 3
     assert json.loads(output.read_text(encoding="utf-8")) == {"existing": True}
+
+
+def test_temporary_name_collision_raises_error(tmp_path: Path) -> None:
+    """A pre-existing file at the generated temp path must raise FileExistsError."""
+    output = tmp_path / "out.json"
+    # Force a predictable temp name
+    fixed_hex = "a" * 16
+    with patch("scripts.check_tokenizer_acceptance.secrets.token_hex", return_value=fixed_hex):
+        tmp_collision = output.with_name(f".{output.name}.{fixed_hex}.tmp")
+        tmp_collision.write_text("pre-existing temp data")
+        with pytest.raises(FileExistsError, match="File exists"):
+            _publish('{"acceptance_sha256": "x"}', output, "x")
+    # The collision file must remain untouched
+    assert tmp_collision.exists()
+    assert tmp_collision.read_text() == "pre-existing temp data"
 
 
 def test_unrelated_tmp_file_preserved(tmp_path: Path) -> None:

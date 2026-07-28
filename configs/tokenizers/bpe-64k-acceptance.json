@@ -7,6 +7,7 @@
     "max_micro_fertility": 2.0,
     "max_unknown_token_rate": 0.0,
     "min_canonical_pass_rate": 1.0,
+    "min_canonical_evaluated_count": 1,
     "min_record_count": 1,
     "min_required_round_trip_rate": 1.0,
     "require_complete_byte_coverage": true

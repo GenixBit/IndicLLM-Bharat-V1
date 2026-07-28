@@ -347,7 +347,7 @@ def _compute_record_metrics(
     nfc_round_trip = decoded == nfc_text
     canonical_evaluated = record.canonical_equivalent is not None
     canonical_round_trip = True
-    if canonical_evaluated:
+    if record.canonical_equivalent is not None:
         canonical_ids = tokenizer.encode(record.canonical_equivalent, add_special_tokens=False)
         canonical_decoded = tokenizer.decode(canonical_ids)
         canonical_round_trip = canonical_decoded == nfc_text
@@ -434,7 +434,7 @@ class RoundTripSummary:
     nfc_pass_count: int
     nfc_pass_rate: float
     canonical_pass_count: int
-    canonical_pass_rate: float
+    canonical_pass_rate: float | None
     canonical_evaluated_count: int
     required_pass_count: int
     required_pass_rate: float
@@ -482,7 +482,7 @@ def _compute_round_trip(
         nfc_pass_rate=nfc_pass / total if total > 0 else 1.0,
         canonical_pass_count=canonical_pass,
         canonical_pass_rate=(
-            canonical_pass / canonical_evaluated_count if canonical_evaluated_count > 0 else 1.0
+            canonical_pass / canonical_evaluated_count if canonical_evaluated_count > 0 else None
         ),
         canonical_evaluated_count=canonical_evaluated_count,
         required_pass_count=required_pass,
@@ -720,9 +720,13 @@ def _validate_round_trip_values(round_trip: dict[str, Any], names: list[str]) ->
             msg = f"round_trip.{n}.required_pass_rate must be between 0 and 1"
             raise ValueError(msg)
         cpr = entry.get("canonical_pass_rate")
-        if cpr is not None and not 0.0 <= float(cpr) <= 1.0:
-            msg = f"round_trip.{n}.canonical_pass_rate must be between 0 and 1"
-            raise ValueError(msg)
+        if cpr is not None:
+            if not isinstance(cpr, int | float) or isinstance(cpr, bool):
+                msg = f"round_trip.{n}.canonical_pass_rate must be a number or null"
+                raise ValueError(msg)
+            if not 0.0 <= float(cpr) <= 1.0:
+                msg = f"round_trip.{n}.canonical_pass_rate must be between 0 and 1"
+                raise ValueError(msg)
         cec = entry.get("canonical_evaluated_count")
         if cec is not None and not (
             isinstance(cec, int) and not isinstance(cec, bool) and cec >= 0
@@ -821,11 +825,21 @@ def _validate_cross_field_consistency(report: dict[str, Any], names: list[str]) 
                 raise ValueError(msg)
             cp_rate = rt_entry.get("canonical_pass_rate")
             if cp_rate is not None:
+                if not (isinstance(cp_rate, int | float) and not isinstance(cp_rate, bool)):
+                    msg = f"round_trip.{n}.canonical_pass_rate must be a number"
+                    raise ValueError(msg)
                 computed_cp = cp_count / evaluated if evaluated > 0 else 1.0
                 if abs(float(computed_cp) - float(cp_rate)) > 1e-12:
                     msg = (
                         f"round_trip.{n}: canonical_pass_rate mismatch: "
                         f"computed={computed_cp}, reported={cp_rate}"
+                    )
+                    raise ValueError(msg)
+            else:
+                if evaluated > 0:
+                    msg = (
+                        f"round_trip.{n}: canonical_pass_rate is null but "
+                        f"canonical_evaluated_count={evaluated} > 0"
                     )
                     raise ValueError(msg)
 

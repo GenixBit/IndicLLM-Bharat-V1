@@ -49,13 +49,12 @@ def _publish(
     output_path: Path,
     expected_digest: str,
 ) -> Path:
-    """Publish *result_json* to *output_path* with safe publication.
+    """Publish *result_json* to *output_path* with verified exclusive no-overwrite.
 
-    Writes to a secure temporary path first, verifies the acceptance digest,
-    then atomically publishes with exclusive no-overwrite creation, flushes,
-    fsyncs, re-reads and byte-verifies.
-
-    Returns the final path.  Cleans up on failure.
+    Writes to a secure temporary path first (exclusive creation), verifies the
+    acceptance digest, the written bytes, then publishes to the final path with
+    exclusive creation, flush, fsync, byte-verification, and digest recomputation.
+    Cleans up on any failure.  Does **not** guarantee filesystem-level atomicity.
     """
     if output_path.exists():
         raise FileExistsError(f"refusing to overwrite existing file: {output_path}")
@@ -63,11 +62,23 @@ def _publish(
     tmp_name = f".{output_path.name}.{secrets.token_hex(8)}.tmp"
     tmp_path = output_path.with_name(tmp_name)
 
+    result_bytes = result_json.encode("utf-8")
+    tmp_created = False
     written_path: Path | None = None
 
     try:
-        tmp_path.write_text(result_json, encoding="utf-8")
-        parsed = json.loads(tmp_path.read_text(encoding="utf-8"))
+        with open(tmp_path, "xb") as f:
+            f.write(result_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_created = True
+
+        written_bytes = tmp_path.read_bytes()
+        if written_bytes != result_bytes:
+            msg = "temporary file byte-verification failed before publication"
+            raise RuntimeError(msg)
+
+        parsed = json.loads(written_bytes)
         parsed_digest = parsed.get("acceptance_sha256", "")
         if parsed_digest != expected_digest:
             msg = (
@@ -75,8 +86,6 @@ def _publish(
                 f"expected {expected_digest}, got {parsed_digest}"
             )
             raise RuntimeError(msg)
-
-        written_bytes = tmp_path.read_bytes()
 
         with open(output_path, "xb") as f:
             f.write(written_bytes)
@@ -110,7 +119,7 @@ def _publish(
             written_path.unlink()
         raise
     finally:
-        if tmp_path.exists():
+        if tmp_created and tmp_path.exists():
             tmp_path.unlink()
 
 
