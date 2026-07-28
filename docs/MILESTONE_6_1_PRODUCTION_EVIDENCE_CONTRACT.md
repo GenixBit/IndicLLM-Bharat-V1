@@ -37,14 +37,41 @@ The manifest must record:
 - evaluation-report path and SHA-256 digest;
 - acceptance-decision path and SHA-256 digest;
 - threshold-configuration path and SHA-256 digest;
-- repository commit SHA used to generate the report and decision;
+- repository Git object ID used to generate the report and decision;
 - evidence scope `production-local-approved`;
 - status `candidate` or `accepted`;
 - deterministic generation commands as an ordered array;
-- required language coverage and per-language record counts.
+- a non-empty required-language list and per-language record counts.
+
+The schema accepts lowercase 40-character SHA-1 and 64-character SHA-256 Git
+object IDs. File digests and tokenizer fingerprints remain lowercase SHA-256.
 
 All paths must be relative to the evidence package root, remain within that
 root after resolution, and must not traverse symlinks outside it.
+
+## Schema and executable-validator boundary
+
+JSON Schema validates the manifest's local shape, required fields, primitive
+constraints, Git object-ID syntax, digest syntax, non-empty language list, and
+the requirement that an `accepted` manifest reports complete byte coverage.
+
+The executable validator must enforce every invariant that depends on file
+bytes, referenced documents, or relationships between values. In particular,
+it must:
+
+- require every required language to appear in `record_counts` and meet the
+  configured minimum; extra count keys may be retained but do not satisfy a
+  missing required language;
+- reject an `accepted` manifest unless the referenced acceptance decision has
+  `passed=true` and uses the exact report and threshold configuration;
+- reject an `accepted` manifest when thresholds are provisional;
+- independently verify complete byte coverage through the tokenizer adapter;
+- verify canonical JSON bytes rather than assuming schema validation proves
+  canonical serialization.
+
+Deterministic rejected fixtures must cover false accepted claims, including a
+failed decision, provisional thresholds, incomplete byte coverage, a missing
+required-language count, and non-canonical JSON bytes.
 
 ## Acceptance invariants
 
@@ -62,11 +89,15 @@ are true:
 6. Required NFC and canonical-equivalence round-trip thresholds pass.
 7. Unknown-token, aggregate fertility, and per-language fertility thresholds
    pass.
-8. Every required language has at least the configured minimum record count.
+8. Every required language appears in `record_counts` and has at least the
+   configured minimum record count.
 9. The report, decision, and manifest use canonical JSON with sorted keys,
    compact separators, UTF-8 encoding, and no non-finite values.
 10. Repeating validation against unchanged inputs produces byte-identical
     canonical validation output.
+
+Canonical JSON is an executable-validator responsibility because JSON Schema
+validates parsed values, not the original byte representation.
 
 A package with missing evidence, provisional thresholds, failed checks, or an
 unverifiable tokenizer must remain `candidate` and must not close Milestone 6.1.
@@ -88,7 +119,7 @@ It must not:
 
 1. Add a strict manifest schema and parser.
 2. Add a local validator that cross-checks all digests, fingerprints, report
-   references, threshold references, and acceptance status.
+   references, threshold references, language coverage, and acceptance status.
 3. Add deterministic synthetic fixtures for accepted and rejected package
    shapes; these fixtures must not be described as production evidence.
 4. Run the validator on caller-provided production evidence outside CI.
