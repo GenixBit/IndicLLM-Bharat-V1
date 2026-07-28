@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from scripts.validate_tokenizer_evidence import validate_evidence
 
@@ -411,6 +414,10 @@ def test_modified_run2_decision_detected(tmp_path: Path) -> None:
 # ── Verify committed ─────────────────────────────────────────────
 
 
+@pytest.mark.skipif(
+    platform.system() != "Darwin",
+    reason="committed evidence byte identity is host-platform specific",
+)
 def test_verify_committed_success() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "scripts.generate_tokenizer_evidence", "--verify-committed"],
