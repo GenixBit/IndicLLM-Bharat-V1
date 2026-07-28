@@ -1,0 +1,63 @@
+{
+  "schema_version": "tokenizer-evidence-manifest-v1",
+  "evidence_scope": "synthetic-local-only",
+  "status": "provisional",
+  "tokenizer": {
+    "artifact_path": "tests/fixtures/tiny_bpe_tokenizer.json",
+    "artifact_sha256": "66f541b5812bc35ffced96c64a49aafdcb1c3636291bcc2a8cf69990b9b41499",
+    "fingerprint": "f82d1124acde3a61cee6daa7d117bd8ef77e8acbbc8d17e4a789424386bf3d68"
+  },
+  "evaluation_fixture": {
+    "path": "tests/fixtures/tokenizer_eval/all.jsonl",
+    "sha256": "4a5fb16f55a624566948b63b5b53a588c6353288b5263157938eea14e29d4b8b"
+  },
+  "threshold_configuration": {
+    "path": "configs/tokenizers/bpe-64k-acceptance.json",
+    "sha256": "b39c9666675478f4765f8daa2f13b92fa68107c1c9c981f6609e0dbf1432bc75",
+    "thresholds_sha256": "07a82334940449c53fee8f31ae76e34e8ce60dc2bccf66af95d98508171399fd",
+    "configuration_sha256": "07e0d6f7fb17d5d697e4b55154b92ab4c79e73ae39e8d956e96c00de93aad7a7"
+  },
+  "evaluation_report": {
+    "path": "evaluation-report.json",
+    "sha256": "3b9d205013fa240d8934896646c8d7cfc7ad797baecc5abce32b211fa9e3a230",
+    "report_sha256": "47c5eeac43c1e44a22cf96c9781dba0564c471b6f6bd7a052abfe997c158f5ef",
+    "input_dataset_sha256": "de1447fc4d7a5ba8b03f2565e78ffa01bdaf140bf70a0db9039170329bc76e08"
+  },
+  "acceptance_decision": {
+    "path": "acceptance-decision.json",
+    "sha256": "7f392feb6878406be9976a2bee57a9592d90e362d6f05328b29f9d35139eae10",
+    "acceptance_sha256": "6a5954014cd0f59a8c0427e36ce5bbd44ab1d58b6a2222e2d74b7a8af4fa7594",
+    "input_report_sha256": "47c5eeac43c1e44a22cf96c9781dba0564c471b6f6bd7a052abfe997c158f5ef",
+    "tokenizer_name": "tiny-bpe",
+    "tokenizer_fingerprint": "f82d1124acde3a61cee6daa7d117bd8ef77e8acbbc8d17e4a789424386bf3d68",
+    "passed": false
+  },
+  "generating_commands": [
+    {
+      "module": "scripts.evaluate_tokenizer",
+      "arguments": [
+        "--tokenizer",
+        "tests/fixtures/tiny_bpe_tokenizer.json",
+        "--name",
+        "tiny-bpe",
+        "--dataset",
+        "tests/fixtures/tokenizer_eval/all.jsonl",
+        "--execute",
+        "--output-report",
+        "<run-dir>/evaluation-report.json"
+      ]
+    },
+    {
+      "module": "scripts.check_tokenizer_acceptance",
+      "arguments": [
+        "--report",
+        "<run-dir>/evaluation-report.json",
+        "--thresholds",
+        "configs/tokenizers/bpe-64k-acceptance.json",
+        "--execute",
+        "--output",
+        "<run-dir>/acceptance-decision.json"
+      ]
+    }
+  ]
+}
