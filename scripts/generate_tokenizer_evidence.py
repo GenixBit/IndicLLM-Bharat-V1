@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,18 @@ _TOKENIZER_NAME = "tiny-bpe"
 
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _canonical_bytes(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, indent=2, allow_nan=False).encode("utf-8")
+
+
+def _canonical_digest(obj: dict[str, Any], exclude: str | None = None) -> str:
+    payload = {k: v for k, v in obj.items() if k != exclude}
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _generate(output_dir: Path) -> dict[str, Any]:
@@ -77,23 +90,24 @@ def _generate(output_dir: Path) -> dict[str, Any]:
         )
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    manifest = _build_manifest(report_path, decision_path)
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    manifest = _build_manifest(decision, report_path, decision_path)
 
     return {
         "report": report,
-        "decision": json.loads(decision_path.read_text(encoding="utf-8")),
+        "decision": decision,
         "manifest": manifest,
         "report_path": report_path,
         "decision_path": decision_path,
+        "output_dir": output_dir,
     }
 
 
 def _build_manifest(
+    decision: dict[str, Any],
     report_path: Path,
     decision_path: Path,
 ) -> dict[str, Any]:
-    decision = json.loads(decision_path.read_text(encoding="utf-8"))
-
     return {
         "schema_version": "tokenizer-evidence-manifest-v1",
         "evidence_scope": "synthetic-local-only",
@@ -129,15 +143,32 @@ def _build_manifest(
             "passed": decision.get("passed", False),
         },
         "generating_commands": [
-            "python -m scripts.evaluate_tokenizer "
-            "--tokenizer tests/fixtures/tiny_bpe_tokenizer.json "
-            "--name tiny-bpe "
-            "--dataset tests/fixtures/tokenizer_eval/all.jsonl "
-            "--execute --output-report <tmp>/evaluation-report.json",
-            "python -m scripts.check_tokenizer_acceptance "
-            "--report <tmp>/evaluation-report.json "
-            "--thresholds configs/tokenizers/bpe-64k-acceptance.json "
-            "--execute --output <tmp>/acceptance-decision.json",
+            {
+                "module": "scripts.evaluate_tokenizer",
+                "arguments": [
+                    "--tokenizer",
+                    "tests/fixtures/tiny_bpe_tokenizer.json",
+                    "--name",
+                    "tiny-bpe",
+                    "--dataset",
+                    "tests/fixtures/tokenizer_eval/all.jsonl",
+                    "--execute",
+                    "--output-report",
+                    "<run-dir>/evaluation-report.json",
+                ],
+            },
+            {
+                "module": "scripts.check_tokenizer_acceptance",
+                "arguments": [
+                    "--report",
+                    "<run-dir>/evaluation-report.json",
+                    "--thresholds",
+                    "configs/tokenizers/bpe-64k-acceptance.json",
+                    "--execute",
+                    "--output",
+                    "<run-dir>/acceptance-decision.json",
+                ],
+            },
         ],
     }
 
@@ -149,21 +180,12 @@ def _compare_byte(label: str, path_a: Path, path_b: Path, errors: list[str]) -> 
         errors.append(f"{label}: byte mismatch ({len(a)} vs {len(b)} bytes)")
 
 
-def _canonical_digest(obj: dict[str, Any], exclude: str | None = None) -> str:
-    payload = {k: v for k, v in obj.items() if k != exclude}
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
 def _compare_generations(run1: dict[str, Any], run2: dict[str, Any]) -> list[str]:
     errors: list[str] = []
 
     _compare_byte("evaluation report", run1["report_path"], run2["report_path"], errors)
     _compare_byte("acceptance decision", run1["decision_path"], run2["decision_path"], errors)
-
-    m1 = json.dumps(run1["manifest"], sort_keys=True, indent=2)
-    m2 = json.dumps(run2["manifest"], sort_keys=True, indent=2)
-    if m1 != m2:
+    if _canonical_bytes(run1["manifest"]) != _canonical_bytes(run2["manifest"]):
         errors.append("manifest payload mismatch between generations")
 
     r1_digest = _canonical_digest(run1["report"], "report_sha256")
@@ -177,10 +199,92 @@ def _compare_generations(run1: dict[str, Any], run2: dict[str, Any]) -> list[str
     d2_digest = _canonical_digest(run2["decision"], "acceptance_sha256")
     if d1_digest != d2_digest:
         errors.append("decision internal digest mismatch between generations")
-    if run1["decision"].get("acceptance_sha256") != run2["decision"].get(
-        "acceptance_sha256"
-    ):
+    if run1["decision"].get("acceptance_sha256") != run2["decision"].get("acceptance_sha256"):
         errors.append("acceptance_sha256 mismatch between generations")
+    if run1["decision"].get("input_dataset_sha256") != run2["decision"].get("input_dataset_sha256"):
+        errors.append("input_dataset_sha256 mismatch between generations")
+    if run1["decision"].get("threshold_configuration_sha256") != run2["decision"].get(
+        "threshold_configuration_sha256"
+    ):
+        errors.append("threshold_configuration_sha256 mismatch between generations")
+    if run1["decision"].get("thresholds_sha256") != run2["decision"].get("thresholds_sha256"):
+        errors.append("thresholds_sha256 mismatch between generations")
+    if run1["decision"].get("tokenizer_fingerprint") != run2["decision"].get(
+        "tokenizer_fingerprint"
+    ):
+        errors.append("tokenizer_fingerprint mismatch between generations")
+
+    return errors
+
+
+def _setup_fixture_copy(
+    dest_root: Path,
+    report_src: Path,
+    decision_src: Path,
+    manifest: dict[str, Any],
+) -> Path:
+    ev_dir = dest_root / "evidence" / "tokenizer" / "milestone-6-1-synthetic"
+    ev_dir.mkdir(parents=True)
+    shutil.copy2(report_src, ev_dir / "evaluation-report.json")
+    shutil.copy2(decision_src, ev_dir / "acceptance-decision.json")
+    (ev_dir / "manifest.json").write_bytes(_canonical_bytes(manifest))
+    for src_rel in (_TOKENIZER, _DATASET, _THRESHOLDS):
+        dst = dest_root / src_rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(_REPO_ROOT / src_rel), str(dst))
+    return ev_dir / "manifest.json"
+
+
+def _compare_generated_to_committed(run: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    committed_report = _EVIDENCE_DIR / "evaluation-report.json"
+    committed_decision = _EVIDENCE_DIR / "acceptance-decision.json"
+    committed_manifest = _EVIDENCE_DIR / "manifest.json"
+
+    _compare_byte("committed vs generated report", committed_report, run["report_path"], errors)
+    _compare_byte(
+        "committed vs generated decision", committed_decision, run["decision_path"], errors
+    )
+
+    committed_manifest_payload = json.loads(committed_manifest.read_text(encoding="utf-8"))
+    if _canonical_bytes(committed_manifest_payload) != _canonical_bytes(run["manifest"]):
+        errors.append("committed vs generated manifest payload mismatch")
+
+    for keypath, gen_val in [
+        (("evaluation_report", "sha256"), _digest(run["report_path"])),
+        (("evaluation_report", "report_sha256"), run["report"].get("report_sha256", "")),
+        (("acceptance_decision", "sha256"), _digest(run["decision_path"])),
+        (
+            ("acceptance_decision", "acceptance_sha256"),
+            run["decision"].get("acceptance_sha256", ""),
+        ),
+        (
+            ("acceptance_decision", "input_report_sha256"),
+            run["decision"].get("input_report_sha256", ""),
+        ),
+        (("acceptance_decision", "tokenizer_name"), _TOKENIZER_NAME),
+        (
+            ("acceptance_decision", "tokenizer_fingerprint"),
+            run["decision"].get("tokenizer_fingerprint", ""),
+        ),
+        (("acceptance_decision", "passed"), run["decision"].get("passed", False)),
+    ]:
+        committed_val: Any = committed_manifest_payload
+        for key in keypath:
+            committed_val = (
+                committed_val.get(key, "__missing__")
+                if isinstance(committed_val, dict)
+                else "__missing__"
+            )
+        if committed_val != gen_val:
+            errors.append(
+                f"committed vs generated manifest {'.'.join(keypath)}: "
+                f"committed={committed_val!r}, generated={gen_val!r}"
+            )
+
+    committed_validation_errors = validate_evidence(committed_manifest)
+    for err in committed_validation_errors:
+        errors.append(f"committed evidence validation: {err}")
 
     return errors
 
@@ -192,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--verify-committed",
         action="store_true",
-        help="Verify generated evidence against committed evidence",
+        help="Verify generated evidence equals committed evidence",
     )
     args = parser.parse_args(argv)
 
@@ -210,31 +314,26 @@ def main(argv: list[str] | None = None) -> int:
         print("Generation is deterministic: byte-identical across two runs")
 
         if args.verify_committed:
-            import shutil
+            generated_manifest = _setup_fixture_copy(
+                tmp / "verify",
+                run1["report_path"],
+                run1["decision_path"],
+                run1["manifest"],
+            )
+            generated_validation_errors = validate_evidence(generated_manifest)
+            if generated_validation_errors:
+                for err in generated_validation_errors:
+                    print(f"error: generated evidence validation: {err}", file=sys.stderr)
+                return 1
 
-            verify_dir = tmp / "verify"
-            ev_dir = verify_dir / "evidence" / "tokenizer" / "milestone-6-1-synthetic"
-            ev_dir.mkdir(parents=True)
-            shutil.copy2(run1["report_path"], ev_dir / "evaluation-report.json")
-            shutil.copy2(run1["decision_path"], ev_dir / "acceptance-decision.json")
-            for src in [
-                (_REPO_ROOT / _TOKENIZER, "tests/fixtures/tiny_bpe_tokenizer.json"),
-                (_REPO_ROOT / _DATASET, "tests/fixtures/tokenizer_eval/all.jsonl"),
-                (_REPO_ROOT / _THRESHOLDS, "configs/tokenizers/bpe-64k-acceptance.json"),
-            ]:
-                dst = verify_dir / src[1]
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(src[0]), str(dst))
-            manifest_path = ev_dir / "manifest.json"
-            manifest_path.write_text(json.dumps(run1["manifest"], indent=2), encoding="utf-8")
-
-            ver_errors = validate_evidence(manifest_path)
-            if ver_errors:
-                for err in ver_errors:
+            committed_errors = _compare_generated_to_committed(run1)
+            if committed_errors:
+                for err in committed_errors:
                     print(f"error: {err}", file=sys.stderr)
                 return 1
 
-            print("Generated evidence passes full provenance validation")
+            print("Generated evidence matches committed evidence")
+            print("Committed evidence pack passes full provenance validation")
 
     return 0
 

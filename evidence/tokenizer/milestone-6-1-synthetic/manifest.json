@@ -33,7 +33,31 @@
     "passed": false
   },
   "generating_commands": [
-    "scripts/evaluate_tokenizer.py --tokenizer tests/fixtures/tiny_bpe_tokenizer.json --name tiny-bpe --dataset tests/fixtures/tokenizer_eval/all.jsonl --execute --output-report <path>/evaluation-report.json",
-    "scripts/check_tokenizer_acceptance.py --report <path>/evaluation-report.json --thresholds configs/tokenizers/bpe-64k-acceptance.json --execute --output <path>/acceptance-decision.json"
+    {
+      "module": "scripts.evaluate_tokenizer",
+      "arguments": [
+        "--tokenizer",
+        "tests/fixtures/tiny_bpe_tokenizer.json",
+        "--name",
+        "tiny-bpe",
+        "--dataset",
+        "tests/fixtures/tokenizer_eval/all.jsonl",
+        "--execute",
+        "--output-report",
+        "<run-dir>/evaluation-report.json"
+      ]
+    },
+    {
+      "module": "scripts.check_tokenizer_acceptance",
+      "arguments": [
+        "--report",
+        "<run-dir>/evaluation-report.json",
+        "--thresholds",
+        "configs/tokenizers/bpe-64k-acceptance.json",
+        "--execute",
+        "--output",
+        "<run-dir>/acceptance-decision.json"
+      ]
+    }
   ]
 }

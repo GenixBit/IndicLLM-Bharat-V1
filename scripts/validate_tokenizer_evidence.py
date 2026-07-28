@@ -5,7 +5,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from bharat.tokenizer.acceptance import (
     ThresholdConfiguration,
@@ -20,7 +20,9 @@ def _digest(path: Path) -> str:
 
 def _canonical_digest(obj: dict[str, Any], exclude: str | None = None) -> str:
     payload = {k: v for k, v in obj.items() if k != exclude}
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -33,21 +35,13 @@ def _sha256_re(s: str) -> bool:
     return isinstance(s, str) and len(s) == 64 and all(c in "0123456789abcdef" for c in s)
 
 
-_NON_FINITE_PATTERNS: tuple[str, ...] = (
-    # JSON constant tokens that are non-standard
-    ":NaN",
-    ":Infinity",
-    ":-Infinity",
-)
+def _reject_non_finite(value: str) -> NoReturn:
+    raise ValueError(f"JSON contains non-finite value: {value!r}")
 
 
 def _load_json_strict(path: Path) -> Any:
     text = path.read_text(encoding="utf-8")
-    for pattern in _NON_FINITE_PATTERNS:
-        if pattern in text:
-            raise ValueError(f"JSON contains non-finite value: {pattern[1:]!r}")
-    obj = json.loads(text)
-    return obj
+    return json.loads(text, parse_constant=_reject_non_finite)
 
 
 def _resolve_path(
@@ -450,32 +444,93 @@ def validate_evidence(manifest_path: Path) -> list[str]:
                     errors,
                 )
 
-                # Cross-check fingerprints
-                manifest_tok_fp = tok.get("fingerprint", "")
-                decision_tok_fp = decision_data.get("tokenizer_fingerprint", "")
+                # ── Manifest ↔ decision field binding ──────────────
                 _check(
-                    manifest_tok_fp == decision_tok_fp,
-                    f"tokenizer fingerprint mismatch between manifest and decision: "
-                    f"manifest={manifest_tok_fp}, decision={decision_tok_fp}",
+                    ad.get("acceptance_sha256", "") == decision_data.get("acceptance_sha256", ""),
+                    "manifest acceptance_sha256 != decision acceptance_sha256",
                     errors,
                 )
+                _check(
+                    ad.get("input_report_sha256", "")
+                    == decision_data.get("input_report_sha256", ""),
+                    "manifest input_report_sha256 != decision input_report_sha256",
+                    errors,
+                )
+                _check(
+                    ad.get("tokenizer_name", "") == decision_data.get("tokenizer_name", ""),
+                    "manifest tokenizer_name != decision tokenizer_name",
+                    errors,
+                )
+                _check(
+                    ad.get("tokenizer_fingerprint", "")
+                    == decision_data.get("tokenizer_fingerprint", ""),
+                    "manifest tokenizer_fingerprint != decision tokenizer_fingerprint",
+                    errors,
+                )
+                _check(
+                    ad.get("passed", False) == decision_data.get("passed", False),
+                    "manifest passed != decision passed",
+                    errors,
+                )
+
+                # Cross-field consistency
+                _check(
+                    ad.get("input_report_sha256", "") == er.get("report_sha256", ""),
+                    "acceptance_decision.input_report_sha256 != evaluation_report.report_sha256",
+                    errors,
+                )
+                _check(
+                    ad.get("tokenizer_fingerprint", "") == tok.get("fingerprint", ""),
+                    "acceptance_decision.tokenizer_fingerprint != tokenizer.fingerprint",
+                    errors,
+                )
+                tns = report_data.get("tokenizer_names", []) if report_data else []
+                tn = ad.get("tokenizer_name", "")
+                _check(
+                    tns.count(tn) == 1,
+                    f"tokenizer_name {tn!r} appears {tns.count(tn)} time(s) in "
+                    f"evaluation_report.tokenizer_names (expected 1)",
+                    errors,
+                )
+
             except Exception as exc:
                 errors.append(f"cannot validate acceptance decision: {exc}")
 
+    # ── Generating commands ────────────────────────────────────────
+    gcs = manifest.get("generating_commands", [])
+    if not isinstance(gcs, list):
+        errors.append("generating_commands must be a list")
+    else:
+        for i, gc in enumerate(gcs):
+            if not isinstance(gc, dict):
+                errors.append(f"generating_commands[{i}]: must be an object")
+            else:
+                allowed_gc = {"module", "arguments"}
+                unknown_gc = sorted(set(gc) - allowed_gc)
+                if unknown_gc:
+                    errors.append(
+                        f"generating_commands[{i}]: unknown keys: {', '.join(unknown_gc)}"
+                    )
+                if not isinstance(gc.get("module", ""), str):
+                    errors.append(f"generating_commands[{i}].module: must be a string")
+                if not isinstance(gc.get("arguments", []), list):
+                    errors.append(f"generating_commands[{i}].arguments: must be a list")
+                elif not all(isinstance(a, str) for a in gc.get("arguments", [])):
+                    errors.append(f"generating_commands[{i}].arguments: all items must be strings")
+
     # ── No timestamps, absolute paths, or production claims ───────
-    manifest_str = json.dumps(manifest)
-    if any(
-        keyword in manifest_str
-        for keyword in [
-            "timestamp",
-            "datetime",
-            "created_at",
-            "updated_at",
-            "production",
-            "approved-evaluation-set",
-        ]
-    ):
-        errors.append("manifest must not contain timestamp or production fields")
+    manifest_str = json.dumps(manifest, allow_nan=False)
+    for keyword in [
+        "timestamp",
+        "datetime",
+        "created_at",
+        "updated_at",
+        "production",
+        "approved-evaluation-set",
+    ]:
+        if keyword in manifest_str:
+            errors.append(f"manifest must not contain {keyword!r}")
+            break
 
     # ── Full provenance recomputation ─────────────────────────────
     if errors:
@@ -493,8 +548,8 @@ def validate_evidence(manifest_path: Path) -> list[str]:
                 tc_config,
             )
 
-            expected_canonical = json.dumps(expected_decision, sort_keys=True)
-            actual_canonical = json.dumps(decision_data, sort_keys=True)
+            expected_canonical = json.dumps(expected_decision, sort_keys=True, allow_nan=False)
+            actual_canonical = json.dumps(decision_data, sort_keys=True, allow_nan=False)
             if expected_canonical != actual_canonical:
                 errors.append("recomputed acceptance decision does not match committed decision")
                 for k in sorted(set(expected_decision) | set(decision_data)):
@@ -531,11 +586,11 @@ def validate_evidence(manifest_path: Path) -> list[str]:
 
                 fingerprints = report_data.get("tokenizer_fingerprints", {}) if report_data else {}
                 expected_fp = fingerprints.get(tokenizer_name, "")
-                actual_fp = decision_data.get("tokenizer_fingerprint", "")
+                decision_fp = decision_data.get("tokenizer_fingerprint", "")
                 _check(
-                    expected_fp == actual_fp,
+                    expected_fp == decision_fp,
                     f"decision tokenizer_fingerprint mismatch: "
-                    f"expected {expected_fp}, got {actual_fp}",
+                    f"expected {expected_fp}, got {decision_fp}",
                     errors,
                 )
 
