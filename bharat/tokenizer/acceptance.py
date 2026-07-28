@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from typing import Any
@@ -11,6 +12,15 @@ from bharat.tokenizer.evaluation import validate_evaluation_report
 _SCHEMA_VERSION = "tokenizer-acceptance-v1"
 _THRESHOLD_SCHEMA_VERSION = "tokenizer-acceptance-thresholds-v1"
 _SUPPORTED_EVALUATOR_VERSIONS: tuple[str, ...] = ("1.0.3",)
+_ALLOWED_CONFIG_FIELDS: set[str] = {
+    "schema_version",
+    "status",
+    "evidence_scope",
+    "notes",
+    "thresholds",
+}
+_ALLOWED_STATUS_VALUES: set[str] = {"provisional", "production"}
+_ALLOWED_EVIDENCE_SCOPE_VALUES: set[str] = {"synthetic-local-only", "approved-evaluation-set"}
 
 
 # ── Threshold configuration ─────────────────────────────────────────
@@ -20,6 +30,7 @@ _SUPPORTED_EVALUATOR_VERSIONS: tuple[str, ...] = ("1.0.3",)
 class TokenizerAcceptanceThresholds:
     min_record_count: int = 1
     min_required_round_trip_rate: float = 1.0
+    min_canonical_pass_rate: float = 1.0
     max_unknown_token_rate: float = 0.0
     require_complete_byte_coverage: bool = True
     max_micro_fertility: float | None = None
@@ -28,7 +39,11 @@ class TokenizerAcceptanceThresholds:
     min_records_per_required_language: int = 1
 
     _INT_FIELDS = ("min_record_count", "min_records_per_required_language")
-    _RATE_FIELDS = ("min_required_round_trip_rate", "max_unknown_token_rate")
+    _RATE_FIELDS = (
+        "min_required_round_trip_rate",
+        "min_canonical_pass_rate",
+        "max_unknown_token_rate",
+    )
     _OPTIONAL_FLOAT_FIELDS = ("max_micro_fertility", "max_language_micro_fertility")
     _BOOL_FIELDS = ("require_complete_byte_coverage",)
     _TUPLE_FIELDS = ("required_languages",)
@@ -38,16 +53,28 @@ class TokenizerAcceptanceThresholds:
             raise ValueError("min_record_count must be at least 1")
         for name, value in (
             ("min_required_round_trip_rate", self.min_required_round_trip_rate),
+            ("min_canonical_pass_rate", self.min_canonical_pass_rate),
             ("max_unknown_token_rate", self.max_unknown_token_rate),
         ):
+            if not isinstance(value, int | float) or isinstance(value, bool):
+                raise ValueError(f"{name} must be a finite number")
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number")
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
+
         for name, value in (
             ("max_micro_fertility", self.max_micro_fertility),
             ("max_language_micro_fertility", self.max_language_micro_fertility),
         ):
-            if value is not None and value <= 0.0:
-                raise ValueError(f"{name} must be positive when set")
+            if value is not None:
+                if not isinstance(value, int | float) or isinstance(value, bool):
+                    raise ValueError(f"{name} must be a finite number")
+                if not math.isfinite(value):
+                    raise ValueError(f"{name} must be a finite number")
+                if value <= 0.0:
+                    raise ValueError(f"{name} must be positive when set")
+
         if self.min_records_per_required_language < 1:
             raise ValueError("min_records_per_required_language must be at least 1")
 
@@ -66,6 +93,7 @@ class TokenizerAcceptanceThresholds:
         allowed = {
             "min_record_count",
             "min_required_round_trip_rate",
+            "min_canonical_pass_rate",
             "max_unknown_token_rate",
             "require_complete_byte_coverage",
             "max_micro_fertility",
@@ -92,6 +120,8 @@ class TokenizerAcceptanceThresholds:
             if v is not None:
                 if not isinstance(v, int | float) or isinstance(v, bool):
                     raise ValueError(f"threshold {name!r} must be a number, got {type(v).__name__}")
+                if not math.isfinite(v):
+                    raise ValueError(f"threshold {name!r} must be a finite number")
                 if not 0.0 <= float(v) <= 1.0:
                     raise ValueError(f"threshold {name!r} must be between 0 and 1")
 
@@ -101,6 +131,8 @@ class TokenizerAcceptanceThresholds:
                 raise ValueError(
                     f"threshold {name!r} must be a number or null, " f"got {type(v).__name__}"
                 )
+            if v is not None and not math.isfinite(v):
+                raise ValueError(f"threshold {name!r} must be a finite number")
 
         for name in cls._BOOL_FIELDS:
             v = payload.get(name)
@@ -118,6 +150,84 @@ class TokenizerAcceptanceThresholds:
 
         filtered = {k: v for k, v in payload.items() if k in allowed and v is not None}
         return cls(**filtered)
+
+
+# ── Full threshold configuration model ──────────────────────────────
+
+
+@dataclass(frozen=True)
+class ThresholdConfiguration:
+    schema_version: str
+    thresholds: TokenizerAcceptanceThresholds
+    status: str = "provisional"
+    evidence_scope: str = "synthetic-local-only"
+    notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.schema_version != _THRESHOLD_SCHEMA_VERSION:
+            msg = f"unsupported schema_version: {self.schema_version!r}"
+            raise ValueError(msg)
+        if self.status not in _ALLOWED_STATUS_VALUES:
+            msg = f"unknown status: {self.status!r}"
+            raise ValueError(msg)
+        if self.evidence_scope not in _ALLOWED_EVIDENCE_SCOPE_VALUES:
+            msg = f"unknown evidence_scope: {self.evidence_scope!r}"
+            raise ValueError(msg)
+
+    def to_canonical_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "status": self.status,
+            "evidence_scope": self.evidence_scope,
+            "notes": list(self.notes),
+            "thresholds": self.thresholds.to_canonical_dict(),
+        }
+
+    def configuration_sha256(self) -> str:
+        canonical = json.dumps(
+            self.to_canonical_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> ThresholdConfiguration:
+        unknown = sorted(set(payload) - _ALLOWED_CONFIG_FIELDS)
+        if unknown:
+            raise ValueError(f"unknown configuration fields: {', '.join(unknown)}")
+
+        sv = payload.get("schema_version")
+        if sv != _THRESHOLD_SCHEMA_VERSION:
+            msg = f"unsupported schema_version: {sv!r}"
+            raise ValueError(msg)
+
+        status = payload.get("status", "provisional")
+        if status not in _ALLOWED_STATUS_VALUES:
+            raise ValueError(f"unknown status: {status!r}")
+
+        evidence_scope = payload.get("evidence_scope", "synthetic-local-only")
+        if evidence_scope not in _ALLOWED_EVIDENCE_SCOPE_VALUES:
+            raise ValueError(f"unknown evidence_scope: {evidence_scope!r}")
+
+        notes_raw = payload.get("notes", [])
+        if not isinstance(notes_raw, list):
+            raise ValueError("notes must be a list")
+        notes = tuple(str(n) for n in notes_raw)
+
+        raw_thresholds = payload.get("thresholds")
+        if not isinstance(raw_thresholds, dict):
+            raise ValueError("thresholds must be an object")
+        thresholds = TokenizerAcceptanceThresholds.from_dict(raw_thresholds)
+
+        return cls(
+            schema_version=sv,
+            status=status,
+            evidence_scope=evidence_scope,
+            notes=notes,
+            thresholds=thresholds,
+        )
 
 
 # ── Acceptance check ────────────────────────────────────────────────
@@ -146,6 +256,7 @@ def evaluate_tokenizer_acceptance(
     report: dict[str, Any],
     tokenizer_name: str,
     thresholds: TokenizerAcceptanceThresholds,
+    threshold_config: ThresholdConfiguration | None = None,
 ) -> dict[str, Any]:
     """Evaluate whether *report* satisfies *thresholds* for *tokenizer_name*.
 
@@ -186,6 +297,15 @@ def evaluate_tokenizer_acceptance(
     unknown_rate = _require_number(tokenizer_aggregate, "unknown_token_rate")
     micro_fertility = _require_number(tokenizer_aggregate, "micro_fertility")
 
+    for val, label in [
+        (required_rate, "required_pass_rate"),
+        (unknown_rate, "unknown_token_rate"),
+        (micro_fertility, "micro_fertility"),
+    ]:
+        if not math.isfinite(val):
+            msg = f"report metric {label!r} must be finite"
+            raise ValueError(msg)
+
     checks: list[AcceptanceCheck] = [
         AcceptanceCheck(
             "record_count",
@@ -209,7 +329,7 @@ def evaluate_tokenizer_acceptance(
 
     _add_byte_coverage_checks(checks, tokenizer_byte_coverage, thresholds)
     _add_fertility_checks(checks, micro_fertility, tokenizer_languages, thresholds)
-    _add_canonical_pass_checks(checks, tokenizer_round_trip)
+    _add_canonical_pass_checks(checks, tokenizer_round_trip, thresholds)
     _add_language_presence_checks(checks, tokenizer_languages, thresholds)
 
     checks_payload = [check.to_dict() for check in checks]
@@ -225,6 +345,13 @@ def evaluate_tokenizer_acceptance(
         ).encode("utf-8")
     ).hexdigest()
 
+    if threshold_config is None:
+        threshold_config = ThresholdConfiguration(
+            schema_version=_THRESHOLD_SCHEMA_VERSION,
+            thresholds=thresholds,
+        )
+    config_sha256 = threshold_config.configuration_sha256()
+
     result: dict[str, Any] = {
         "schema_version": _SCHEMA_VERSION,
         "evaluation_schema_version": report.get("schema_version", ""),
@@ -234,6 +361,9 @@ def evaluate_tokenizer_acceptance(
         "input_dataset_sha256": input_dataset_sha256,
         "input_report_sha256": input_report_sha256,
         "threshold_schema_version": _THRESHOLD_SCHEMA_VERSION,
+        "threshold_configuration_status": threshold_config.status,
+        "threshold_evidence_scope": threshold_config.evidence_scope,
+        "threshold_configuration_sha256": config_sha256,
         "thresholds": thresholds_canonical,
         "thresholds_sha256": thresholds_sha256,
         "checks": checks_payload,
@@ -306,6 +436,9 @@ def _add_fertility_checks(
             if not isinstance(language, str) or not isinstance(metrics, dict):
                 raise ValueError("per_language entries must map strings to objects")
             fertility = _require_number(metrics, "micro_fertility")
+            if not math.isfinite(fertility):
+                msg = f"per_language.{language}.micro_fertility must be finite"
+                raise ValueError(msg)
             if fertility > thresholds.max_language_micro_fertility:
                 language_failures[language] = fertility
         checks.append(
@@ -321,17 +454,25 @@ def _add_fertility_checks(
 def _add_canonical_pass_checks(
     checks: list[AcceptanceCheck],
     round_trip: dict[str, Any],
+    thresholds: TokenizerAcceptanceThresholds,
 ) -> None:
     canonical_pass_rate = round_trip.get("canonical_pass_rate")
     if canonical_pass_rate is not None:
+        if (
+            not isinstance(canonical_pass_rate, int | float)
+            or isinstance(canonical_pass_rate, bool)
+            or not math.isfinite(canonical_pass_rate)
+        ):
+            passed = False
+        else:
+            passed = float(canonical_pass_rate) >= thresholds.min_canonical_pass_rate
+
         checks.append(
             AcceptanceCheck(
                 "canonical_equivalent_pass_rate",
-                isinstance(canonical_pass_rate, int | float)
-                and not isinstance(canonical_pass_rate, bool)
-                and 0.0 <= float(canonical_pass_rate) <= 1.0,
+                passed,
                 canonical_pass_rate,
-                "between 0 and 1",
+                f">= {thresholds.min_canonical_pass_rate}",
             )
         )
 

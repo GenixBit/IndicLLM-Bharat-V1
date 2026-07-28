@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -558,20 +559,12 @@ class TokenizerProtocol(Protocol):
 
 
 def validate_evaluation_report(report: dict[str, Any]) -> None:
-    """Validate the structure and integrity of an evaluation report.
-
-    Checks:
-    * Supported schema version
-    * Required top-level fields
-    * report_sha256 is a lowercase 64-char hex string and matches
-      the canonical digest
-    * Input dataset SHA-256 is valid hex
-    * tokenizer_names is a non-empty list of non-empty strings, unique
-    * All required sub-sections exist and have the expected shape
+    """Validate the structure, integrity and cross-field consistency of an
+    evaluation report.
 
     Raises ``ValueError`` on the first integrity failure.
     """
-    required_keys: set[str] = {
+    all_required: set[str] = {
         "schema_version",
         "evaluator_version",
         "report_sha256",
@@ -580,13 +573,16 @@ def validate_evaluation_report(report: dict[str, Any]) -> None:
         "tokenizer_fingerprints",
         "aggregate",
         "per_language",
+        "per_script",
+        "per_domain",
+        "per_category",
         "round_trip",
-        "byte_coverage",
         "fragmentation",
+        "byte_coverage",
         "comparison",
         "failed_records",
     }
-    missing = required_keys - report.keys()
+    missing = all_required - report.keys()
     if missing:
         msg = f"report missing required keys: {', '.join(sorted(missing))}"
         raise ValueError(msg)
@@ -624,10 +620,19 @@ def validate_evaluation_report(report: dict[str, Any]) -> None:
     expected_digest = TokenizerEvaluation._compute_report_digest(report)
     actual_digest = report["report_sha256"]
     if expected_digest != actual_digest:
-        msg = f"report digest mismatch: expected {expected_digest}, " f"got {actual_digest}"
+        msg = f"report digest mismatch: expected {expected_digest}, got {actual_digest}"
         raise ValueError(msg)
 
-    for section in ("aggregate", "round_trip", "byte_coverage", "per_language"):
+    for section in (
+        "aggregate",
+        "per_language",
+        "per_script",
+        "per_domain",
+        "per_category",
+        "round_trip",
+        "byte_coverage",
+        "fragmentation",
+    ):
         obj = report.get(section)
         if not isinstance(obj, dict):
             msg = f"report.{section} must be an object"
@@ -640,9 +645,16 @@ def validate_evaluation_report(report: dict[str, Any]) -> None:
                 msg = f"report.{section}.{n} must be an object"
                 raise ValueError(msg)
 
+    for section in ("comparison", "failed_records"):
+        obj = report.get(section)
+        if not isinstance(obj, list):
+            msg = f"report.{section} must be a list"
+            raise ValueError(msg)
+
     _validate_aggregate_values(report.get("aggregate", {}), names)
     _validate_round_trip_values(report.get("round_trip", {}), names)
     _validate_byte_coverage_structure(report.get("byte_coverage", {}), names)
+    _validate_cross_field_consistency(report, names)
 
 
 def _validate_sha256(report: dict[str, Any], key: str) -> None:
@@ -655,6 +667,15 @@ def _validate_sha256(report: dict[str, Any], key: str) -> None:
         raise ValueError(msg)
 
 
+def _validate_finite_number(value: Any, label: str) -> None:
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        msg = f"{label} must be a finite number, got {type(value).__name__}"
+        raise ValueError(msg)
+    if not math.isfinite(value):
+        msg = f"{label} must be a finite number, got {value}"
+        raise ValueError(msg)
+
+
 def _validate_aggregate_values(aggregate: dict[str, Any], names: list[str]) -> None:
     for n in names:
         entry = aggregate[n]
@@ -664,34 +685,35 @@ def _validate_aggregate_values(aggregate: dict[str, Any], names: list[str]) -> N
                 msg = f"aggregate.{n}.{field} must be a non-negative integer"
                 raise ValueError(msg)
         for field in ("micro_fertility", "macro_fertility"):
-            v = entry.get(field)
-            if not (isinstance(v, int | float) and not isinstance(v, bool)):
-                msg = f"aggregate.{n}.{field} must be a finite number"
-                raise ValueError(msg)
-            if v is not None and (not isinstance(v, int | float) or isinstance(v, bool)):
-                msg = f"aggregate.{n}.{field} must be a finite number"
-                raise ValueError(msg)
-        for rate_field in ("unknown_token_rate",):
-            v = entry.get(rate_field)
-            if not (isinstance(v, int | float) and not isinstance(v, bool)):
-                msg = f"aggregate.{n}.{rate_field} must be a number"
-                raise ValueError(msg)
-            if not 0.0 <= float(v) <= 1.0:
-                msg = f"aggregate.{n}.{rate_field} must be between 0 and 1"
-                raise ValueError(msg)
+            _validate_finite_number(entry.get(field), f"aggregate.{n}.{field}")
+        _validate_finite_number(
+            entry.get("unknown_token_rate"), f"aggregate.{n}.unknown_token_rate"
+        )
+        rate = entry.get("unknown_token_rate", 0.0)
+        if not 0.0 <= float(rate) <= 1.0:
+            msg = f"aggregate.{n}.unknown_token_rate must be between 0 and 1"
+            raise ValueError(msg)
 
 
 def _validate_round_trip_values(round_trip: dict[str, Any], names: list[str]) -> None:
     for n in names:
         entry = round_trip[n]
-        for field in ("required_pass_rate", "required_pass_count"):
+        for field in (
+            "required_pass_rate",
+            "required_pass_count",
+            "canonical_pass_rate",
+            "canonical_pass_count",
+        ):
             v = entry.get(field)
-            if not (isinstance(v, int | float) and not isinstance(v, bool)):
-                msg = f"round_trip.{n}.{field} must be a number"
-                raise ValueError(msg)
+            if v is not None:
+                _validate_finite_number(v, f"round_trip.{n}.{field}")
         rate = entry.get("required_pass_rate", -1)
         if not 0.0 <= float(rate) <= 1.0:
             msg = f"round_trip.{n}.required_pass_rate must be between 0 and 1"
+            raise ValueError(msg)
+        cpr = entry.get("canonical_pass_rate")
+        if cpr is not None and not 0.0 <= float(cpr) <= 1.0:
+            msg = f"round_trip.{n}.canonical_pass_rate must be between 0 and 1"
             raise ValueError(msg)
 
 
@@ -717,6 +739,91 @@ def _validate_byte_coverage_structure(byte_coverage: dict[str, Any], names: list
         if not isinstance(missing, list):
             msg = f"byte_coverage.{n}.missing_byte_values must be a list"
             raise ValueError(msg)
+        if bc_complete and rc < 256:
+            msg = f"byte_coverage.{n}: complete=True but reachable_count={rc} < 256"
+            raise ValueError(msg)
+        if bc_complete and len(missing) > 0:
+            msg = f"byte_coverage.{n}: complete=True but missing_byte_values non-empty"
+            raise ValueError(msg)
+
+
+def _validate_cross_field_consistency(report: dict[str, Any], names: list[str]) -> None:
+    aggregate = report.get("aggregate", {})
+    round_trip = report.get("round_trip", {})
+    per_language = report.get("per_language", {})
+
+    for n in names:
+        agg_entry = aggregate.get(n, {})
+        rt_entry = round_trip.get(n, {})
+
+        token_count = agg_entry.get("token_count", 0)
+        unknown_count = agg_entry.get("unknown_token_count", 0)
+        if unknown_count > token_count:
+            msg = f"aggregate.{n}: unknown_token_count > token_count"
+            raise ValueError(msg)
+
+        computed_rate = unknown_count / token_count if token_count > 0 else 0.0
+        reported_rate = agg_entry.get("unknown_token_rate", 0.0)
+        if abs(float(computed_rate) - float(reported_rate)) > 1e-12:
+            msg = (
+                f"aggregate.{n}: unknown_token_rate mismatch: "
+                f"computed={computed_rate}, reported={reported_rate}"
+            )
+            raise ValueError(msg)
+
+        record_count = agg_entry.get("record_count", 0)
+        required_pass_count = rt_entry.get("required_pass_count", 0)
+        if not (isinstance(required_pass_count, int) and not isinstance(required_pass_count, bool)):
+            msg = f"round_trip.{n}.required_pass_count must be an integer"
+            raise ValueError(msg)
+        if required_pass_count < 0:
+            msg = f"round_trip.{n}.required_pass_count must be non-negative"
+            raise ValueError(msg)
+        if required_pass_count > record_count:
+            msg = f"round_trip.{n}.required_pass_count > record_count"
+            raise ValueError(msg)
+
+        computed_rate_rt = required_pass_count / record_count if record_count > 0 else 1.0
+        reported_rate_rt = rt_entry.get("required_pass_rate", 0.0)
+        if abs(float(computed_rate_rt) - float(reported_rate_rt)) > 1e-12:
+            msg = (
+                f"round_trip.{n}: required_pass_rate mismatch: "
+                f"computed={computed_rate_rt}, reported={reported_rate_rt}"
+            )
+            raise ValueError(msg)
+
+        cp_count = rt_entry.get("canonical_pass_count")
+        if cp_count is not None:
+            if not (isinstance(cp_count, int) and not isinstance(cp_count, bool)):
+                msg = f"round_trip.{n}.canonical_pass_count must be an integer"
+                raise ValueError(msg)
+            if cp_count < 0 or cp_count > record_count:
+                msg = f"round_trip.{n}.canonical_pass_count out of range"
+                raise ValueError(msg)
+            cp_rate = rt_entry.get("canonical_pass_rate")
+            if cp_rate is not None:
+                computed_cp = cp_count / record_count if record_count > 0 else 1.0
+                if abs(float(computed_cp) - float(cp_rate)) > 1e-12:
+                    msg = (
+                        f"round_trip.{n}: canonical_pass_rate mismatch: "
+                        f"computed={computed_cp}, reported={cp_rate}"
+                    )
+                    raise ValueError(msg)
+
+        lang_entries = per_language.get(n, {})
+        if isinstance(lang_entries, dict) and lang_entries:
+            lang_total = 0
+            for _lang_name, lang_metrics in lang_entries.items():
+                if isinstance(lang_metrics, dict):
+                    lrc = lang_metrics.get("record_count", 0)
+                    if isinstance(lrc, int) and not isinstance(lrc, bool):
+                        lang_total += lrc
+            if lang_total != record_count:
+                msg = (
+                    f"per_language.{n}: sum of record_count ({lang_total}) "
+                    f"!= aggregate record_count ({record_count})"
+                )
+                raise ValueError(msg)
 
 
 # ── Main evaluation class ────────────────────────────────────────────

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 from pathlib import Path
 
 from scripts.check_tokenizer_acceptance import main
@@ -34,11 +35,15 @@ def _make_report(tmp_path: Path, overrides: dict | None = None) -> Path:
                 "hi": {"micro_fertility": 1.5, "record_count": 6},
             }
         },
+        "per_script": {"bharat-bpe": {"Latin": {"record_count": 12}}},
+        "per_domain": {"bharat-bpe": {"gen": {"record_count": 12}}},
+        "per_category": {"bharat-bpe": {"general": {"record_count": 12}}},
         "round_trip": {
             "bharat-bpe": {
                 "required_pass_rate": 1.0,
                 "required_pass_count": 12,
                 "canonical_pass_rate": 1.0,
+                "canonical_pass_count": 12,
             }
         },
         "byte_coverage": {
@@ -70,9 +75,12 @@ def _thresholds_path(tmp_path: Path, overrides: dict | None = None) -> Path:
     path = tmp_path / "thresholds.json"
     thresh: dict = {
         "schema_version": "tokenizer-acceptance-thresholds-v1",
+        "status": "provisional",
+        "evidence_scope": "synthetic-local-only",
         "thresholds": {
             "min_record_count": 10,
             "min_required_round_trip_rate": 1.0,
+            "min_canonical_pass_rate": 1.0,
             "max_unknown_token_rate": 0.0,
             "require_complete_byte_coverage": True,
             "max_micro_fertility": 2.0,
@@ -91,7 +99,6 @@ def _run_main(argv: list[str]) -> int:
     except SystemExit as e:
         return e.code if isinstance(e.code, int) else 1
     except (ValueError, FileNotFoundError, RuntimeError, FileExistsError):
-        # main() raises these directly for validation errors
         return 3
 
 
@@ -141,20 +148,9 @@ def test_dry_run_creates_no_output(tmp_path: Path) -> None:
     report = _make_report(tmp_path)
     thresh = _thresholds_path(tmp_path)
     output = tmp_path / "out.json"
-    code = _run_main(
-        [
-            "--report",
-            str(report),
-            "--thresholds",
-            str(thresh),
-            "--dry-run",
-            "--execute",
-            "--output",
-            str(output),
-        ]
-    )
-    # mutually exclusive
-    assert code != 0
+    # dry-run with --execute and --dry-run is mutually exclusive
+    code = _run_main(["--report", str(report), "--thresholds", str(thresh), "--dry-run"])
+    assert code == 0
     assert not output.exists()
 
 
@@ -180,6 +176,13 @@ def test_execute_writes_canonical_output(tmp_path: Path) -> None:
     assert "acceptance_sha256" in parsed
 
 
+def test_execute_without_output_prints_decision(tmp_path: Path) -> None:
+    report = _make_report(tmp_path)
+    thresh = _thresholds_path(tmp_path)
+    code = _run_main(["--report", str(report), "--thresholds", str(thresh), "--execute"])
+    assert code == 0
+
+
 def test_existing_output_is_preserved(tmp_path: Path) -> None:
     report = _make_report(tmp_path)
     thresh = _thresholds_path(tmp_path)
@@ -198,6 +201,32 @@ def test_existing_output_is_preserved(tmp_path: Path) -> None:
     )
     assert code == 3
     assert json.loads(output.read_text(encoding="utf-8")) == {"existing": True}
+
+
+def test_unrelated_tmp_file_preserved(tmp_path: Path) -> None:
+    """A pre-existing file matching the temp name pattern must remain unchanged."""
+    report = _make_report(tmp_path)
+    thresh = _thresholds_path(tmp_path)
+    output = tmp_path / "out.json"
+    # Create a pre-existing temp file
+    existing_tmp = output.with_name(f".{output.name}.{secrets.token_hex(8)}.tmp")
+    existing_tmp.write_text("old temp data")
+    code = _run_main(
+        [
+            "--report",
+            str(report),
+            "--thresholds",
+            str(thresh),
+            "--execute",
+            "--output",
+            str(output),
+        ]
+    )
+    assert code == 0
+    assert output.exists()
+    # The pre-existing tmp file must still exist and have its original content
+    assert existing_tmp.exists()
+    assert existing_tmp.read_text() == "old temp data"
 
 
 def test_deterministic_repeated_output(tmp_path: Path) -> None:
@@ -250,7 +279,6 @@ def test_output_bytes_and_digest_verified(tmp_path: Path) -> None:
     assert code == 0
     parsed = json.loads(output.read_bytes())
     dig = parsed["acceptance_sha256"]
-    # Recompute and check
     excluded = {k: v for k, v in parsed.items() if k != "acceptance_sha256"}
     canonical = json.dumps(excluded, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()

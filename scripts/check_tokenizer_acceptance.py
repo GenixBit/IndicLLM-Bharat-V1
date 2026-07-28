@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
+import secrets
 import sys
 from pathlib import Path
 from typing import Any
 
 from bharat.tokenizer.acceptance import (
-    TokenizerAcceptanceThresholds,
+    ThresholdConfiguration,
     evaluate_tokenizer_acceptance,
 )
 
@@ -43,6 +43,61 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _publish(
+    result_json: str,
+    output_path: Path,
+    expected_digest: str,
+) -> Path:
+    """Publish *result_json* to *output_path* with safe publication.
+
+    Writes to a secure temporary path first, verifies the acceptance digest,
+    then atomically publishes with exclusive no-overwrite creation, flushes,
+    fsyncs, re-reads and byte-verifies.
+
+    Returns the final path.  Cleans up on failure.
+    """
+    if output_path.exists():
+        raise FileExistsError(f"refusing to overwrite existing file: {output_path}")
+
+    tmp_name = f".{output_path.name}.{secrets.token_hex(8)}.tmp"
+    tmp_path = output_path.with_name(tmp_name)
+
+    written_path: Path | None = None
+
+    try:
+        tmp_path.write_text(result_json, encoding="utf-8")
+        parsed = json.loads(tmp_path.read_text(encoding="utf-8"))
+        parsed_digest = parsed.get("acceptance_sha256", "")
+        if parsed_digest != expected_digest:
+            msg = (
+                f"acceptance digest mismatch during verification: "
+                f"expected {expected_digest}, got {parsed_digest}"
+            )
+            raise RuntimeError(msg)
+
+        written_bytes = tmp_path.read_bytes()
+
+        with open(output_path, "xb") as f:
+            f.write(written_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        written_path = output_path
+
+        reread = output_path.read_bytes()
+        if reread != written_bytes:
+            msg = f"byte-verification failed after final write: {output_path}"
+            raise RuntimeError(msg)
+
+        return written_path
+    except BaseException:
+        if written_path is not None and written_path.exists():
+            written_path.unlink()
+        raise
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -54,12 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     report = _load_json_object(args.report, "evaluation report")
     threshold_payload = _load_json_object(args.thresholds, "threshold configuration")
 
-    if threshold_payload.get("schema_version") != "tokenizer-acceptance-thresholds-v1":
-        raise ValueError("unsupported threshold schema_version")
-    raw_thresholds = threshold_payload.get("thresholds")
-    if not isinstance(raw_thresholds, dict):
-        raise ValueError("threshold configuration field 'thresholds' must be an object")
-    thresholds = TokenizerAcceptanceThresholds.from_dict(raw_thresholds)
+    config = ThresholdConfiguration.from_payload(threshold_payload)
 
     tokenizer_name = args.tokenizer_name
     names = report.get("tokenizer_names")
@@ -71,56 +121,25 @@ def main(argv: list[str] | None = None) -> int:
             )
         tokenizer_name = names[0]
 
-    result = evaluate_tokenizer_acceptance(report, tokenizer_name, thresholds)
+    result = evaluate_tokenizer_acceptance(
+        report, tokenizer_name, config.thresholds, threshold_config=config
+    )
 
     result_json = (
         json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
     )
 
-    written_path: Path | None = None
+    if args.dry_run:
+        print("--- dry-run: validation passed ---")
+        print(result_json, end="")
+        sys.stdout.flush()
+        return _EXIT_SUCCESS
 
     if args.output is not None:
-        if args.output.exists():
-            raise FileExistsError(f"refusing to overwrite existing file: {args.output}")
-
         expected_digest = result.get("acceptance_sha256", "")
-        intermediate_path = args.output.with_name(f".{args.output.name}.tmp")
-        try:
-            intermediate_path.write_text(result_json, encoding="utf-8")
-            written = json.loads(intermediate_path.read_text(encoding="utf-8"))
-            written_digest = written.get("acceptance_sha256", "")
-            if written_digest != expected_digest:
-                msg = (
-                    f"acceptance digest mismatch during verification: "
-                    f"expected {expected_digest}, got {written_digest}"
-                )
-                raise RuntimeError(msg)
+        _publish(result_json, args.output, expected_digest)
 
-            written_bytes = intermediate_path.read_bytes()
-            final_digest = hashlib.sha256(written_bytes).hexdigest()
-            _ = final_digest
-
-            with open(args.output, "xb") as f:
-                f.write(written_bytes)
-                f.flush()
-                os.fsync(f.fileno())
-            written_path = args.output
-
-            reread = args.output.read_bytes()
-            if reread != written_bytes:
-                msg = f"byte-verification failed after final write: {args.output}"
-                raise RuntimeError(msg)
-        except BaseException:
-            if intermediate_path.exists():
-                intermediate_path.unlink()
-            if written_path is not None and written_path.exists():
-                written_path.unlink()
-            raise
-        finally:
-            if intermediate_path.exists():
-                intermediate_path.unlink()
-
-    if not args.execute:
+    if not args.execute or args.output is None:
         print(result_json, end="")
         sys.stdout.flush()
 
@@ -132,6 +151,6 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+    except (ValueError, FileNotFoundError, RuntimeError, FileExistsError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(_EXIT_VALIDATION_ERROR) from None

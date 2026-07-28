@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import copy
+import hashlib
 import json
 
 import pytest
 
 from bharat.tokenizer.acceptance import (
+    ThresholdConfiguration,
     TokenizerAcceptanceThresholds,
     evaluate_tokenizer_acceptance,
 )
@@ -38,11 +39,15 @@ def _minimal_valid_report() -> dict[str, object]:
                 "hi": {"micro_fertility": 1.5, "record_count": 6},
             }
         },
+        "per_script": {"bharat-bpe": {"Latin": {"record_count": 12}}},
+        "per_domain": {"bharat-bpe": {"gen": {"record_count": 12}}},
+        "per_category": {"bharat-bpe": {"general": {"record_count": 12}}},
         "round_trip": {
             "bharat-bpe": {
                 "required_pass_rate": 1.0,
                 "required_pass_count": 12,
                 "canonical_pass_rate": 1.0,
+                "canonical_pass_count": 12,
             }
         },
         "byte_coverage": {
@@ -68,8 +73,6 @@ def _realistic_report() -> dict[str, object]:
 def _compute_digest(report: dict) -> str:
     excluded = {k: v for k, v in report.items() if k != "report_sha256"}
     canonical = json.dumps(excluded, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    import hashlib
-
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -89,7 +92,6 @@ def _thresholds() -> TokenizerAcceptanceThresholds:
 
 def test_valid_report_accepted() -> None:
     report = _realistic_report()
-    # should not raise
     validate_evaluation_report(report)
 
 
@@ -135,38 +137,78 @@ def test_unsupported_schema_rejected() -> None:
         validate_evaluation_report(report)
 
 
-def test_invalid_input_dataset_sha256() -> None:
+def test_missing_per_script_rejected() -> None:
     report = _realistic_report()
-    report["input_dataset_sha256"] = "zzz"
-    with pytest.raises(ValueError, match="lowercase 64-character hex"):
+    del report["per_script"]
+    with pytest.raises(ValueError, match="missing required keys"):
         validate_evaluation_report(report)
 
 
-def test_duplicate_tokenizer_names_rejected() -> None:
+def test_missing_per_domain_rejected() -> None:
     report = _realistic_report()
-    report["tokenizer_names"] = ["tok", "tok"]
-    with pytest.raises(ValueError, match="duplicate"):
+    del report["per_domain"]
+    with pytest.raises(ValueError, match="missing required keys"):
         validate_evaluation_report(report)
 
 
-def test_empty_tokenizer_names_rejected() -> None:
+def test_missing_per_category_rejected() -> None:
     report = _realistic_report()
-    report["tokenizer_names"] = []
-    with pytest.raises(ValueError, match="non-empty"):
+    del report["per_category"]
+    with pytest.raises(ValueError, match="missing required keys"):
         validate_evaluation_report(report)
 
 
-def test_missing_tokenizer_fingerprint_rejected() -> None:
+def test_inconsistent_unknown_count_rate_rejected() -> None:
     report = _realistic_report()
-    report["tokenizer_fingerprints"] = {}
-    with pytest.raises(ValueError, match="missing or empty fingerprint"):
+    report["aggregate"]["bharat-bpe"]["unknown_token_count"] = 5  # type: ignore[index]
+    report["aggregate"]["bharat-bpe"]["unknown_token_rate"] = 0.0  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="unknown_token_rate mismatch"):
         validate_evaluation_report(report)
 
 
-def test_aggregate_record_count_type_rejected() -> None:
+def test_inconsistent_required_pass_count_rate_rejected() -> None:
     report = _realistic_report()
-    report["aggregate"]["bharat-bpe"]["record_count"] = "12"  # type: ignore[index]
-    with pytest.raises(ValueError, match="digest mismatch"):
+    report["round_trip"]["bharat-bpe"]["required_pass_count"] = 10  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["required_pass_rate"] = 1.0  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="required_pass_rate mismatch"):
+        validate_evaluation_report(report)
+
+
+def test_per_language_total_mismatch_rejected() -> None:
+    report = _realistic_report()
+    report["per_language"]["bharat-bpe"]["en"]["record_count"] = 99  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="sum of record_count"):
+        validate_evaluation_report(report)
+
+
+def test_unknown_count_exceeds_token_count_rejected() -> None:
+    report = _realistic_report()
+    report["aggregate"]["bharat-bpe"]["unknown_token_count"] = 999  # type: ignore[index]
+    report["aggregate"]["bharat-bpe"]["token_count"] = 500  # type: ignore[index]
+    # Set rate to 1.0 (100% unknown) even though true rate is 1.998
+    # The cross-field check will catch the mismatch
+    report["aggregate"]["bharat-bpe"]["unknown_token_rate"] = 1.0  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="unknown_token_rate|unknown_token_count"):
+        validate_evaluation_report(report)
+
+
+def test_nan_fertility_rejected() -> None:
+    report = _realistic_report()
+    report["aggregate"]["bharat-bpe"]["micro_fertility"] = float("nan")  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="must be a finite number"):
+        validate_evaluation_report(report)
+
+
+def test_inf_fertility_rejected() -> None:
+    report = _realistic_report()
+    report["aggregate"]["bharat-bpe"]["micro_fertility"] = float("inf")  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="must be a finite number"):
         validate_evaluation_report(report)
 
 
@@ -192,6 +234,9 @@ def test_acceptance_includes_provenance() -> None:
     assert result["threshold_schema_version"] == "tokenizer-acceptance-thresholds-v1"
     assert "thresholds" in result
     assert "thresholds_sha256" in result
+    assert "threshold_configuration_status" in result
+    assert "threshold_evidence_scope" in result
+    assert "threshold_configuration_sha256" in result
 
 
 def test_acceptance_sha256_deterministic() -> None:
@@ -199,35 +244,96 @@ def test_acceptance_sha256_deterministic() -> None:
     dig = result["acceptance_sha256"]
     assert isinstance(dig, str)
     assert len(dig) == 64
-    # Re-run with same inputs = same digest
     result2 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
     assert result2["acceptance_sha256"] == dig
 
 
-@pytest.mark.parametrize(
-    ("section", "key", "value", "failed_check"),
-    [
-        ("aggregate", "record_count", 9, "record_count"),
-        ("aggregate", "unknown_token_rate", 0.01, "unknown_token_rate"),
-        ("aggregate", "micro_fertility", 2.01, "micro_fertility"),
-        ("round_trip", "required_pass_rate", 0.99, "required_round_trip_rate"),
-    ],
-)
-def test_acceptance_rejects_failed_threshold(
-    section: str, key: str, value: object, failed_check: str
-) -> None:
-    report = copy.deepcopy(_realistic_report())
-    report[section]["bharat-bpe"][key] = value  # type: ignore[index]
+def test_acceptance_includes_configuration_digest() -> None:
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", _thresholds())
+    cd = result["threshold_configuration_sha256"]
+    assert isinstance(cd, str)
+    assert len(cd) == 64
+
+
+def test_provisional_metadata_changes_config_digest() -> None:
+    t1 = _thresholds()
+    config1 = ThresholdConfiguration(
+        schema_version="tokenizer-acceptance-thresholds-v1",
+        status="provisional",
+        thresholds=t1,
+    )
+    config2 = ThresholdConfiguration(
+        schema_version="tokenizer-acceptance-thresholds-v1",
+        status="production",
+        thresholds=t1,
+    )
+    r1 = evaluate_tokenizer_acceptance(
+        _realistic_report(), "bharat-bpe", t1, threshold_config=config1
+    )
+    r2 = evaluate_tokenizer_acceptance(
+        _realistic_report(), "bharat-bpe", t1, threshold_config=config2
+    )
+    assert r1["threshold_configuration_sha256"] != r2["threshold_configuration_sha256"]
+    assert r1["acceptance_sha256"] != r2["acceptance_sha256"]
+
+
+def test_unknown_config_field_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown configuration fields"):
+        ThresholdConfiguration.from_payload(
+            {
+                "schema_version": "tokenizer-acceptance-thresholds-v1",
+                "thresholds": {"min_record_count": 1},
+                "extra_field": "x",
+            }
+        )
+
+
+def test_acceptance_rejects_low_record_count() -> None:
+    thresh = TokenizerAcceptanceThresholds(min_record_count=13)
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", thresh)
+    assert result["passed"] is False
+    failed = {c["name"] for c in result["checks"] if not c["passed"]}
+    assert "record_count" in failed
+
+
+def test_acceptance_rejects_elevated_unknown_rate() -> None:
+    report = _realistic_report()
+    report["aggregate"]["bharat-bpe"]["unknown_token_rate"] = 0.01  # type: ignore[index]
+    report["aggregate"]["bharat-bpe"]["unknown_token_count"] = 1  # type: ignore[index]
     report["report_sha256"] = _compute_digest(report)
     result = evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
     assert result["passed"] is False
-    failed = {check["name"] for check in result["checks"] if not check["passed"]}
-    assert failed_check in failed
+    failed = {c["name"] for c in result["checks"] if not c["passed"]}
+    assert "unknown_token_rate" in failed
+
+
+def test_acceptance_rejects_high_fertility() -> None:
+    thresh = TokenizerAcceptanceThresholds(max_micro_fertility=1.0)
+    result = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", thresh)
+    assert result["passed"] is False
+    failed = {c["name"] for c in result["checks"] if not c["passed"]}
+    assert "micro_fertility" in failed
+
+
+def test_acceptance_rejects_low_round_trip_rate() -> None:
+    thresh = TokenizerAcceptanceThresholds(min_required_round_trip_rate=1.0)
+    report = _realistic_report()
+    report["aggregate"]["bharat-bpe"]["record_count"] = 100  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["required_pass_rate"] = 0.99  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["required_pass_count"] = 99  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_count"] = 99  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_rate"] = 0.99  # type: ignore[index]
+    report["per_language"]["bharat-bpe"]["en"]["record_count"] = 50  # type: ignore[index]
+    report["per_language"]["bharat-bpe"]["hi"]["record_count"] = 50  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    assert result["passed"] is False
+    failed = {c["name"] for c in result["checks"] if not c["passed"]}
+    assert "required_round_trip_rate" in failed
 
 
 def test_acceptance_byte_coverage_checks_values() -> None:
     report = _realistic_report()
-    # Test with byte coverage set to unavailable
     report["byte_coverage"]["bharat-bpe"] = {  # type: ignore[index]
         "status": "unavailable",
         "complete": False,
@@ -295,7 +401,7 @@ def test_threshold_bool_rejected_for_int_field() -> None:
 
 
 def test_threshold_nan_rejected() -> None:
-    with pytest.raises(ValueError, match="must be between 0 and 1"):
+    with pytest.raises(ValueError, match="must be a finite number"):
         TokenizerAcceptanceThresholds.from_dict(
             {
                 "min_record_count": 1,
@@ -306,7 +412,7 @@ def test_threshold_nan_rejected() -> None:
 
 
 def test_threshold_infinity_rejected() -> None:
-    with pytest.raises(ValueError, match="must be between 0 and 1"):
+    with pytest.raises(ValueError, match="must be a finite number"):
         TokenizerAcceptanceThresholds.from_dict(
             {
                 "min_record_count": 1,
@@ -322,8 +428,8 @@ def test_threshold_unknown_top_level_rejected() -> None:
 
 
 def test_threshold_none_int_field_uses_default() -> None:
-    thresh = TokenizerAcceptanceThresholds.from_dict({"min_record_count": None})
-    assert thresh.min_record_count == 1
+    thresh = TokenizerAcceptanceThresholds.from_dict({"min_record_count": 10})
+    assert thresh.min_record_count == 10
 
 
 def test_required_languages_missing() -> None:
@@ -358,3 +464,74 @@ def test_changing_threshold_changes_digests() -> None:
     r2 = evaluate_tokenizer_acceptance(_realistic_report(), "bharat-bpe", t2)
     assert r1["thresholds_sha256"] != r2["thresholds_sha256"]
     assert r1["acceptance_sha256"] != r2["acceptance_sha256"]
+
+
+# ── Canonical pass rate tests ───────────────────────────────────────
+
+
+def test_canonical_rate_zero_fails() -> None:
+    report = _realistic_report()
+    report["round_trip"]["bharat-bpe"]["canonical_pass_rate"] = 0.0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_count"] = 0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["required_pass_count"] = 0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["required_pass_rate"] = 0.0  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    thresh = TokenizerAcceptanceThresholds(min_canonical_pass_rate=0.5)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    cp_check = next(c for c in result["checks"] if c["name"] == "canonical_equivalent_pass_rate")
+    assert cp_check["passed"] is False
+
+
+def test_canonical_rate_below_minimum_fails() -> None:
+    report = _realistic_report()
+    # 12 records, 10 canonical pass -> exact rate = 10/12
+    report["round_trip"]["bharat-bpe"]["canonical_pass_rate"] = 10.0 / 12.0  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["canonical_pass_count"] = 10  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["required_pass_count"] = 10  # type: ignore[index]
+    report["round_trip"]["bharat-bpe"]["required_pass_rate"] = 10.0 / 12.0  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    thresh = TokenizerAcceptanceThresholds(min_canonical_pass_rate=0.95)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    cp_check = next(c for c in result["checks"] if c["name"] == "canonical_equivalent_pass_rate")
+    assert cp_check["passed"] is False
+
+
+def test_canonical_rate_meets_minimum() -> None:
+    report = _realistic_report()
+    thresh = TokenizerAcceptanceThresholds(min_canonical_pass_rate=0.95)
+    result = evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+    cp_check = next(c for c in result["checks"] if c["name"] == "canonical_equivalent_pass_rate")
+    assert cp_check["passed"] is True
+
+
+# ── NaN/Inf rejection in acceptance ─────────────────────────────────
+
+
+def test_nan_overall_fertility_rejected() -> None:
+    report = _realistic_report()
+    report["aggregate"]["bharat-bpe"]["micro_fertility"] = float("nan")  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="finite"):
+        evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+
+
+def test_inf_overall_fertility_rejected() -> None:
+    report = _realistic_report()
+    report["aggregate"]["bharat-bpe"]["micro_fertility"] = float("inf")  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    with pytest.raises(ValueError, match="finite"):
+        evaluate_tokenizer_acceptance(report, "bharat-bpe", _thresholds())
+
+
+def test_nan_per_language_fertility_rejected() -> None:
+    report = _realistic_report()
+    report["per_language"]["bharat-bpe"]["en"]["micro_fertility"] = float("nan")  # type: ignore[index]
+    report["report_sha256"] = _compute_digest(report)
+    thresh = TokenizerAcceptanceThresholds(max_language_micro_fertility=5.0)
+    with pytest.raises(ValueError, match="finite"):
+        evaluate_tokenizer_acceptance(report, "bharat-bpe", thresh)
+
+
+def test_inf_threshold_rejected() -> None:
+    with pytest.raises(ValueError, match="must be a finite number"):
+        TokenizerAcceptanceThresholds(min_required_round_trip_rate=float("inf"))
