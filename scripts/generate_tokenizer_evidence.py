@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from scripts.validate_tokenizer_evidence import validate_evidence
+
 _EVIDENCE_DIR = Path("evidence/tokenizer/milestone-6-1-synthetic")
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -159,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--verify-committed",
         action="store_true",
-        help="Verify generated evidence matches committed evidence",
+        help="Verify generated evidence against committed evidence",
     )
     args = parser.parse_args(argv)
 
@@ -208,121 +210,31 @@ def main(argv: list[str] | None = None) -> int:
         print("Generation is deterministic: byte-identical across two runs")
 
         if args.verify_committed:
-            committed_report = _EVIDENCE_DIR / "evaluation-report.json"
-            committed_decision = _EVIDENCE_DIR / "acceptance-decision.json"
-            committed_manifest = _EVIDENCE_DIR / "manifest.json"
+            import shutil
 
-            if not committed_report.is_file():
-                print("error: committed evaluation report not found", file=sys.stderr)
-                return 1
+            verify_dir = tmp / "verify"
+            ev_dir = verify_dir / "evidence" / "tokenizer" / "milestone-6-1-synthetic"
+            ev_dir.mkdir(parents=True)
+            shutil.copy2(run1["report_path"], ev_dir / "evaluation-report.json")
+            shutil.copy2(run1["decision_path"], ev_dir / "acceptance-decision.json")
+            for src in [
+                (_REPO_ROOT / _TOKENIZER, "tests/fixtures/tiny_bpe_tokenizer.json"),
+                (_REPO_ROOT / _DATASET, "tests/fixtures/tokenizer_eval/all.jsonl"),
+                (_REPO_ROOT / _THRESHOLDS, "configs/tokenizers/bpe-64k-acceptance.json"),
+            ]:
+                dst = verify_dir / src[1]
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(src[0]), str(dst))
+            manifest_path = ev_dir / "manifest.json"
+            manifest_path.write_text(json.dumps(run1["manifest"], indent=2), encoding="utf-8")
 
-            ver_errors: list[str] = []
-            _compare_byte(
-                "committed vs generated report", committed_report, run1["report_path"], ver_errors
-            )
-            _compare_byte(
-                "committed vs generated decision",
-                committed_decision,
-                run1["decision_path"],
-                ver_errors,
-            )
-
-            cm = json.loads(committed_manifest.read_text(encoding="utf-8"))
-
-            cmp_manifest_fields = [
-                ("schema_version", "schema_version"),
-                ("evidence_scope", "evidence_scope"),
-                ("status", "status"),
-                ("tokenizer.artifact_path", "tokenizer", "artifact_path"),
-                ("tokenizer.artifact_sha256", "tokenizer", "artifact_sha256"),
-                ("tokenizer.fingerprint", "tokenizer", "fingerprint"),
-                ("evaluation_fixture.path", "evaluation_fixture", "path"),
-                ("evaluation_fixture.sha256", "evaluation_fixture", "sha256"),
-                (
-                    "threshold_configuration.path",
-                    "threshold_configuration",
-                    "path",
-                ),
-                (
-                    "threshold_configuration.sha256",
-                    "threshold_configuration",
-                    "sha256",
-                ),
-                (
-                    "threshold_configuration.thresholds_sha256",
-                    "threshold_configuration",
-                    "thresholds_sha256",
-                ),
-                (
-                    "threshold_configuration.configuration_sha256",
-                    "threshold_configuration",
-                    "configuration_sha256",
-                ),
-                ("evaluation_report.path", "evaluation_report", "path"),
-                ("evaluation_report.sha256", "evaluation_report", "sha256"),
-                (
-                    "evaluation_report.report_sha256",
-                    "evaluation_report",
-                    "report_sha256",
-                ),
-                (
-                    "evaluation_report.input_dataset_sha256",
-                    "evaluation_report",
-                    "input_dataset_sha256",
-                ),
-                (
-                    "acceptance_decision.path",
-                    "acceptance_decision",
-                    "path",
-                ),
-                (
-                    "acceptance_decision.sha256",
-                    "acceptance_decision",
-                    "sha256",
-                ),
-                (
-                    "acceptance_decision.acceptance_sha256",
-                    "acceptance_decision",
-                    "acceptance_sha256",
-                ),
-                (
-                    "acceptance_decision.input_report_sha256",
-                    "acceptance_decision",
-                    "input_report_sha256",
-                ),
-                (
-                    "acceptance_decision.tokenizer_name",
-                    "acceptance_decision",
-                    "tokenizer_name",
-                ),
-                (
-                    "acceptance_decision.tokenizer_fingerprint",
-                    "acceptance_decision",
-                    "tokenizer_fingerprint",
-                ),
-                ("acceptance_decision.passed", "acceptance_decision", "passed"),
-            ]
-
-            for entry in cmp_manifest_fields:
-                label = entry[0]
-                keys = entry[1:]
-                cv = cm
-                gv = run1["manifest"]
-                for k in keys:
-                    cv = cv.get(k, {}) if isinstance(cv, dict) else None
-                    gv = gv.get(k, {}) if isinstance(gv, dict) else None
-                if cv != gv:
-                    ver_errors.append(
-                        f"committed vs generated manifest {label}: "
-                        f"committed={cv!r}, generated={gv!r}"
-                    )
-
+            ver_errors = validate_evidence(manifest_path)
             if ver_errors:
                 for err in ver_errors:
                     print(f"error: {err}", file=sys.stderr)
                 return 1
 
-            print("Generated evidence matches committed evidence")
+            print("Generated evidence passes full provenance validation")
 
     return 0
 

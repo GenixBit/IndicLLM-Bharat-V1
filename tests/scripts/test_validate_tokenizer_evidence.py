@@ -279,7 +279,7 @@ def test_deterministic_double_generation(tmp_path) -> None:
     assert "byte-identical" in result.stdout
 
 
-def test_generated_vs_committed_byte_equality(tmp_path) -> None:
+def test_generated_vs_committed_provenance(tmp_path) -> None:
     import subprocess
     import sys
 
@@ -290,4 +290,4 @@ def test_generated_vs_committed_byte_equality(tmp_path) -> None:
         cwd=str(_REPO_ROOT),
     )
     assert result.returncode == 0, f"stdout:{result.stdout}\nstderr:{result.stderr}"
-    assert "matches committed" in result.stdout
+    assert "provenance validation" in result.stdout
