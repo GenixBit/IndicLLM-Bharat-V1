@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -287,6 +288,7 @@ class RecordMetrics:
     decoded_text: str
     exact_round_trip: bool
     nfc_round_trip: bool
+    canonical_evaluated: bool
     canonical_round_trip: bool
     required_pass: bool
 
@@ -343,6 +345,7 @@ def _compute_record_metrics(
 
     exact_round_trip = decoded == text
     nfc_round_trip = decoded == nfc_text
+    canonical_evaluated = record.canonical_equivalent is not None
     canonical_round_trip = True
     if record.canonical_equivalent is not None:
         canonical_ids = tokenizer.encode(record.canonical_equivalent, add_special_tokens=False)
@@ -373,6 +376,7 @@ def _compute_record_metrics(
         decoded_text=decoded,
         exact_round_trip=exact_round_trip,
         nfc_round_trip=nfc_round_trip,
+        canonical_evaluated=canonical_evaluated,
         canonical_round_trip=canonical_round_trip,
         required_pass=required_pass,
     )
@@ -430,7 +434,8 @@ class RoundTripSummary:
     nfc_pass_count: int
     nfc_pass_rate: float
     canonical_pass_count: int
-    canonical_pass_rate: float
+    canonical_pass_rate: float | None
+    canonical_evaluated_count: int
     required_pass_count: int
     required_pass_rate: float
     failure_records: list[dict[str, str]]
@@ -442,7 +447,8 @@ def _compute_round_trip(
     total = len(metrics)
     exact_pass = sum(1 for m in metrics if m.exact_round_trip)
     nfc_pass = sum(1 for m in metrics if m.nfc_round_trip)
-    canonical_pass = sum(1 for m in metrics if m.canonical_round_trip)
+    canonical_evaluated_count = sum(1 for m in metrics if m.canonical_evaluated)
+    canonical_pass = sum(1 for m in metrics if m.canonical_evaluated and m.canonical_round_trip)
     required_pass = sum(1 for m in metrics if m.required_pass)
 
     failure_records: list[dict[str, str]] = []
@@ -475,7 +481,10 @@ def _compute_round_trip(
         nfc_pass_count=nfc_pass,
         nfc_pass_rate=nfc_pass / total if total > 0 else 1.0,
         canonical_pass_count=canonical_pass,
-        canonical_pass_rate=canonical_pass / total if total > 0 else 1.0,
+        canonical_pass_rate=(
+            canonical_pass / canonical_evaluated_count if canonical_evaluated_count > 0 else None
+        ),
+        canonical_evaluated_count=canonical_evaluated_count,
         required_pass_count=required_pass,
         required_pass_rate=required_pass / total if total > 0 else 1.0,
         failure_records=failure_records,
@@ -554,6 +563,302 @@ class TokenizerProtocol(Protocol):
     def fingerprint(self) -> str: ...
 
 
+# ── Evaluation report validation ────────────────────────────────────
+
+
+def validate_evaluation_report(report: dict[str, Any]) -> None:
+    """Validate the structure, integrity and cross-field consistency of an
+    evaluation report.
+
+    Raises ``ValueError`` on the first integrity failure.
+    """
+    all_required: set[str] = {
+        "schema_version",
+        "evaluator_version",
+        "report_sha256",
+        "input_dataset_sha256",
+        "tokenizer_names",
+        "tokenizer_fingerprints",
+        "aggregate",
+        "per_language",
+        "per_script",
+        "per_domain",
+        "per_category",
+        "round_trip",
+        "fragmentation",
+        "byte_coverage",
+        "comparison",
+        "failed_records",
+    }
+    missing = all_required - report.keys()
+    if missing:
+        msg = f"report missing required keys: {', '.join(sorted(missing))}"
+        raise ValueError(msg)
+
+    if report.get("schema_version") != _SCHEMA_VERSION:
+        msg = f"unsupported schema_version: {report.get('schema_version')!r}"
+        raise ValueError(msg)
+
+    _validate_sha256(report, "input_dataset_sha256")
+
+    names = report.get("tokenizer_names")
+    if not isinstance(names, list) or len(names) == 0:
+        msg = "tokenizer_names must be a non-empty list"
+        raise ValueError(msg)
+    if len(names) != len(set(names)):
+        msg = "duplicate tokenizer_names entries"
+        raise ValueError(msg)
+    for n in names:
+        if not isinstance(n, str) or not n:
+            msg = f"invalid tokenizer name: {n!r}"
+            raise ValueError(msg)
+
+    fingerprints = report.get("tokenizer_fingerprints")
+    if not isinstance(fingerprints, dict):
+        msg = "tokenizer_fingerprints must be an object"
+        raise ValueError(msg)
+    for n in names:
+        fp = fingerprints.get(n)
+        if not isinstance(fp, str) or not fp:
+            msg = f"tokenizer {n!r} has missing or empty fingerprint"
+            raise ValueError(msg)
+
+    _validate_sha256(report, "report_sha256")
+
+    expected_digest = TokenizerEvaluation._compute_report_digest(report)
+    actual_digest = report["report_sha256"]
+    if expected_digest != actual_digest:
+        msg = f"report digest mismatch: expected {expected_digest}, got {actual_digest}"
+        raise ValueError(msg)
+
+    for section in (
+        "aggregate",
+        "per_language",
+        "per_script",
+        "per_domain",
+        "per_category",
+        "round_trip",
+        "byte_coverage",
+        "fragmentation",
+    ):
+        obj = report.get(section)
+        if not isinstance(obj, dict):
+            msg = f"report.{section} must be an object"
+            raise ValueError(msg)
+        for n in names:
+            if n not in obj:
+                msg = f"report.{section} missing entry for {n!r}"
+                raise ValueError(msg)
+            if not isinstance(obj[n], dict):
+                msg = f"report.{section}.{n} must be an object"
+                raise ValueError(msg)
+
+    for section in ("comparison", "failed_records"):
+        obj = report.get(section)
+        if not isinstance(obj, list):
+            msg = f"report.{section} must be a list"
+            raise ValueError(msg)
+
+    _validate_aggregate_values(report.get("aggregate", {}), names)
+    _validate_round_trip_values(report.get("round_trip", {}), names)
+    _validate_byte_coverage_structure(report.get("byte_coverage", {}), names)
+    _validate_cross_field_consistency(report, names)
+
+
+def _validate_sha256(report: dict[str, Any], key: str) -> None:
+    value = report.get(key)
+    if not isinstance(value, str):
+        msg = f"{key} must be a string"
+        raise ValueError(msg)
+    if not re.fullmatch(r"[0-9a-f]{64}", value):
+        msg = f"{key} must be a lowercase 64-character hex string"
+        raise ValueError(msg)
+
+
+def _validate_finite_number(value: Any, label: str) -> None:
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        msg = f"{label} must be a finite number, got {type(value).__name__}"
+        raise ValueError(msg)
+    if not math.isfinite(value):
+        msg = f"{label} must be a finite number, got {value}"
+        raise ValueError(msg)
+
+
+def _validate_aggregate_values(aggregate: dict[str, Any], names: list[str]) -> None:
+    for n in names:
+        entry = aggregate[n]
+        for field in ("record_count", "token_count", "unknown_token_count"):
+            v = entry.get(field)
+            if not (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+                msg = f"aggregate.{n}.{field} must be a non-negative integer"
+                raise ValueError(msg)
+        for field in ("micro_fertility", "macro_fertility"):
+            _validate_finite_number(entry.get(field), f"aggregate.{n}.{field}")
+        _validate_finite_number(
+            entry.get("unknown_token_rate"), f"aggregate.{n}.unknown_token_rate"
+        )
+        rate = entry.get("unknown_token_rate", 0.0)
+        if not 0.0 <= float(rate) <= 1.0:
+            msg = f"aggregate.{n}.unknown_token_rate must be between 0 and 1"
+            raise ValueError(msg)
+
+
+def _validate_round_trip_values(round_trip: dict[str, Any], names: list[str]) -> None:
+    for n in names:
+        entry = round_trip[n]
+        for field in (
+            "required_pass_rate",
+            "required_pass_count",
+            "canonical_pass_rate",
+            "canonical_pass_count",
+        ):
+            v = entry.get(field)
+            if v is not None:
+                _validate_finite_number(v, f"round_trip.{n}.{field}")
+        rate = entry.get("required_pass_rate", -1)
+        if not 0.0 <= float(rate) <= 1.0:
+            msg = f"round_trip.{n}.required_pass_rate must be between 0 and 1"
+            raise ValueError(msg)
+        cpr = entry.get("canonical_pass_rate")
+        if cpr is not None:
+            if not isinstance(cpr, int | float) or isinstance(cpr, bool):
+                msg = f"round_trip.{n}.canonical_pass_rate must be a number or null"
+                raise ValueError(msg)
+            if not 0.0 <= float(cpr) <= 1.0:
+                msg = f"round_trip.{n}.canonical_pass_rate must be between 0 and 1"
+                raise ValueError(msg)
+        cec = entry.get("canonical_evaluated_count")
+        if cec is not None and not (
+            isinstance(cec, int) and not isinstance(cec, bool) and cec >= 0
+        ):
+            msg = f"round_trip.{n}.canonical_evaluated_count must be a non-negative integer"
+            raise ValueError(msg)
+
+
+def _validate_byte_coverage_structure(byte_coverage: dict[str, Any], names: list[str]) -> None:
+    for n in names:
+        entry = byte_coverage.get(n)
+        if not isinstance(entry, dict):
+            msg = f"byte_coverage.{n} must be an object"
+            raise ValueError(msg)
+        bc_complete = entry.get("complete")
+        if not isinstance(bc_complete, bool):
+            msg = f"byte_coverage.{n}.complete must be a boolean"
+            raise ValueError(msg)
+        bc_status = entry.get("status")
+        if not isinstance(bc_status, str):
+            msg = f"byte_coverage.{n}.status must be a string"
+            raise ValueError(msg)
+        rc = entry.get("reachable_count")
+        if not (isinstance(rc, int) and not isinstance(rc, bool)):
+            msg = f"byte_coverage.{n}.reachable_count must be an integer"
+            raise ValueError(msg)
+        missing = entry.get("missing_byte_values")
+        if not isinstance(missing, list):
+            msg = f"byte_coverage.{n}.missing_byte_values must be a list"
+            raise ValueError(msg)
+        if bc_complete and rc < 256:
+            msg = f"byte_coverage.{n}: complete=True but reachable_count={rc} < 256"
+            raise ValueError(msg)
+        if bc_complete and len(missing) > 0:
+            msg = f"byte_coverage.{n}: complete=True but missing_byte_values non-empty"
+            raise ValueError(msg)
+
+
+def _validate_cross_field_consistency(report: dict[str, Any], names: list[str]) -> None:
+    aggregate = report.get("aggregate", {})
+    round_trip = report.get("round_trip", {})
+    per_language = report.get("per_language", {})
+
+    for n in names:
+        agg_entry = aggregate.get(n, {})
+        rt_entry = round_trip.get(n, {})
+
+        token_count = agg_entry.get("token_count", 0)
+        unknown_count = agg_entry.get("unknown_token_count", 0)
+        if unknown_count > token_count:
+            msg = f"aggregate.{n}: unknown_token_count > token_count"
+            raise ValueError(msg)
+
+        computed_rate = unknown_count / token_count if token_count > 0 else 0.0
+        reported_rate = agg_entry.get("unknown_token_rate", 0.0)
+        if abs(float(computed_rate) - float(reported_rate)) > 1e-12:
+            msg = (
+                f"aggregate.{n}: unknown_token_rate mismatch: "
+                f"computed={computed_rate}, reported={reported_rate}"
+            )
+            raise ValueError(msg)
+
+        record_count = agg_entry.get("record_count", 0)
+        required_pass_count = rt_entry.get("required_pass_count", 0)
+        if not (isinstance(required_pass_count, int) and not isinstance(required_pass_count, bool)):
+            msg = f"round_trip.{n}.required_pass_count must be an integer"
+            raise ValueError(msg)
+        if required_pass_count < 0:
+            msg = f"round_trip.{n}.required_pass_count must be non-negative"
+            raise ValueError(msg)
+        if required_pass_count > record_count:
+            msg = f"round_trip.{n}.required_pass_count > record_count"
+            raise ValueError(msg)
+
+        computed_rate_rt = required_pass_count / record_count if record_count > 0 else 1.0
+        reported_rate_rt = rt_entry.get("required_pass_rate", 0.0)
+        if abs(float(computed_rate_rt) - float(reported_rate_rt)) > 1e-12:
+            msg = (
+                f"round_trip.{n}: required_pass_rate mismatch: "
+                f"computed={computed_rate_rt}, reported={reported_rate_rt}"
+            )
+            raise ValueError(msg)
+
+        cp_count = rt_entry.get("canonical_pass_count")
+        cp_cec = rt_entry.get("canonical_evaluated_count")
+        if cp_count is not None:
+            if not (isinstance(cp_count, int) and not isinstance(cp_count, bool)):
+                msg = f"round_trip.{n}.canonical_pass_count must be an integer"
+                raise ValueError(msg)
+            evaluated = cp_cec if isinstance(cp_cec, int) and not isinstance(cp_cec, bool) else 0
+            if cp_count < 0:
+                msg = f"round_trip.{n}.canonical_pass_count must be non-negative"
+                raise ValueError(msg)
+            if cp_count > evaluated:
+                msg = f"round_trip.{n}.canonical_pass_count > canonical_evaluated_count"
+                raise ValueError(msg)
+            cp_rate = rt_entry.get("canonical_pass_rate")
+            if cp_rate is not None:
+                if not (isinstance(cp_rate, int | float) and not isinstance(cp_rate, bool)):
+                    msg = f"round_trip.{n}.canonical_pass_rate must be a number"
+                    raise ValueError(msg)
+                computed_cp = cp_count / evaluated if evaluated > 0 else 1.0
+                if abs(float(computed_cp) - float(cp_rate)) > 1e-12:
+                    msg = (
+                        f"round_trip.{n}: canonical_pass_rate mismatch: "
+                        f"computed={computed_cp}, reported={cp_rate}"
+                    )
+                    raise ValueError(msg)
+            else:
+                if evaluated > 0:
+                    msg = (
+                        f"round_trip.{n}: canonical_pass_rate is null but "
+                        f"canonical_evaluated_count={evaluated} > 0"
+                    )
+                    raise ValueError(msg)
+
+        lang_entries = per_language.get(n, {})
+        if isinstance(lang_entries, dict) and lang_entries:
+            lang_total = 0
+            for _lang_name, lang_metrics in lang_entries.items():
+                if isinstance(lang_metrics, dict):
+                    lrc = lang_metrics.get("record_count", 0)
+                    if isinstance(lrc, int) and not isinstance(lrc, bool):
+                        lang_total += lrc
+            if lang_total != record_count:
+                msg = (
+                    f"per_language.{n}: sum of record_count ({lang_total}) "
+                    f"!= aggregate record_count ({record_count})"
+                )
+                raise ValueError(msg)
+
+
 # ── Main evaluation class ────────────────────────────────────────────
 
 
@@ -609,6 +914,7 @@ class TokenizerEvaluation:
                         "merged_token_count": m.merged_token_count,
                         "exact_round_trip": m.exact_round_trip,
                         "nfc_round_trip": m.nfc_round_trip,
+                        "canonical_evaluated": m.canonical_evaluated,
                         "canonical_round_trip": m.canonical_round_trip,
                         "required_pass": m.required_pass,
                     }
@@ -689,6 +995,7 @@ class TokenizerEvaluation:
                 "nfc_pass_rate": rt.nfc_pass_rate,
                 "canonical_pass_count": rt.canonical_pass_count,
                 "canonical_pass_rate": rt.canonical_pass_rate,
+                "canonical_evaluated_count": rt.canonical_evaluated_count,
                 "required_pass_count": rt.required_pass_count,
                 "required_pass_rate": rt.required_pass_rate,
                 "failure_records": rt.failure_records,
