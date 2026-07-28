@@ -71,6 +71,14 @@ def _manifest(root: Path) -> Path:
     return path
 
 
+def _update_manifest(path: Path, update: object) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    assert callable(update)
+    update(payload)
+    path.write_bytes(_canonical(payload))
+
+
 def test_candidate_never_reports_accepted(tmp_path: Path) -> None:
     result = validate_production_evidence(_manifest(tmp_path))
     assert result.status == "candidate"
@@ -87,11 +95,53 @@ def test_noncanonical_manifest_is_rejected(tmp_path: Path) -> None:
 
 def test_path_escape_is_rejected(tmp_path: Path) -> None:
     manifest = _manifest(tmp_path)
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    payload["evaluation_input"]["path"] = "../outside.jsonl"
-    manifest.write_bytes(_canonical(payload))
+    _update_manifest(
+        manifest,
+        lambda payload: payload["evaluation_input"].__setitem__(
+            "path", "../outside.jsonl"
+        ),
+    )
     result = validate_production_evidence(manifest)
     assert "evaluation_input.path: path escapes evidence root" in result.errors
+
+
+def test_non_nfc_manifest_normalization_is_rejected(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    _update_manifest(
+        manifest,
+        lambda payload: payload["tokenizer"].__setitem__("normalization", "none"),
+    )
+    result = validate_production_evidence(manifest)
+    assert "tokenizer.normalization must be NFC" in result.errors
+
+
+def test_non_positive_language_count_is_rejected(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    _update_manifest(
+        manifest,
+        lambda payload: payload["language_coverage"]["record_counts"].__setitem__(
+            "hi", 0
+        ),
+    )
+    result = validate_production_evidence(manifest)
+    assert "record count for 'hi' must be a positive integer" in result.errors
+
+
+def test_accepted_manifest_requires_independent_byte_verification(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+
+    def mark_accepted(payload: dict[str, object]) -> None:
+        payload["status"] = "accepted"
+        tokenizer = payload["tokenizer"]
+        assert isinstance(tokenizer, dict)
+        tokenizer["byte_alphabet_complete"] = True
+
+    _update_manifest(manifest, mark_accepted)
+    result = validate_production_evidence(manifest)
+    assert (
+        "accepted evidence requires independently verified byte coverage"
+        in result.errors
+    )
 
 
 def test_cli_refuses_overwrite(tmp_path: Path) -> None:
