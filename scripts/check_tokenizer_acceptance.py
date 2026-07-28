@@ -27,9 +27,7 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "Check a local tokenizer evaluation report against deterministic thresholds"
-        )
+        description="Check a local tokenizer evaluation report against deterministic thresholds"
     )
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--thresholds", required=True, type=Path)
