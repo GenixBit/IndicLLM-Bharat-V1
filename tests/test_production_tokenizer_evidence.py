@@ -141,7 +141,8 @@ def test_accepted_manifest_requires_independent_byte_verification(
     _update_manifest(manifest, mark_accepted)
     result = validate_production_evidence(manifest)
     assert (
-        "accepted evidence requires independently verified byte coverage" in result.errors
+        "accepted evidence requires independently verified byte coverage"
+        in result.errors
     )
 
 
