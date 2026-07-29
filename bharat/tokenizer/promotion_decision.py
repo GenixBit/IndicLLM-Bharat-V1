@@ -90,14 +90,17 @@ def write_promotion_decision(record: PromotionDecisionRecord, output_path: Path)
     if output.exists():
         raise FileExistsError(f"refusing to overwrite existing output: {output}")
     payload = record.canonical_bytes()
+    owned = False
     try:
         with output.open("xb") as handle:
+            owned = True
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         if output.read_bytes() != payload:
             raise RuntimeError(f"byte-verification failed for {output}")
     except Exception:
-        output.unlink(missing_ok=True)
+        if owned:
+            output.unlink(missing_ok=True)
         raise
     return hashlib.sha256(payload).hexdigest()
