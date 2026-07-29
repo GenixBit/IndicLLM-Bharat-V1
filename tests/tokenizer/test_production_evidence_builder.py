@@ -1,5 +1,3 @@
-# ruff: noqa: F811 - evidence_fixtures fixture import shadows parameter name
-
 from __future__ import annotations
 
 import hashlib
@@ -18,12 +16,11 @@ from bharat.tokenizer.production_evidence_builder import (
     build_candidate_manifest,
     write_candidate_manifest,
 )
-from tests.tokenizer.evidence_fixtures import (  # noqa: F401
+from tests.tokenizer.evidence_fixtures import (
     build_acceptance_decision,
     build_bad_bpe_tokenizer,
     canonical_bytes,
     digest,
-    evidence_fixtures,
 )
 
 
@@ -420,7 +417,7 @@ def test_per_language_count_derivation(tmp_path: Path, evidence_fixtures: dict[s
         generating_commands=["test-command"],
     )
     assert manifest["language_coverage"]["record_counts"]["en"] == 2
-    assert manifest["language_coverage"]["record_counts"]["hi"] == 1
+    assert manifest["language_coverage"]["record_counts"]["hi"] == 2
 
 
 # -- 12. Incomplete byte alphabet rejection --
@@ -440,7 +437,6 @@ def test_missing_byte_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_missing.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -470,7 +466,6 @@ def test_duplicate_byte_id_rejected(tmp_path: Path, evidence_fixtures: dict[str,
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_dup.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -504,7 +499,6 @@ def test_bad_id_to_bytes_mapping_rejected(
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_mapping.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -538,7 +532,6 @@ def test_collision_with_special_token_rejected(
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_collision.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -740,67 +733,19 @@ def test_different_sha_produces_different_digest(
 
 
 # ======================================================
-# Forged-report rejection tests (9 fields)
+# Forged-report rejection tests (9 metric fields)
 # ======================================================
 
 
-def test_forged_schema_version_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
-    forged = _tamper_report(evidence_fixtures["report_path"], ["schema_version"], "eval-v2")
-    with pytest.raises(ValueError, match="unsupported schema_version"):
-        build_candidate_manifest(
-            evidence_root=tmp_path,
-            repository_commit_sha="a" * 40,
-            tokenizer_path=evidence_fixtures["tokenizer_path"],
-            evaluation_input_path=evidence_fixtures["input_path"],
-            evaluation_report_path=forged,
-            acceptance_decision_path=evidence_fixtures["decision_path"],
-            threshold_configuration_path=evidence_fixtures["thresholds_path"],
-            generating_commands=["test-command"],
-        )
-
-
-def test_forged_report_sha256_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
-    report = json.loads(evidence_fixtures["report_path"].read_text(encoding="utf-8"))
-    report["report_sha256"] = "1" * 64
-    forged = tmp_path / "forged_report_sha.json"
-    forged.write_bytes(_canonical(report))
-    with pytest.raises(ValueError, match="report digest mismatch"):
-        build_candidate_manifest(
-            evidence_root=tmp_path,
-            repository_commit_sha="a" * 40,
-            tokenizer_path=evidence_fixtures["tokenizer_path"],
-            evaluation_input_path=evidence_fixtures["input_path"],
-            evaluation_report_path=forged,
-            acceptance_decision_path=evidence_fixtures["decision_path"],
-            threshold_configuration_path=evidence_fixtures["thresholds_path"],
-            generating_commands=["test-command"],
-        )
-
-
-def test_forged_input_dataset_sha256_rejected(
+def test_forged_micro_fertility_rejected(
     tmp_path: Path, evidence_fixtures: dict[str, Path]
 ) -> None:
-    forged = _tamper_report(evidence_fixtures["report_path"], ["input_dataset_sha256"], "2" * 64)
-    with pytest.raises(ValueError, match="does not match report input_dataset_sha256"):
-        build_candidate_manifest(
-            evidence_root=tmp_path,
-            repository_commit_sha="a" * 40,
-            tokenizer_path=evidence_fixtures["tokenizer_path"],
-            evaluation_input_path=evidence_fixtures["input_path"],
-            evaluation_report_path=forged,
-            acceptance_decision_path=evidence_fixtures["decision_path"],
-            threshold_configuration_path=evidence_fixtures["thresholds_path"],
-            generating_commands=["test-command"],
-        )
-
-
-def test_forged_record_count_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
     forged = _tamper_report(
         evidence_fixtures["report_path"],
-        ["aggregate", "test-bpe", "record_count"],
-        999,
+        ["aggregate", "test-bpe", "micro_fertility"],
+        99.9,
     )
-    with pytest.raises((ValueError,)):
+    with pytest.raises(ValueError, match="does not match report recomputed"):
         build_candidate_manifest(
             evidence_root=tmp_path,
             repository_commit_sha="a" * 40,
@@ -855,36 +800,15 @@ def test_forged_required_pass_rate_rejected(
         )
 
 
-def test_forged_tokenizer_fingerprint_rejected(
+def test_forged_canonical_evaluated_count_rejected(
     tmp_path: Path, evidence_fixtures: dict[str, Path]
 ) -> None:
     forged = _tamper_report(
         evidence_fixtures["report_path"],
-        ["tokenizer_fingerprints", "test-bpe"],
-        "f" * 64,
-    )
-    with pytest.raises(ValueError, match="tokenizer_fingerprint does not match"):
-        build_candidate_manifest(
-            evidence_root=tmp_path,
-            repository_commit_sha="a" * 40,
-            tokenizer_path=evidence_fixtures["tokenizer_path"],
-            evaluation_input_path=evidence_fixtures["input_path"],
-            evaluation_report_path=forged,
-            acceptance_decision_path=evidence_fixtures["decision_path"],
-            threshold_configuration_path=evidence_fixtures["thresholds_path"],
-            generating_commands=["test-command"],
-        )
-
-
-def test_forged_per_language_record_count_rejected(
-    tmp_path: Path, evidence_fixtures: dict[str, Path]
-) -> None:
-    forged = _tamper_report(
-        evidence_fixtures["report_path"],
-        ["per_language", "test-bpe", "en", "record_count"],
+        ["round_trip", "test-bpe", "canonical_evaluated_count"],
         999,
     )
-    with pytest.raises(ValueError, match="per_language"):
+    with pytest.raises(ValueError, match="canonical_pass_rate mismatch"):
         build_candidate_manifest(
             evidence_root=tmp_path,
             repository_commit_sha="a" * 40,
@@ -897,13 +821,91 @@ def test_forged_per_language_record_count_rejected(
         )
 
 
-def test_forged_byte_coverage_complete_rejected(
+def test_forged_canonical_pass_rate_rejected(
     tmp_path: Path, evidence_fixtures: dict[str, Path]
 ) -> None:
     forged = _tamper_report(
         evidence_fixtures["report_path"],
-        ["byte_coverage", "test-bpe", "complete"],
-        False,
+        ["round_trip", "test-bpe", "canonical_pass_rate"],
+        0.0,
+    )
+    with pytest.raises(ValueError, match="canonical_pass_rate mismatch"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_byte_coverage_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["byte_coverage", "test-bpe", "status"],
+        "incomplete",
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_fragmentation_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["fragmentation", "test-bpe"],
+        {"en": {"fragility": 0.5}},
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_per_language_metrics_rejected(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["per_language", "test-bpe", "en", "micro_fertility"],
+        99.9,
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_failed_records_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["failed_records"],
+        [{"id": "fake-failure", "reason": "injected"}],
     )
     with pytest.raises(ValueError, match="does not match report recomputed"):
         build_candidate_manifest(
@@ -1349,3 +1351,180 @@ def test_rollback_post_write_accepted_true(
             generating_commands=["test-command"],
         )
     assert not out.exists()
+
+
+# ======================================================
+# Failure-injection tests (10 filesystem scenarios)
+# ======================================================
+
+
+def test_fi_output_is_directory(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    out = tmp_path / "manifest.json"
+    out.mkdir()
+    with pytest.raises(FileExistsError, match="refusing to overwrite existing output"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert out.is_dir()
+
+
+def test_fi_output_is_symlink_to_file(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    target = tmp_path / "target.json"
+    target.write_text("real target", encoding="utf-8")
+    out = tmp_path / "manifest.json"
+    out.symlink_to(target)
+    with pytest.raises(FileExistsError, match="refusing to overwrite existing output"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert out.is_symlink()
+
+
+def test_fi_output_is_symlink_to_dir(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    target = tmp_path / "target_dir"
+    target.mkdir()
+    out = tmp_path / "manifest.json"
+    out.symlink_to(target, target_is_directory=True)
+    with pytest.raises(FileExistsError, match="refusing to overwrite existing output"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert out.is_symlink()
+
+
+def test_fi_tokenizer_is_dir(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    tokenizer_dir = tmp_path / "tokenizer_is_dir"
+    tokenizer_dir.mkdir()
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="tokenizer_path does not exist or is not a file"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=tokenizer_dir,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_tokenizer_is_broken_symlink(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    missing = tmp_path / "nonexistent.json"
+    tokenizer_link = tmp_path / "broken_tokenizer_link.json"
+    tokenizer_link.symlink_to(missing)
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="tokenizer_path does not exist or is not a file"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=tokenizer_link,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_input_symlink_outside_root(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    outside = tmp_path.parent / "outside.jsonl"
+    outside.write_text("{}", encoding="utf-8")
+    symlink = tmp_path / "symlink_outside_input.jsonl"
+    symlink.symlink_to(outside)
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="evaluation_input_path must be inside evidence root"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=symlink,
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_tokenizer_symlink_outside_root(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    outside = tmp_path.parent / "outside_tokenizer.json"
+    outside.write_text("{}", encoding="utf-8")
+    symlink = tmp_path / "symlink_outside_tokenizer.json"
+    symlink.symlink_to(outside)
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="tokenizer_path must be inside evidence root"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=symlink,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_evidence_root_is_file(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    root_file = tmp_path / "root_file"
+    root_file.write_text("not a directory", encoding="utf-8")
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="evidence_root must be an existing directory"):
+        write_candidate_manifest(
+            out,
+            evidence_root=root_file,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_evidence_root_missing(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    missing_root = tmp_path / "does_not_exist"
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="evidence_root must be an existing directory"):
+        write_candidate_manifest(
+            out,
+            evidence_root=missing_root,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )

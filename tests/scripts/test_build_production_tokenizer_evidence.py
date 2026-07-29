@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from bharat.tokenizer.bpe import BPETokenizer
 from scripts.build_production_tokenizer_evidence import main
 from tests.tokenizer.evidence_fixtures import (
     build_acceptance_decision,
@@ -32,16 +31,14 @@ def _build_thresholds(tmp_path: Path) -> Path:
     return build_production_thresholds(tmp_path, name="thresholds.json")
 
 
-def _build_report(tmp_path: Path, tokenizer_name: str, tokenizer_fp: str, input_path: Path) -> Path:
+def _build_report(tmp_path: Path, tokenizer_name: str, input_path: Path) -> Path:
     return compute_real_report(tmp_path, tmp_path / "tokenizer.json", input_path, tokenizer_name)
 
 
 def _build_decision(
-    tmp_path: Path, report_path: Path, thresholds_path: Path, tokenizer_name: str, tokenizer_fp: str
+    tmp_path: Path, report_path: Path, thresholds_path: Path, tokenizer_name: str
 ) -> Path:
-    return build_acceptance_decision(
-        tmp_path, report_path, thresholds_path, tokenizer_name, tokenizer_fp
-    )
+    return build_acceptance_decision(tmp_path, report_path, thresholds_path, tokenizer_name)
 
 
 @pytest.fixture
@@ -49,12 +46,8 @@ def cli_fixtures(tmp_path: Path) -> dict[str, Path]:
     tokenizer_path = _build_bpe_tokenizer(tmp_path)
     input_path = _build_input_jsonl(tmp_path)
     thresholds_path = _build_thresholds(tmp_path)
-    tokenizer = BPETokenizer.load(tokenizer_path)
-    tokenizer_fp = tokenizer.compute_hash()
-    report_path = _build_report(tmp_path, "test-bpe", tokenizer_fp, input_path)
-    decision_path = _build_decision(
-        tmp_path, report_path, thresholds_path, "test-bpe", tokenizer_fp
-    )
+    report_path = _build_report(tmp_path, "test-bpe", input_path)
+    decision_path = _build_decision(tmp_path, report_path, thresholds_path, "test-bpe")
     return {
         "tokenizer_path": tokenizer_path,
         "input_path": input_path,

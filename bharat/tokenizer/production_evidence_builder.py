@@ -28,9 +28,7 @@ from bharat.tokenizer.production_evidence import (
 
 _GIT_OBJECT_ID = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
-_OWNERSHIP_MARKER = secrets.token_hex(8)
-_OWNED_FILES: set[Path] = set()
-_STALE_TEMP_GLOB = f".*.{_OWNERSHIP_MARKER}.*.tmp"
+_MAX_TEMP_RETRIES = 16
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -93,8 +91,43 @@ def _validate_manifest_root(
 
 def _check_output_path(output_path: Path) -> None:
     out = output_path.resolve()
-    if out.exists() and out.is_file():
+    if out.exists() or out.is_symlink():
         raise FileExistsError(f"refusing to overwrite existing output: {out}")
+
+
+def _publish_exclusive(path: Path, payload: bytes) -> bytes:
+    created = False
+    try:
+        with path.open("xb") as handle:
+            created = True
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        reread = path.read_bytes()
+        if reread != payload:
+            raise RuntimeError(
+                f"byte-verification failed for {path}: "
+                f"read-back {len(reread)} bytes, expected {len(payload)}"
+            )
+        return reread
+    except BaseException:
+        if created:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def _write_temp(directory: Path, prefix: str, payload: bytes) -> Path:
+    for attempt in range(_MAX_TEMP_RETRIES):
+        temp = directory / f".{prefix}.{secrets.token_hex(8)}.tmp"
+        try:
+            _publish_exclusive(temp, payload)
+            return temp
+        except FileExistsError:
+            if attempt == _MAX_TEMP_RETRIES - 1:
+                raise
+            continue
+    raise RuntimeError(f"failed to create temp file after {_MAX_TEMP_RETRIES} attempts")
 
 
 def build_candidate_manifest(
@@ -108,8 +141,6 @@ def build_candidate_manifest(
     threshold_configuration_path: Path,
     generating_commands: list[str],
 ) -> dict[str, Any]:
-    """Build a deterministic candidate manifest from caller-provided local evidence."""
-
     if _GIT_OBJECT_ID.fullmatch(repository_commit_sha) is None:
         raise ValueError("repository_commit_sha must be a lowercase 40- or 64-character hex ID")
     if not generating_commands or any(
@@ -246,41 +277,7 @@ def build_candidate_manifest(
     }
 
 
-def _publish_exclusive(path: Path, payload: bytes) -> None:
-    with path.open("xb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    reread = path.read_bytes()
-    if reread != payload:
-        raise RuntimeError(
-            f"byte-verification failed for {path}: "
-            f"read-back {len(reread)} bytes, expected {len(payload)}"
-        )
-    _OWNED_FILES.discard(path)
-
-
-def _register_owned(path: Path) -> None:
-    _OWNED_FILES.add(path)
-
-
-def _cleanup_stale_temps(root: Path) -> None:
-    from contextlib import suppress
-
-    for p in root.glob(_STALE_TEMP_GLOB):
-        with suppress(OSError):
-            p.unlink(missing_ok=True)
-
-
-def _cleanup_owned() -> None:
-    while _OWNED_FILES:
-        path = _OWNED_FILES.pop()
-        path.unlink(missing_ok=True)
-
-
 def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
-    """Validate and publish a canonical candidate manifest without overwriting files."""
-
     _check_output_path(output_path)
 
     evidence_root = kwargs.get("evidence_root")
@@ -288,19 +285,16 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
         root_resolved = evidence_root.resolve() if isinstance(evidence_root, Path) else None
         if root_resolved is not None:
             _validate_manifest_root(output_path, root_resolved)
-            _cleanup_stale_temps(root_resolved)
 
     manifest = build_candidate_manifest(**kwargs)
     payload = _canonical_bytes(manifest)
 
     output = output_path.resolve()
     final_digest = hashlib.sha256(payload).hexdigest()
-
-    temp = output.with_name(f".{output.name}.{_OWNERSHIP_MARKER}.{secrets.token_hex(8)}.tmp")
     created: list[Path] = []
+
     try:
-        _register_owned(temp)
-        _publish_exclusive(temp, payload)
+        temp = _write_temp(output.parent, output.name, payload)
         created.append(temp)
 
         validation = validate_production_evidence(temp)
@@ -309,10 +303,9 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
                 "candidate evidence validation failed: " + "; ".join(validation.errors)
             )
 
-        if output.exists():
+        if output.exists() or output.is_symlink():
             raise FileExistsError(f"refusing to overwrite existing output: {output}")
 
-        _register_owned(output)
         _publish_exclusive(output, payload)
         created.append(output)
 
@@ -343,10 +336,9 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
         for f in created:
             f.unlink(missing_ok=True)
         raise
-    finally:
-        for f in created:
-            if f != output:
-                f.unlink(missing_ok=True)
-        _cleanup_owned()
+
+    for f in created:
+        if f.resolve() != output.resolve():
+            f.unlink(missing_ok=True)
 
     return final_digest

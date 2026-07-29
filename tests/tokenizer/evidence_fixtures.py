@@ -122,6 +122,14 @@ def build_input_jsonl(
             "domain": "news",
             "text": "Good morning",
         },
+        {
+            "id": "rec-4",
+            "language": "hi",
+            "script": "Devanagari",
+            "domain": "canonical",
+            "text": "\u092d\u093e\u0930\u0924",
+            "canonical_equivalent": "\u092d\u093e\u0930\u0924",
+        },
     ]
     lines = "\n".join(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in records)
     path = tmp_path / name
@@ -137,11 +145,12 @@ def build_production_thresholds(tmp_path: Path, name: str = "thresholds.json") -
         "notes": [],
         "thresholds": {
             "min_record_count": 1,
-            "min_required_round_trip_rate": 0.0,
-            "min_canonical_pass_rate": 0.0,
-            "max_unknown_token_rate": 1.0,
-            "require_complete_byte_coverage": False,
-            "required_languages": ["en"],
+            "min_required_round_trip_rate": 1.0,
+            "min_canonical_pass_rate": 1.0,
+            "min_canonical_evaluated_count": 1,
+            "max_unknown_token_rate": 0.0,
+            "require_complete_byte_coverage": True,
+            "required_languages": ["en", "hi"],
             "min_records_per_required_language": 1,
         },
     }
@@ -172,7 +181,6 @@ def build_acceptance_decision(
     report_path: Path,
     thresholds_path: Path,
     tokenizer_name: str,
-    tokenizer_fp: str | None = None,
     name: str = "decision.json",
 ) -> Path:
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -196,9 +204,7 @@ def evidence_fixtures(tmp_path: Path) -> dict[str, Any]:
     report_path = compute_real_report(tmp_path, tokenizer_path, input_path, "test-bpe")
     tokenizer = BPETokenizer.load(tokenizer_path)
     tokenizer_fp = tokenizer.compute_hash()
-    decision_path = build_acceptance_decision(
-        tmp_path, report_path, thresholds_path, "test-bpe", tokenizer_fp
-    )
+    decision_path = build_acceptance_decision(tmp_path, report_path, thresholds_path, "test-bpe")
     return {
         "tokenizer_path": tokenizer_path,
         "input_path": input_path,
