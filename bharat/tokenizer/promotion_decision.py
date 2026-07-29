@@ -22,6 +22,10 @@ def _canonical_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -69,16 +73,20 @@ def build_promotion_decision(
     if decision not in ("approve", "reject"):
         raise ValueError("decision must be 'approve' or 'reject'")
 
+    manifest_sha256 = _sha256(manifest_path)
+    readiness_bytes = readiness_path.read_bytes()
     report = inspect_evidence_readiness(manifest_path)
-    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    if _sha256(manifest_path) != manifest_sha256:
+        raise ValueError("manifest changed during readiness validation")
+    readiness = json.loads(readiness_bytes.decode("utf-8"))
     if readiness != report.to_canonical_dict():
         raise ValueError("readiness report does not match current manifest validation")
     if decision == "approve" and not report.ready_for_human_promotion:
         raise ValueError("cannot approve evidence that is not ready for human promotion")
 
     return PromotionDecisionRecord(
-        manifest_sha256=_sha256(manifest_path),
-        readiness_sha256=_sha256(readiness_path),
+        manifest_sha256=manifest_sha256,
+        readiness_sha256=_sha256_bytes(readiness_bytes),
         decision=decision,
         operator=operator,
         rationale=rationale,
