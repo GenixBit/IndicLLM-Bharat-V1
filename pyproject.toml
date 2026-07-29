@@ -45,6 +45,7 @@ run-export-plan = "scripts.run_export_plan:main"
 check-tokenizer-acceptance = "scripts.check_tokenizer_acceptance:main"
 evaluate-tokenizer = "scripts.evaluate_tokenizer:main"
 validate-tokenizer-evidence = "scripts.validate_tokenizer_evidence:main"
+validate-production-tokenizer-evidence = "scripts.validate_production_tokenizer_evidence:main"
 
 [project.optional-dependencies]
 dev = [

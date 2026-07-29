@@ -1,11 +1,11 @@
 # AGENTS.md — Session Log
 
-## Session: Milestone 3.5 — Dataset Approval & Release Packaging
+## Session: Milestone 6.1 — Tokenizer Acceptance Gate Hardening (PR #63 review)
 
-**Date:** 2026-07-20
-**Branch:** `feat/milestone-3-dataset-approval-release`
-**HEAD:** (current)
-**Upstream:** Not yet pushed. All acceptance criteria met.
+**Date:** 2026-07-28
+**Branch:** `feat/milestone-6-1-tokenizer-acceptance-gate`
+**HEAD:** `add8242`
+**Upstream:** Pushed to origin. PR #63 updated.
 
 ---
 
@@ -13,40 +13,44 @@
 
 | Time | Action |
 |------|--------|
-| Start | Loaded repository on `main` at `5ba4d9b` (Milestones 3.1–3.4.1 merged). |
-| Step 0 | Verified ruff format ✓, ruff check (15 pre-existing RUF015), mypy ✓, 997 tests pass ✓, registry valid ✓. |
-| Implemented | `bharat/data/approval.py` — `DatasetApproval` frozen dataclass, `validate_approval_for_manifest()`. |
-| Implemented | `bharat/data/release.py` — `DatasetRelease`, `DatasetAuditReport`, `DatasetReleaseBuilder` with local shard verification. |
-| Implemented | `scripts/validate_dataset_approval.py` — CLI for approval vs manifest validation. |
-| Implemented | `scripts/build_dataset_release.py` — CLI for release package building. |
-| Implemented | 65 new tests across approval (18), release (30), validate CLI (12), build CLI (5). |
-| Updated | `bharat/data/__init__.py`, `pyproject.toml`. |
-| Verified | 1062 tests pass (65 new), ruff/mypy clean, registry valid. |
+| Start | Loaded branch `feat/milestone-6-1-tokenizer-acceptance-gate` at `96c5860`. |
+| Step 1 | Read all source and test files for acceptance, evaluation, and CLI modules. |
+| Step 2 | Added `canonical_evaluated: bool` to `RecordMetrics` in evaluation.py. |
+| Step 3 | Added `canonical_evaluated_count` to `RoundTripSummary` and `_build_report`. |
+| Step 4 | Fixed `canonical_pass_rate` denominator to use `canonical_evaluated_count`. |
+| Step 5 | Updated validation in `_validate_round_trip_values` and `_validate_cross_field_consistency`. |
+| Step 6 | Made `ThresholdConfiguration` the authoritative API — removed separate `thresholds` param. |
+| Step 7 | Added `min_canonical_evaluated_count` threshold field with validation. |
+| Step 8 | Added canonical_evaluated_count check in `_add_canonical_pass_checks`. |
+| Step 9 | Hardened config validation: non-string notes, duplicate/empty language names, production scope. |
+| Step 10 | Fixed dry-run exit: returns 2 on threshold failure instead of always 0. |
+| Step 11 | Added digest recomputation verification in CLI publication. |
+| Step 12 | Updated all tests for new API and added 16 new tests. |
+| Step 13 | Verified: 75/75 tests pass, ruff format ✓, ruff check ✓. |
+| Step 14 | Committed add8242, pushed, updated PR #63 description. |
+| Step 15 | Identified CI mypy error: `str | None` to `encode()`. |
+| Step 16 | Fixed via `if record.canonical_equivalent is not None` (type narrowing). |
+| Step 17 | Updated config to `min_canonical_evaluated_count: 1`. |
+| Step 18 | Made `canonical_pass_rate` null when `canonical_evaluated_count` is 0. |
+| Step 19 | Used exclusive creation (`xb`) for temporary publication file. |
+| Step 20 | Added 4 new tests (committed config, zero evidence, temp collision). |
+| Step 21 | Verified: mypy ✓, ruff ✓, 79 tests ✓, CI all green (run #352). |
+| Step 22 | Committed d79a528, pushed, updated PR as ready for review. |
 
 ---
 
-### Milestone 3.5 Changes
+### Changes (round 2)
 
 | File | Change |
 |------|--------|
-| `bharat/data/approval.py` | `DatasetApproval` dataclass + `validate_approval_for_manifest()` |
-| `bharat/data/release.py` | `DatasetRelease`, `DatasetAuditReport`, `DatasetReleaseBuilder` |
-| `scripts/validate_dataset_approval.py` | CLI: validate approval against manifest |
-| `scripts/build_dataset_release.py` | CLI: build release JSON from manifest + approval |
-| `bharat/data/__init__.py` | Added approval + release exports |
-| `pyproject.toml` | Added `validate-dataset-approval` + `build-dataset-release` entry points |
+| `bharat/tokenizer/evaluation.py` | Restored type-narrowing `if record.canonical_equivalent is not None`, `canonical_pass_rate` is `float | None`, null when 0 evaluated |
+| `configs/tokenizers/bpe-64k-acceptance.json` | Added `min_canonical_evaluated_count: 1` |
+| `scripts/check_tokenizer_acceptance.py` | Exclusive `xb` for tmp file, updated docstring |
+| `tests/tokenizer/test_acceptance.py` | Added 4 tests (committed config, zero evidence pass/fail) |
+| `tests/scripts/test_check_tokenizer_acceptance.py` | Added temp name collision test |
 
-### Test Stats
+### Test Stats (final)
 
-- **Total:** 1062 passed, 7 skipped, 6 deselected
-- **New data tests:** 48 (approval + release)
-- **New CLI tests:** 17 (validate + build)
-
-### Milestone 3.5 Complete ✅
-
-### Still Open / Not Yet Started
-
-- Milestone 4: BharatBench evaluation framework
-- Milestone 5: Production serving (streaming, auth, metrics)
-- Milestone 6-7: Bharat-350M and Bharat-1B training
-- Docker/Kubernetes deployment configs
+- **Acceptance tests:** 62 passed
+- **CLI tests:** 17 passed
+- **Total relevant:** 79 passed

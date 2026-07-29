@@ -859,6 +859,34 @@ def _validate_cross_field_consistency(report: dict[str, Any], names: list[str]) 
                 raise ValueError(msg)
 
 
+# ── Public helpers for dataset digest ────────────────────────────────
+
+
+def load_evaluation_records(path: Path) -> list[EvaluationRecord]:
+    """Load and validate an evaluation JSONL file, returning EvaluationRecords."""
+    return _validate_jsonl(path)
+
+
+def compute_evaluation_dataset_sha256(records: list[EvaluationRecord]) -> str:
+    """Compute the canonical SHA-256 digest of a sorted evaluation dataset."""
+    ordered = sorted(records, key=lambda r: r.record_id)
+    h = hashlib.sha256()
+    for r in ordered:
+        obj = {
+            "record_id": r.record_id,
+            "language": r.language,
+            "script": r.script,
+            "domain": r.domain,
+            "text": r.text,
+            "tags": sorted(r.tags),
+            "canonical_equivalent": r.canonical_equivalent,
+            "category": r.category,
+        }
+        canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        h.update(canonical.encode("utf-8"))
+    return h.hexdigest()
+
+
 # ── Main evaluation class ────────────────────────────────────────────
 
 
@@ -1158,22 +1186,7 @@ class TokenizerEvaluation:
     def _compute_dataset_hash(self) -> str:
         if self._records is None:
             return ""
-        ordered = sorted(self._records, key=lambda r: r.record_id)
-        h = hashlib.sha256()
-        for r in ordered:
-            obj = {
-                "record_id": r.record_id,
-                "language": r.language,
-                "script": r.script,
-                "domain": r.domain,
-                "text": r.text,
-                "tags": sorted(r.tags),
-                "canonical_equivalent": r.canonical_equivalent,
-                "category": r.category,
-            }
-            canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-            h.update(canonical.encode("utf-8"))
-        return h.hexdigest()
+        return compute_evaluation_dataset_sha256(self._records)
 
     @staticmethod
     def _compute_report_digest(payload: dict[str, Any]) -> str:
