@@ -70,7 +70,7 @@ class ProductionEvidenceValidation:
         return _canonical_bytes(self.to_canonical_dict())
 
 
-def _reject_non_finite(value: str) -> NoReturn:
+def reject_non_finite(value: str) -> NoReturn:
     raise ValueError(f"JSON contains non-finite value: {value!r}")
 
 
@@ -87,7 +87,7 @@ def _canonical_bytes(value: Any) -> bytes:
 def _load_canonical_json(path: Path, errors: list[str], label: str) -> Any | None:
     try:
         raw = path.read_bytes()
-        value = json.loads(raw.decode("utf-8"), parse_constant=_reject_non_finite)
+        value = json.loads(raw.decode("utf-8"), parse_constant=reject_non_finite)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         errors.append(f"{label}: invalid JSON: {exc}")
         return None
@@ -312,7 +312,7 @@ def _validate_tokenizer_artifact(
     return loaded_tokenizer, bpe_tokenizer
 
 
-def _byte_alphabet_complete(tokenizer: BPETokenizer | None) -> bool:
+def byte_alphabet_complete(tokenizer: BPETokenizer | None) -> bool:
     if tokenizer is None:
         return False
     mapping = tokenizer.byte_value_to_id
@@ -532,7 +532,7 @@ def _check_accepted_evidence(
 ) -> None:
     if errors:
         return
-    complete = _byte_alphabet_complete(bpe_tokenizer)
+    complete = byte_alphabet_complete(bpe_tokenizer)
     tokenizer_manifest = manifest.get("tokenizer")
     if not isinstance(tokenizer_manifest, dict):
         tokenizer_manifest = {}
