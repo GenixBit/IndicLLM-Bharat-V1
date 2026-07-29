@@ -48,7 +48,9 @@ def verify_promotion_package_directory(
     missing = sorted(_REQUIRED_FILES - actual)
     unexpected = sorted(actual - _REQUIRED_FILES)
     if missing:
-        raise ValueError(f"promotion package is missing required files: {', '.join(missing)}")
+        raise ValueError(
+            f"promotion package is missing required files: {', '.join(missing)}"
+        )
     if unexpected:
         raise ValueError(
             f"promotion package contains unexpected entries: {', '.join(unexpected)}"
