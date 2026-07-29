@@ -26,9 +26,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    output = args.output.resolve()
     try:
         digest = write_candidate_manifest(
-            args.output,
+            output,
             evidence_root=args.evidence_root,
             repository_commit_sha=args.repository_commit_sha,
             tokenizer_path=args.tokenizer,
@@ -38,15 +39,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             threshold_configuration_path=args.threshold_configuration,
             generating_commands=args.generating_command,
         )
+    except FileExistsError as exc:
+        print(json.dumps({"error": str(exc)}, sort_keys=True))
+        return 3
     except (OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, sort_keys=True))
         return 2
-    print(
-        json.dumps(
-            {"manifest_sha256": digest, "output": str(args.output.resolve())},
-            sort_keys=True,
-        )
-    )
+    print(json.dumps({"manifest_sha256": digest}, sort_keys=True))
     return 0
 
 
