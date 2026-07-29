@@ -32,7 +32,11 @@ def test_verifies_complete_directory(
     verified = module.verify_promotion_package_directory(package)
 
     assert verified.package is result
-    assert verified.filenames == ("decision.json", "manifest.json", "readiness.json")
+    assert verified.filenames == (
+        "decision.json",
+        "manifest.json",
+        "readiness.json",
+    )
     assert calls == [
         (
             package / "manifest.json",
