@@ -72,27 +72,28 @@ def _relative_file(root: Path, path: Path, label: str) -> tuple[Path, str]:
     return resolved, relative.as_posix()
 
 
+def _check_output_path(output_path: Path) -> None:
+    if os.path.lexists(os.fspath(output_path)):
+        raise FileExistsError(f"refusing to overwrite existing output: {output_path}")
+
+
 def _validate_manifest_root(
     output_path: Path,
     evidence_root: Path,
-) -> None:
-    out = output_path.resolve()
+) -> tuple[Path, Path]:
     root = evidence_root.resolve()
     if not root.is_dir():
         raise ValueError("evidence_root must be an existing directory")
-    if out.parent != root:
+    output_parent = output_path.parent.resolve(strict=True)
+    if output_parent != root:
         raise ValueError(
             f"output must be directly inside evidence_root, "
-            f"got parent={out.parent}, expected={root}"
+            f"got parent={output_parent}, expected={root}"
         )
-    if out == root:
+    output = output_parent / output_path.name
+    if output == root:
         raise ValueError("output must be a file, not evidence_root itself")
-
-
-def _check_output_path(output_path: Path) -> None:
-    out = output_path.resolve()
-    if out.exists() or out.is_symlink():
-        raise FileExistsError(f"refusing to overwrite existing output: {out}")
+    return root, output
 
 
 def _publish_exclusive(path: Path, payload: bytes) -> bytes:
@@ -282,14 +283,17 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
 
     evidence_root = kwargs.get("evidence_root")
     if evidence_root is not None:
-        root_resolved = evidence_root.resolve() if isinstance(evidence_root, Path) else None
-        if root_resolved is not None:
-            _validate_manifest_root(output_path, root_resolved)
+        root = evidence_root.resolve() if isinstance(evidence_root, Path) else None
+        if root is not None:
+            _, output = _validate_manifest_root(output_path, root)
+        else:
+            output = output_path
+    else:
+        output = output_path
 
     manifest = build_candidate_manifest(**kwargs)
     payload = _canonical_bytes(manifest)
 
-    output = output_path.resolve()
     final_digest = hashlib.sha256(payload).hexdigest()
     created: list[Path] = []
 
@@ -303,16 +307,17 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
                 "candidate evidence validation failed: " + "; ".join(validation.errors)
             )
 
-        if output.exists() or output.is_symlink():
+        if os.path.lexists(os.fspath(output)):
             raise FileExistsError(f"refusing to overwrite existing output: {output}")
 
-        _publish_exclusive(output, payload)
+        published = _publish_exclusive(output, payload)
         created.append(output)
 
-        output_recheck = hashlib.sha256(output.read_bytes()).hexdigest()
-        if output_recheck != final_digest:
+        if published != payload:
             raise RuntimeError(
-                f"final SHA-256 mismatch: computed {output_recheck}, expected {final_digest}"
+                f"byte-verification failed for {output}: "
+                f"exclusive publication returned {len(published)} bytes, "
+                f"expected {len(payload)}"
             )
 
         publish_validation = validate_production_evidence(output)
@@ -330,6 +335,20 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
             raise ValueError("published candidate evidence must not report accepted=True")
 
         final_bytes = output.read_bytes()
+        if final_bytes != payload:
+            output.unlink(missing_ok=True)
+            created.remove(output)
+            raise RuntimeError(
+                f"final byte verification failed for {output}: "
+                f"read-back {len(final_bytes)} bytes, expected {len(payload)}"
+            )
+        if final_bytes != published:
+            output.unlink(missing_ok=True)
+            created.remove(output)
+            raise RuntimeError(
+                f"final byte mismatch between publication and read-back for {output}"
+            )
+
         final_digest = hashlib.sha256(final_bytes).hexdigest()
 
     except BaseException:
