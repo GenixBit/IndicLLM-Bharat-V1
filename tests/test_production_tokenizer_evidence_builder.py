@@ -72,8 +72,7 @@ def _build_inputs(root: Path) -> tuple[Path, Path, Path, Path, Path]:
         },
     ]
     input_path.write_text(
-        "\n".join(json.dumps(item, sort_keys=True, ensure_ascii=False) for item in records)
-        + "\n",
+        "\n".join(json.dumps(item, sort_keys=True, ensure_ascii=False) for item in records) + "\n",
         encoding="utf-8",
     )
 
