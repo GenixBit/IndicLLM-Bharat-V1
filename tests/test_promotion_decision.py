@@ -136,3 +136,23 @@ def test_create_race_does_not_delete_unowned_output(
     with pytest.raises(FileExistsError):
         module.write_promotion_decision(record, output)
     assert output.read_text(encoding="utf-8") == "raced"
+
+
+def test_rejects_manifest_mutation_during_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest, readiness = _paths(tmp_path)
+
+    def mutate_manifest(_: Path) -> SimpleNamespace:
+        manifest.write_text('{"status":"replaced"}', encoding="utf-8")
+        return _report()
+
+    monkeypatch.setattr(module, "inspect_evidence_readiness", mutate_manifest)
+    with pytest.raises(ValueError, match="changed during readiness validation"):
+        module.build_promotion_decision(
+            manifest,
+            readiness,
+            decision="approve",
+            operator="reviewer",
+            rationale="verified",
+        )
