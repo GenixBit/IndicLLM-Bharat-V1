@@ -127,7 +127,9 @@ def test_non_positive_language_count_is_rejected(tmp_path: Path) -> None:
     assert "record count for 'hi' must be a positive integer" in result.errors
 
 
-def test_accepted_manifest_requires_independent_byte_verification(tmp_path: Path) -> None:
+def test_accepted_manifest_requires_independent_byte_verification(
+    tmp_path: Path,
+) -> None:
     manifest = _manifest(tmp_path)
 
     def mark_accepted(payload: dict[str, object]) -> None:
@@ -138,7 +140,10 @@ def test_accepted_manifest_requires_independent_byte_verification(tmp_path: Path
 
     _update_manifest(manifest, mark_accepted)
     result = validate_production_evidence(manifest)
-    assert "accepted evidence requires independently verified byte coverage" in result.errors
+    assert (
+        "accepted evidence requires independently verified byte coverage"
+        in result.errors
+    )
 
 
 def test_cli_refuses_overwrite(tmp_path: Path) -> None:
