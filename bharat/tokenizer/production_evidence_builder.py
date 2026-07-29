@@ -13,7 +13,9 @@ from bharat.tokenizer.acceptance import (
     evaluate_tokenizer_acceptance,
 )
 from bharat.tokenizer.bpe import BPETokenizer
+from bharat.tokenizer.bpe_adapter import BharatBPETokenizer
 from bharat.tokenizer.evaluation import (
+    TokenizerEvaluation,
     compute_evaluation_dataset_sha256,
     load_evaluation_records,
     validate_evaluation_report,
@@ -25,6 +27,8 @@ from bharat.tokenizer.production_evidence import (
 )
 
 _GIT_OBJECT_ID = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+
+_MAX_TEMP_RETRIES = 16
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -87,8 +91,43 @@ def _validate_manifest_root(
 
 def _check_output_path(output_path: Path) -> None:
     out = output_path.resolve()
-    if out.exists() and out.is_file():
+    if out.exists() or out.is_symlink():
         raise FileExistsError(f"refusing to overwrite existing output: {out}")
+
+
+def _publish_exclusive(path: Path, payload: bytes) -> bytes:
+    created = False
+    try:
+        with path.open("xb") as handle:
+            created = True
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        reread = path.read_bytes()
+        if reread != payload:
+            raise RuntimeError(
+                f"byte-verification failed for {path}: "
+                f"read-back {len(reread)} bytes, expected {len(payload)}"
+            )
+        return reread
+    except BaseException:
+        if created:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def _write_temp(directory: Path, prefix: str, payload: bytes) -> Path:
+    for attempt in range(_MAX_TEMP_RETRIES):
+        temp = directory / f".{prefix}.{secrets.token_hex(8)}.tmp"
+        try:
+            _publish_exclusive(temp, payload)
+            return temp
+        except FileExistsError:
+            if attempt == _MAX_TEMP_RETRIES - 1:
+                raise
+            continue
+    raise RuntimeError(f"failed to create temp file after {_MAX_TEMP_RETRIES} attempts")
 
 
 def build_candidate_manifest(
@@ -102,8 +141,6 @@ def build_candidate_manifest(
     threshold_configuration_path: Path,
     generating_commands: list[str],
 ) -> dict[str, Any]:
-    """Build a deterministic candidate manifest from caller-provided local evidence."""
-
     if _GIT_OBJECT_ID.fullmatch(repository_commit_sha) is None:
         raise ValueError("repository_commit_sha must be a lowercase 40- or 64-character hex ID")
     if not generating_commands or any(
@@ -135,15 +172,9 @@ def build_candidate_manifest(
 
     validate_evaluation_report(report)
 
-    threshold_config = ThresholdConfiguration.from_payload(thresholds_payload)
-
     tokenizer_name = decision.get("tokenizer_name")
     if not isinstance(tokenizer_name, str) or not tokenizer_name:
         raise ValueError("acceptance_decision tokenizer_name must be a non-empty string")
-
-    recomputed = evaluate_tokenizer_acceptance(report, tokenizer_name, threshold_config)
-    if decision != recomputed:
-        raise ValueError("acceptance_decision does not match recomputed decision")
 
     loaded = BPETokenizer.load(tokenizer_file)
     if not byte_alphabet_complete(loaded):
@@ -169,6 +200,23 @@ def build_candidate_manifest(
             f"evaluation_input dataset digest {dataset_digest} does not match "
             f"report input_dataset_sha256 {report_ds}"
         )
+
+    adapter = BharatBPETokenizer(loaded)
+    evaluation = TokenizerEvaluation({tokenizer_name: adapter})
+    evaluation.set_records(records)
+    expected_report = evaluation.compute()
+
+    if report != expected_report:
+        raise ValueError(
+            "evaluation_report does not match report recomputed from tokenizer "
+            "and evaluation input"
+        )
+
+    threshold_config = ThresholdConfiguration.from_payload(thresholds_payload)
+
+    recomputed = evaluate_tokenizer_acceptance(report, tokenizer_name, threshold_config)
+    if decision != recomputed:
+        raise ValueError("acceptance_decision does not match recomputed decision")
 
     per_language = report.get("per_language")
     if not isinstance(per_language, dict):
@@ -229,39 +277,24 @@ def build_candidate_manifest(
     }
 
 
-def _publish_exclusive(path: Path, payload: bytes) -> None:
-    with path.open("xb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    reread = path.read_bytes()
-    if reread != payload:
-        raise RuntimeError(
-            f"byte-verification failed for {path}: "
-            f"read-back {len(reread)} bytes, expected {len(payload)}"
-        )
-
-
 def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
-    """Validate and publish a canonical candidate manifest without overwriting files."""
-
     _check_output_path(output_path)
 
     evidence_root = kwargs.get("evidence_root")
     if evidence_root is not None:
-        _validate_manifest_root(output_path, evidence_root)
+        root_resolved = evidence_root.resolve() if isinstance(evidence_root, Path) else None
+        if root_resolved is not None:
+            _validate_manifest_root(output_path, root_resolved)
 
     manifest = build_candidate_manifest(**kwargs)
     payload = _canonical_bytes(manifest)
 
     output = output_path.resolve()
     final_digest = hashlib.sha256(payload).hexdigest()
-
-    temp = output.with_name(f".{output.name}.{secrets.token_hex(8)}.tmp")
     created: list[Path] = []
-    try:
-        _publish_exclusive(temp, payload)
 
+    try:
+        temp = _write_temp(output.parent, output.name, payload)
         created.append(temp)
 
         validation = validate_production_evidence(temp)
@@ -270,7 +303,7 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
                 "candidate evidence validation failed: " + "; ".join(validation.errors)
             )
 
-        if output.exists():
+        if output.exists() or output.is_symlink():
             raise FileExistsError(f"refusing to overwrite existing output: {output}")
 
         _publish_exclusive(output, payload)
@@ -281,13 +314,31 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
             raise RuntimeError(
                 f"final SHA-256 mismatch: computed {output_recheck}, expected {final_digest}"
             )
+
+        publish_validation = validate_production_evidence(output)
+        if not publish_validation.valid:
+            raise ValueError(
+                "published candidate evidence validation failed: "
+                + "; ".join(publish_validation.errors)
+            )
+        if publish_validation.status != "candidate":
+            raise ValueError(
+                f"published candidate evidence status is {publish_validation.status!r}, "
+                f"expected 'candidate'"
+            )
+        if publish_validation.accepted:
+            raise ValueError("published candidate evidence must not report accepted=True")
+
+        final_bytes = output.read_bytes()
+        final_digest = hashlib.sha256(final_bytes).hexdigest()
+
     except BaseException:
         for f in created:
             f.unlink(missing_ok=True)
         raise
-    finally:
-        for f in created:
-            if f != output:
-                f.unlink(missing_ok=True)
+
+    for f in created:
+        if f.resolve() != output.resolve():
+            f.unlink(missing_ok=True)
 
     return final_digest

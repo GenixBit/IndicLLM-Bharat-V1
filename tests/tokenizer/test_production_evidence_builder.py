@@ -8,165 +8,64 @@ from typing import Any
 import pytest
 
 from bharat.tokenizer.bpe import BPETokenizer
-from bharat.tokenizer.evaluation import (
-    compute_evaluation_dataset_sha256,
-    load_evaluation_records,
+from bharat.tokenizer.production_evidence import (
+    ProductionEvidenceValidation,
+    validate_production_evidence,
 )
-from bharat.tokenizer.production_evidence import validate_production_evidence
 from bharat.tokenizer.production_evidence_builder import (
     build_candidate_manifest,
     write_candidate_manifest,
 )
+from tests.tokenizer.evidence_fixtures import (
+    build_acceptance_decision,
+    build_bad_bpe_tokenizer,
+    canonical_bytes,
+    digest,
+)
 
 
 def _canonical(value: object) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("utf-8")
+    return canonical_bytes(value)
 
 
 def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return digest(path)
 
 
-def _build_bpe_tokenizer(tmp_path: Path, name: str = "tokenizer.json") -> Path:
-    byte_value_to_id = {b: 4 + b for b in range(256)}
-    id_to_bytes = {4 + b: bytes([b]) for b in range(256)}
-    special_tokens = {"<pad>": 0, "<unk>": 1, "<bos>": 2, "<eos>": 3}
-    vocab = dict(special_tokens)
-    for b in range(256):
-        vocab[f"<byte_{b:02x}>"] = 4 + b
-    tok = BPETokenizer(
-        schema_version="bpe-v1",
-        normalization="nfc",
-        special_tokens=special_tokens,
-        reserved_tokens={},
-        byte_value_to_id=byte_value_to_id,
-        id_to_bytes=id_to_bytes,
-        vocab=vocab,
-        merges=(),
-        tokenizer_hash="",
-    )
-    tok.tokenizer_hash = tok.compute_hash()
-    tok.validate()
-    path = tmp_path / name
-    tok.save(path)
-    return path
+def _tamper_report(report_path: Path, key_path: list[str], new_value: Any) -> Path:
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    target = report
+    for key in key_path[:-1]:
+        target = target[key]
+    target[key_path[-1]] = new_value
+    excluded = {k: v for k, v in report.items() if k != "report_sha256"}
+    canonical = json.dumps(excluded, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    report["report_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    forged = report_path.with_name("forged_" + report_path.name)
+    forged.write_bytes(_canonical(report))
+    return forged
 
 
-def _build_bad_bpe_tokenizer(
+def _make_minimal_report(
     tmp_path: Path,
-    name: str,
-    missing_byte: int | None = None,
-    duplicate_byte: bool = False,
-    bad_byte_mapping: bool = False,
-    collision_special: bool = False,
-) -> tuple[Path, str]:
-    byte_value_to_id = {b: 4 + b for b in range(256)}
-    id_to_bytes = {4 + b: bytes([b]) for b in range(256)}
-    special_tokens = {"<pad>": 0, "<unk>": 1, "<bos>": 2, "<eos>": 3}
-    if missing_byte is not None:
-        del byte_value_to_id[missing_byte]
-    if duplicate_byte:
-        byte_value_to_id[0] = 4 + 1
-    if bad_byte_mapping:
-        id_to_bytes[4 + 0] = bytes([1])
-    if collision_special:
-        byte_value_to_id[0] = 1
-        id_to_bytes[1] = bytes([0])
-    vocab = dict(special_tokens)
-    for b in range(256):
-        if b in byte_value_to_id:
-            vocab[f"<byte_{b:02x}>"] = byte_value_to_id[b]
-    tok = BPETokenizer(
-        schema_version="bpe-v1",
-        normalization="nfc",
-        special_tokens=special_tokens,
-        reserved_tokens={},
-        byte_value_to_id=byte_value_to_id,
-        id_to_bytes=id_to_bytes,
-        vocab=vocab,
-        merges=(),
-        tokenizer_hash="",
-    )
-    tok.tokenizer_hash = tok.compute_hash()
-    data = tok.to_dict()
-    path = tmp_path / name
-    path.write_bytes(_canonical(data))
-    return path, tok.compute_hash()
-
-
-def _build_input_jsonl(
-    tmp_path: Path,
-    overrides: list[dict[str, Any]] | None = None,
-) -> Path:
-    records = overrides or [
-        {
-            "id": "rec-1",
-            "language": "en",
-            "script": "Latin",
-            "domain": "web",
-            "text": "Hello world",
-        },
-        {
-            "id": "rec-2",
-            "language": "hi",
-            "script": "Devanagari",
-            "domain": "web",
-            "text": "\u0928\u092e\u0938\u094d\u0924\u0947 \u092d\u093e\u0930\u0924",
-        },
-        {
-            "id": "rec-3",
-            "language": "en",
-            "script": "Latin",
-            "domain": "news",
-            "text": "Good morning",
-        },
-    ]
-    lines = "\n".join(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in records)
-    path = tmp_path / "input.jsonl"
-    path.write_text(lines + "\n", encoding="utf-8")
-    return path
-
-
-def _build_production_thresholds(tmp_path: Path) -> Path:
-    payload = {
-        "schema_version": "tokenizer-acceptance-thresholds-v1",
-        "status": "production",
-        "evidence_scope": "approved-evaluation-set",
-        "notes": [],
-        "thresholds": {
-            "min_record_count": 1,
-            "min_required_round_trip_rate": 0.0,
-            "min_canonical_pass_rate": 0.0,
-            "max_unknown_token_rate": 1.0,
-            "require_complete_byte_coverage": False,
-            "required_languages": ["en"],
-            "min_records_per_required_language": 1,
-        },
-    }
-    path = tmp_path / "thresholds.json"
-    path.write_bytes(_canonical(payload))
-    return path
-
-
-def _build_evaluation_report(
-    tmp_path: Path,
+    input_path: Path,
     tokenizer_name: str,
     tokenizer_fp: str,
-    input_path: Path,
-    overrides: dict | None = None,
     name: str = "report.json",
 ) -> Path:
-    records = load_evaluation_records(input_path)
-    ds_digest = compute_evaluation_dataset_sha256(records)
-    en_count = sum(1 for r in records if r.language == "en")
-    hi_count = sum(1 for r in records if r.language == "hi")
+    records = json.loads(
+        "[" + input_path.read_text(encoding="utf-8").strip().replace("\n", ",") + "]"
+    )
+    en_count = sum(1 for r in records if r["language"] == "en")
+    hi_count = sum(1 for r in records if r["language"] == "hi")
     total = len(records)
+    from bharat.tokenizer.evaluation import (
+        compute_evaluation_dataset_sha256,
+        load_evaluation_records,
+    )
+
+    loaded = load_evaluation_records(input_path)
+    ds_digest = compute_evaluation_dataset_sha256(loaded)
     report = {
         "schema_version": "eval-v1",
         "evaluator_version": "1.0.3",
@@ -248,58 +147,12 @@ def _build_evaluation_report(
         "failed_records": [],
         "report_sha256": "0" * 64,
     }
-    if overrides:
-        report.update(overrides)
     excluded = {k: v for k, v in report.items() if k != "report_sha256"}
     canonical = json.dumps(excluded, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     report["report_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     path = tmp_path / name
     path.write_bytes(_canonical(report))
     return path
-
-
-def _build_acceptance_decision(
-    tmp_path: Path,
-    report_path: Path,
-    thresholds_path: Path,
-    tokenizer_name: str,
-    tokenizer_fp: str,
-    name: str = "decision.json",
-) -> Path:
-    from bharat.tokenizer.acceptance import (
-        ThresholdConfiguration,
-        evaluate_tokenizer_acceptance,
-    )
-
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    thresh = json.loads(thresholds_path.read_text(encoding="utf-8"))
-    config = ThresholdConfiguration.from_payload(thresh)
-    decision = evaluate_tokenizer_acceptance(report, tokenizer_name, config)
-    path = tmp_path / name
-    path.write_bytes(_canonical(decision))
-    return path
-
-
-@pytest.fixture
-def evidence_fixtures(tmp_path: Path) -> dict[str, Path]:
-    tokenizer_path = _build_bpe_tokenizer(tmp_path)
-    input_path = _build_input_jsonl(tmp_path)
-    thresholds_path = _build_production_thresholds(tmp_path)
-    tokenizer = BPETokenizer.load(tokenizer_path)
-    tokenizer_fp = tokenizer.compute_hash()
-    report_path = _build_evaluation_report(tmp_path, "test-bpe", tokenizer_fp, input_path)
-    decision_path = _build_acceptance_decision(
-        tmp_path, report_path, thresholds_path, "test-bpe", tokenizer_fp
-    )
-    return {
-        "tokenizer_path": tokenizer_path,
-        "input_path": input_path,
-        "thresholds_path": thresholds_path,
-        "report_path": report_path,
-        "decision_path": decision_path,
-        "tokenizer_fp": tokenizer_fp,
-        "tokenizer_name": "test-bpe",
-    }
 
 
 # -- 1. Valid candidate manifest --
@@ -564,27 +417,26 @@ def test_per_language_count_derivation(tmp_path: Path, evidence_fixtures: dict[s
         generating_commands=["test-command"],
     )
     assert manifest["language_coverage"]["record_counts"]["en"] == 2
-    assert manifest["language_coverage"]["record_counts"]["hi"] == 1
+    assert manifest["language_coverage"]["record_counts"]["hi"] == 2
 
 
 # -- 12. Incomplete byte alphabet rejection --
 
 
 def test_missing_byte_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
-    bad_tokenizer, bad_fp = _build_bad_bpe_tokenizer(tmp_path, "bad_missing.json", missing_byte=42)
-    bad_report = _build_evaluation_report(
+    bad_tokenizer, bad_fp = build_bad_bpe_tokenizer(tmp_path, "bad_missing.json", missing_byte=42)
+    bad_report = _make_minimal_report(
         tmp_path,
+        evidence_fixtures["input_path"],
         "test-bpe",
         bad_fp,
-        evidence_fixtures["input_path"],
         name="bad_report_missing.json",
     )
-    bad_decision = _build_acceptance_decision(
+    bad_decision = build_acceptance_decision(
         tmp_path,
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_missing.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -601,20 +453,19 @@ def test_missing_byte_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path
 
 
 def test_duplicate_byte_id_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
-    bad_tokenizer, bad_fp = _build_bad_bpe_tokenizer(tmp_path, "bad_dup.json", duplicate_byte=True)
-    bad_report = _build_evaluation_report(
+    bad_tokenizer, bad_fp = build_bad_bpe_tokenizer(tmp_path, "bad_dup.json", duplicate_byte=True)
+    bad_report = _make_minimal_report(
         tmp_path,
+        evidence_fixtures["input_path"],
         "test-bpe",
         bad_fp,
-        evidence_fixtures["input_path"],
         name="bad_report_dup.json",
     )
-    bad_decision = _build_acceptance_decision(
+    bad_decision = build_acceptance_decision(
         tmp_path,
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_dup.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -633,22 +484,21 @@ def test_duplicate_byte_id_rejected(tmp_path: Path, evidence_fixtures: dict[str,
 def test_bad_id_to_bytes_mapping_rejected(
     tmp_path: Path, evidence_fixtures: dict[str, Path]
 ) -> None:
-    bad_tokenizer, bad_fp = _build_bad_bpe_tokenizer(
+    bad_tokenizer, bad_fp = build_bad_bpe_tokenizer(
         tmp_path, "bad_mapping.json", bad_byte_mapping=True
     )
-    bad_report = _build_evaluation_report(
+    bad_report = _make_minimal_report(
         tmp_path,
+        evidence_fixtures["input_path"],
         "test-bpe",
         bad_fp,
-        evidence_fixtures["input_path"],
         name="bad_report_mapping.json",
     )
-    bad_decision = _build_acceptance_decision(
+    bad_decision = build_acceptance_decision(
         tmp_path,
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_mapping.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -667,22 +517,21 @@ def test_bad_id_to_bytes_mapping_rejected(
 def test_collision_with_special_token_rejected(
     tmp_path: Path, evidence_fixtures: dict[str, Path]
 ) -> None:
-    bad_tokenizer, bad_fp = _build_bad_bpe_tokenizer(
+    bad_tokenizer, bad_fp = build_bad_bpe_tokenizer(
         tmp_path, "bad_collision.json", collision_special=True
     )
-    bad_report = _build_evaluation_report(
+    bad_report = _make_minimal_report(
         tmp_path,
+        evidence_fixtures["input_path"],
         "test-bpe",
         bad_fp,
-        evidence_fixtures["input_path"],
         name="bad_report_collision.json",
     )
-    bad_decision = _build_acceptance_decision(
+    bad_decision = build_acceptance_decision(
         tmp_path,
         bad_report,
         evidence_fixtures["thresholds_path"],
         "test-bpe",
-        bad_fp,
         name="bad_decision_collision.json",
     )
     with pytest.raises((ValueError, OSError)):
@@ -792,7 +641,7 @@ def test_existing_output_preserved(tmp_path: Path, evidence_fixtures: dict[str, 
 
 def test_publication_rollback(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
     out = tmp_path / "manifest.json"
-    digest = write_candidate_manifest(
+    digest_val = write_candidate_manifest(
         out,
         evidence_root=tmp_path,
         repository_commit_sha="a" * 40,
@@ -804,7 +653,7 @@ def test_publication_rollback(tmp_path: Path, evidence_fixtures: dict[str, Path]
         generating_commands=["test-command"],
     )
     assert out.exists()
-    assert _digest(out) == digest
+    assert _digest(out) == digest_val
     temps = list(tmp_path.glob(".*.tmp"))
     assert len(temps) == 0
 
@@ -881,3 +730,801 @@ def test_different_sha_produces_different_digest(
     p1 = _canonical(m1)
     p2 = _canonical(m2)
     assert p1 != p2
+
+
+# ======================================================
+# Forged-report rejection tests (9 metric fields)
+# ======================================================
+
+
+def test_forged_micro_fertility_rejected(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["aggregate", "test-bpe", "micro_fertility"],
+        99.9,
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_unknown_token_rate_rejected(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["aggregate", "test-bpe", "unknown_token_rate"],
+        0.5,
+    )
+    with pytest.raises(ValueError, match="unknown_token_rate mismatch"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_required_pass_rate_rejected(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["round_trip", "test-bpe", "required_pass_rate"],
+        0.5,
+    )
+    with pytest.raises(ValueError, match="required_pass_rate mismatch"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_canonical_evaluated_count_rejected(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["round_trip", "test-bpe", "canonical_evaluated_count"],
+        999,
+    )
+    with pytest.raises(ValueError, match="canonical_pass_rate mismatch"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_canonical_pass_rate_rejected(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["round_trip", "test-bpe", "canonical_pass_rate"],
+        0.0,
+    )
+    with pytest.raises(ValueError, match="canonical_pass_rate mismatch"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_byte_coverage_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["byte_coverage", "test-bpe", "status"],
+        "incomplete",
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_fragmentation_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["fragmentation", "test-bpe"],
+        {"en": {"fragility": 0.5}},
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_per_language_metrics_rejected(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["per_language", "test-bpe", "en", "micro_fertility"],
+        99.9,
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_forged_failed_records_rejected(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    forged = _tamper_report(
+        evidence_fixtures["report_path"],
+        ["failed_records"],
+        [{"id": "fake-failure", "reason": "injected"}],
+    )
+    with pytest.raises(ValueError, match="does not match report recomputed"):
+        build_candidate_manifest(
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+# ======================================================
+# Genuine rollback tests (13 failure modes)
+# ======================================================
+
+
+def _assert_cleanup(root: Path, output: Path, exception_type: type) -> None:
+    with pytest.raises(exception_type):
+        write_candidate_manifest(
+            output,
+            evidence_root=root,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=root / "tokenizer.json",
+            evaluation_input_path=root / "input.jsonl",
+            evaluation_report_path=root / "report.json",
+            acceptance_decision_path=root / "decision.json",
+            threshold_configuration_path=root / "thresholds.json",
+            generating_commands=["test-command"],
+        )
+    assert not output.exists()
+    orphans = list(root.glob("*.*.tmp"))
+    assert len(orphans) == 0, f"orphaned temp files: {orphans}"
+
+
+def test_rollback_output_exists(tmp_path: Path) -> None:
+    output = tmp_path / "manifest.json"
+    output.write_text("preexisting", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        write_candidate_manifest(
+            output,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=tmp_path / "nonexistent.json",
+            evaluation_input_path=tmp_path / "nonexistent.jsonl",
+            evaluation_report_path=tmp_path / "nonexistent.json",
+            acceptance_decision_path=tmp_path / "nonexistent.json",
+            threshold_configuration_path=tmp_path / "nonexistent.json",
+            generating_commands=["test-command"],
+        )
+    assert output.read_text(encoding="utf-8") == "preexisting"
+    assert len(list(tmp_path.glob("*.*.tmp"))) == 0
+
+
+def test_rollback_invalid_repo_sha(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="repository_commit_sha"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="invalid-sha",
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_empty_commands(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="generating_commands"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=[],
+        )
+    assert not out.exists()
+
+
+def test_rollback_non_existent_tokenizer(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    out = tmp_path / "manifest.json"
+    missing = tmp_path / "no_such_tokenizer.json"
+    with pytest.raises((ValueError, OSError)):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=missing,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_tampered_report(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    forged = _tamper_report(evidence_fixtures["report_path"], ["schema_version"], "eval-v2")
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=forged,
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_tampered_decision(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    decision = json.loads(evidence_fixtures["decision_path"].read_text(encoding="utf-8"))
+    decision["passed"] = not decision["passed"]
+    decision_canonical = json.dumps(
+        decision, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    decision_digest = hashlib.sha256(decision_canonical.encode("utf-8")).hexdigest()
+    decision["acceptance_sha256"] = decision_digest
+    forged = tmp_path / "forged_decision.json"
+    forged.write_bytes(_canonical(decision))
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="does not match recomputed decision"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=forged,
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_wrong_tokenizer_fingerprint(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    from bharat.tokenizer.bpe import BPETokenizer
+
+    distinct_byte_value_to_id = {b: 260 + b for b in range(256)}
+    distinct_id_to_bytes = {260 + b: bytes([b]) for b in range(256)}
+    distinct_special = {"<pad>": 256, "<unk>": 257, "<bos>": 258, "<eos>": 259}
+    distinct_vocab = dict(distinct_special)
+    for b in range(256):
+        distinct_vocab[f"<byte_{b:02x}>"] = 260 + b
+    tok = BPETokenizer(
+        schema_version="bpe-v1",
+        normalization="nfc",
+        special_tokens=distinct_special,
+        reserved_tokens={},
+        byte_value_to_id=distinct_byte_value_to_id,
+        id_to_bytes=distinct_id_to_bytes,
+        vocab=distinct_vocab,
+        merges=(),
+        tokenizer_hash="",
+    )
+    tok.tokenizer_hash = tok.compute_hash()
+    tok.validate()
+    second_tokenizer = tmp_path / "distinct_tokenizer.json"
+    tok.save(second_tokenizer)
+
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="tokenizer_fingerprint"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=second_tokenizer,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_temp_publication_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    call_count = 0
+    import bharat.tokenizer.production_evidence_builder as builder_mod
+
+    original = builder_mod._publish_exclusive
+
+    def failing_publish(path: Path, payload: bytes) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise OSError("disk full on temp")
+        original(path, payload)
+
+    monkeypatch.setattr(
+        "bharat.tokenizer.production_evidence_builder._publish_exclusive", failing_publish
+    )
+    out = tmp_path / "manifest.json"
+    with pytest.raises(OSError, match="disk full on temp"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+    temps = list(tmp_path.glob(".*.*.tmp"))
+    assert len(temps) == 0, f"orphaned temps: {temps}"
+
+
+def test_rollback_temp_validation_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    def failing_validation(path: Path) -> ProductionEvidenceValidation:
+        if path.name.startswith("."):
+            return ProductionEvidenceValidation(
+                manifest_sha256="0" * 64,
+                status="invalid",
+                valid=False,
+                accepted=False,
+                errors=("mock temp validation failure",),
+            )
+        return validate_production_evidence(path)
+
+    monkeypatch.setattr(
+        "bharat.tokenizer.production_evidence_builder.validate_production_evidence",
+        failing_validation,
+    )
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="candidate evidence validation failed"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_output_publication_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    call_count = 0
+    import bharat.tokenizer.production_evidence_builder as builder_mod
+
+    original = builder_mod._publish_exclusive
+
+    def failing_publish(path: Path, payload: bytes) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise OSError("disk full on output")
+        original(path, payload)
+
+    monkeypatch.setattr(
+        "bharat.tokenizer.production_evidence_builder._publish_exclusive", failing_publish
+    )
+    out = tmp_path / "manifest.json"
+    with pytest.raises(OSError, match="disk full on output"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_output_sha_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    import bharat.tokenizer.production_evidence_builder as builder_mod
+
+    original = builder_mod._publish_exclusive
+
+    def corrupting_publish(path: Path, payload: bytes) -> None:
+        if path.name == "manifest.json":
+            original(path, payload + b"CORRUPT")
+        else:
+            original(path, payload)
+
+    monkeypatch.setattr(
+        "bharat.tokenizer.production_evidence_builder._publish_exclusive", corrupting_publish
+    )
+    out = tmp_path / "manifest.json"
+    with pytest.raises(RuntimeError, match="byte-verification failed|SHA-256 mismatch"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_post_write_validation_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    call_count = 0
+
+    def failing_validation(path: Path) -> ProductionEvidenceValidation:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            return ProductionEvidenceValidation(
+                manifest_sha256="0" * 64,
+                status="invalid",
+                valid=False,
+                accepted=False,
+                errors=("mock post-write validation failure",),
+            )
+        return validate_production_evidence(path)
+
+    monkeypatch.setattr(
+        "bharat.tokenizer.production_evidence_builder.validate_production_evidence",
+        failing_validation,
+    )
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="published candidate evidence validation failed"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_post_write_status_wrong(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    call_count = 0
+
+    def wrong_status(path: Path) -> ProductionEvidenceValidation:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            return ProductionEvidenceValidation(
+                manifest_sha256="0" * 64,
+                status="production",
+                valid=True,
+                accepted=False,
+                errors=(),
+            )
+        return validate_production_evidence(path)
+
+    monkeypatch.setattr(
+        "bharat.tokenizer.production_evidence_builder.validate_production_evidence",
+        wrong_status,
+    )
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="status is 'production'"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+def test_rollback_post_write_accepted_true(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    call_count = 0
+
+    def wrong_accepted(path: Path) -> ProductionEvidenceValidation:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            return ProductionEvidenceValidation(
+                manifest_sha256="0" * 64,
+                status="candidate",
+                valid=True,
+                accepted=True,
+                errors=(),
+            )
+        return validate_production_evidence(path)
+
+    monkeypatch.setattr(
+        "bharat.tokenizer.production_evidence_builder.validate_production_evidence",
+        wrong_accepted,
+    )
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="must not report accepted=True"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert not out.exists()
+
+
+# ======================================================
+# Failure-injection tests (10 filesystem scenarios)
+# ======================================================
+
+
+def test_fi_output_is_directory(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    out = tmp_path / "manifest.json"
+    out.mkdir()
+    with pytest.raises(FileExistsError, match="refusing to overwrite existing output"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert out.is_dir()
+
+
+def test_fi_output_is_symlink_to_file(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    target = tmp_path / "target.json"
+    target.write_text("real target", encoding="utf-8")
+    out = tmp_path / "manifest.json"
+    out.symlink_to(target)
+    with pytest.raises(FileExistsError, match="refusing to overwrite existing output"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert out.is_symlink()
+
+
+def test_fi_output_is_symlink_to_dir(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    target = tmp_path / "target_dir"
+    target.mkdir()
+    out = tmp_path / "manifest.json"
+    out.symlink_to(target, target_is_directory=True)
+    with pytest.raises(FileExistsError, match="refusing to overwrite existing output"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+    assert out.is_symlink()
+
+
+def test_fi_tokenizer_is_dir(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    tokenizer_dir = tmp_path / "tokenizer_is_dir"
+    tokenizer_dir.mkdir()
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="tokenizer_path does not exist or is not a file"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=tokenizer_dir,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_tokenizer_is_broken_symlink(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    missing = tmp_path / "nonexistent.json"
+    tokenizer_link = tmp_path / "broken_tokenizer_link.json"
+    tokenizer_link.symlink_to(missing)
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="tokenizer_path does not exist or is not a file"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=tokenizer_link,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_input_symlink_outside_root(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    outside = tmp_path.parent / "outside.jsonl"
+    outside.write_text("{}", encoding="utf-8")
+    symlink = tmp_path / "symlink_outside_input.jsonl"
+    symlink.symlink_to(outside)
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="evaluation_input_path must be inside evidence root"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=symlink,
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_tokenizer_symlink_outside_root(
+    tmp_path: Path, evidence_fixtures: dict[str, Path]
+) -> None:
+    outside = tmp_path.parent / "outside_tokenizer.json"
+    outside.write_text("{}", encoding="utf-8")
+    symlink = tmp_path / "symlink_outside_tokenizer.json"
+    symlink.symlink_to(outside)
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="tokenizer_path must be inside evidence root"):
+        write_candidate_manifest(
+            out,
+            evidence_root=tmp_path,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=symlink,
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_evidence_root_is_file(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    root_file = tmp_path / "root_file"
+    root_file.write_text("not a directory", encoding="utf-8")
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="evidence_root must be an existing directory"):
+        write_candidate_manifest(
+            out,
+            evidence_root=root_file,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
+
+
+def test_fi_evidence_root_missing(tmp_path: Path, evidence_fixtures: dict[str, Path]) -> None:
+    missing_root = tmp_path / "does_not_exist"
+    out = tmp_path / "manifest.json"
+    with pytest.raises(ValueError, match="evidence_root must be an existing directory"):
+        write_candidate_manifest(
+            out,
+            evidence_root=missing_root,
+            repository_commit_sha="a" * 40,
+            tokenizer_path=evidence_fixtures["tokenizer_path"],
+            evaluation_input_path=evidence_fixtures["input_path"],
+            evaluation_report_path=evidence_fixtures["report_path"],
+            acceptance_decision_path=evidence_fixtures["decision_path"],
+            threshold_configuration_path=evidence_fixtures["thresholds_path"],
+            generating_commands=["test-command"],
+        )
