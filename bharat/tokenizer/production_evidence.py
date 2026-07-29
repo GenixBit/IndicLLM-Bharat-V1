@@ -83,12 +83,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _resolve_file(
-    root: Path,
-    value: Any,
-    label: str,
-    errors: list[str],
-) -> Path | None:
+def _resolve_file(root: Path, value: Any, label: str, errors: list[str]) -> Path | None:
     if not isinstance(value, str) or not value:
         errors.append(f"{label}: path must be a non-empty string")
         return None
