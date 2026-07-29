@@ -67,17 +67,27 @@ def build_candidate_manifest(
     """Build a deterministic candidate manifest from caller-provided local evidence."""
 
     if _GIT_OBJECT_ID.fullmatch(repository_commit_sha) is None:
-        raise ValueError("repository_commit_sha must be a lowercase 40- or 64-character hex ID")
-    if not generating_commands or any(not isinstance(item, str) or not item.strip() for item in generating_commands):
+        raise ValueError(
+            "repository_commit_sha must be a lowercase 40- or 64-character hex ID"
+        )
+    if not generating_commands or any(
+        not isinstance(item, str) or not item.strip() for item in generating_commands
+    ):
         raise ValueError("generating_commands must contain non-empty strings")
 
     root = evidence_root.resolve()
     if not root.is_dir():
         raise ValueError("evidence_root must be an existing directory")
 
-    tokenizer_file, tokenizer_relative = _relative_file(root, tokenizer_path, "tokenizer_path")
-    input_file, input_relative = _relative_file(root, evaluation_input_path, "evaluation_input_path")
-    report_file, report_relative = _relative_file(root, evaluation_report_path, "evaluation_report_path")
+    tokenizer_file, tokenizer_relative = _relative_file(
+        root, tokenizer_path, "tokenizer_path"
+    )
+    input_file, input_relative = _relative_file(
+        root, evaluation_input_path, "evaluation_input_path"
+    )
+    report_file, report_relative = _relative_file(
+        root, evaluation_report_path, "evaluation_report_path"
+    )
     decision_file, decision_relative = _relative_file(
         root,
         acceptance_decision_path,
@@ -95,14 +105,18 @@ def build_candidate_manifest(
 
     tokenizer_name = decision.get("tokenizer_name")
     if not isinstance(tokenizer_name, str) or not tokenizer_name:
-        raise ValueError("acceptance_decision tokenizer_name must be a non-empty string")
+        raise ValueError(
+            "acceptance_decision tokenizer_name must be a non-empty string"
+        )
 
     per_language = report.get("per_language")
     if not isinstance(per_language, dict):
         raise ValueError("evaluation_report per_language must be an object")
     tokenizer_languages = per_language.get(tokenizer_name)
     if not isinstance(tokenizer_languages, dict) or not tokenizer_languages:
-        raise ValueError("evaluation_report must contain per-language metrics for tokenizer_name")
+        raise ValueError(
+            "evaluation_report must contain per-language metrics for tokenizer_name"
+        )
 
     record_counts: dict[str, int] = {}
     for language, metrics in tokenizer_languages.items():
@@ -110,7 +124,9 @@ def build_candidate_manifest(
             raise ValueError("evaluation_report per-language entries are invalid")
         count = metrics.get("record_count")
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
-            raise ValueError(f"evaluation_report record_count for {language!r} must be positive")
+            raise ValueError(
+                f"evaluation_report record_count for {language!r} must be positive"
+            )
         record_counts[language] = count
 
     loaded = load_tokenizer(tokenizer_file)
@@ -134,16 +150,27 @@ def build_candidate_manifest(
             "normalization": "NFC",
             "byte_alphabet_complete": True,
         },
-        "evaluation_input": {"path": input_relative, "sha256": _sha256(input_file)},
-        "evaluation_report": {"path": report_relative, "sha256": _sha256(report_file)},
-        "acceptance_decision": {"path": decision_relative, "sha256": _sha256(decision_file)},
+        "evaluation_input": {
+            "path": input_relative,
+            "sha256": _sha256(input_file),
+        },
+        "evaluation_report": {
+            "path": report_relative,
+            "sha256": _sha256(report_file),
+        },
+        "acceptance_decision": {
+            "path": decision_relative,
+            "sha256": _sha256(decision_file),
+        },
         "threshold_configuration": {
             "path": thresholds_relative,
             "sha256": _sha256(thresholds_file),
         },
         "language_coverage": {
             "required_languages": sorted(record_counts),
-            "record_counts": {key: record_counts[key] for key in sorted(record_counts)},
+            "record_counts": {
+                key: record_counts[key] for key in sorted(record_counts)
+            },
         },
         "generating_commands": list(generating_commands),
     }
@@ -166,7 +193,10 @@ def write_candidate_manifest(output_path: Path, **kwargs: Any) -> str:
             os.fsync(handle.fileno())
         validation = validate_production_evidence(temp)
         if not validation.valid:
-            raise ValueError("candidate evidence validation failed: " + "; ".join(validation.errors))
+            raise ValueError(
+                "candidate evidence validation failed: "
+                + "; ".join(validation.errors)
+            )
         with output.open("xb") as handle:
             handle.write(payload)
             handle.flush()
