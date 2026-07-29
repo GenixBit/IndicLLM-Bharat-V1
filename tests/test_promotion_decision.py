@@ -117,3 +117,22 @@ def test_rejects_stale_readiness_and_overwrite(
     with pytest.raises(FileExistsError):
         module.write_promotion_decision(record, output)
     assert output.read_text(encoding="utf-8") == "existing"
+
+
+def test_create_race_does_not_delete_unowned_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = module.PromotionDecisionRecord("a", "b", "reject", "reviewer", "reason")
+    output = (tmp_path / "decision.json").resolve()
+    output.write_text("raced", encoding="utf-8")
+    original_exists = Path.exists
+
+    def report_missing(path: Path) -> bool:
+        if path == output:
+            return False
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", report_missing)
+    with pytest.raises(FileExistsError):
+        module.write_promotion_decision(record, output)
+    assert output.read_text(encoding="utf-8") == "raced"
