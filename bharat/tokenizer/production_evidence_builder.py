@@ -251,13 +251,13 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
         handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())
-    _OWNED_FILES.discard(path)
     reread = path.read_bytes()
     if reread != payload:
         raise RuntimeError(
             f"byte-verification failed for {path}: "
             f"read-back {len(reread)} bytes, expected {len(payload)}"
         )
+    _OWNED_FILES.discard(path)
 
 
 def _register_owned(path: Path) -> None:
