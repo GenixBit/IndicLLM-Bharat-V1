@@ -9,7 +9,7 @@ from bharat.tokenizer.promotion_package import (
     verify_promotion_package,
 )
 
-_REQUIRED_FILES = {"manifest.json", "readiness.json", "decision.json"}
+_REQUIRED_FILES = ("decision.json", "manifest.json", "readiness.json")
 
 
 @dataclass(frozen=True)
@@ -41,8 +41,9 @@ def verify_promotion_package_directory(
 
     entries = {entry.name: entry for entry in directory.iterdir()}
     actual = set(entries)
-    missing = sorted(_REQUIRED_FILES - actual)
-    unexpected = sorted(actual - _REQUIRED_FILES)
+    required = set(_REQUIRED_FILES)
+    missing = sorted(required - actual)
+    unexpected = sorted(actual - required)
     if missing:
         raise ValueError(
             f"promotion package is missing required files: {', '.join(missing)}"
@@ -52,7 +53,7 @@ def verify_promotion_package_directory(
             f"promotion package contains unexpected entries: {', '.join(unexpected)}"
         )
 
-    for name in sorted(_REQUIRED_FILES):
+    for name in _REQUIRED_FILES:
         _require_regular_file(entries[name])
 
     package = verify_promotion_package(
@@ -62,5 +63,5 @@ def verify_promotion_package_directory(
     )
     return PromotionPackageDirectoryVerification(
         package=package,
-        filenames=tuple(sorted(_REQUIRED_FILES)),
+        filenames=_REQUIRED_FILES,
     )
