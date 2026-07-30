@@ -34,6 +34,10 @@ def _require_regular_file(path: Path) -> None:
         raise ValueError(f"package entry must be a regular file: {path.name}")
 
 
+def _joined_names(names: list[str]) -> str:
+    return ", ".join(names)
+
+
 def verify_promotion_package_directory(
     directory: Path,
 ) -> PromotionPackageDirectoryVerification:
@@ -52,13 +56,11 @@ def verify_promotion_package_directory(
     missing = sorted(required - actual)
     unexpected = sorted(actual - required)
     if missing:
-        raise ValueError(
-            f"promotion package is missing required files: {', '.join(missing)}"
-        )
+        names = _joined_names(missing)
+        raise ValueError(f"promotion package is missing required files: {names}")
     if unexpected:
-        raise ValueError(
-            f"promotion package contains unexpected entries: {', '.join(unexpected)}"
-        )
+        names = _joined_names(unexpected)
+        raise ValueError(f"promotion package contains unexpected entries: {names}")
 
     for name in _REQUIRED_FILES:
         _require_regular_file(entries[name])
