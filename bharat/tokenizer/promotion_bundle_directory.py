@@ -31,14 +31,11 @@ def verify_promotion_bundle_directory(
     missing = _REQUIRED_ENTRIES - entries
     unexpected = entries - _REQUIRED_ENTRIES
     if missing:
-        raise ValueError(
-            "promotion bundle is missing required entries: " + ", ".join(sorted(missing))
-        )
+        missing_names = ", ".join(sorted(missing))
+        raise ValueError(f"promotion bundle is missing required entries: {missing_names}")
     if unexpected:
-        raise ValueError(
-            "promotion bundle has unexpected entries: "
-            + ", ".join(sorted(unexpected))
-        )
+        unexpected_names = ", ".join(sorted(unexpected))
+        raise ValueError(f"promotion bundle has unexpected entries: {unexpected_names}")
 
     package_directory = bundle_directory / _PACKAGE_DIRECTORY
     receipt_path = bundle_directory / _RECEIPT_FILE
