@@ -25,22 +25,22 @@ def verify_promotion_acceptance_receipt_directory(
     """Verify a complete local directory containing accepted promotion evidence."""
 
     if directory.is_symlink() or not directory.is_dir():
-        raise ValueError(
-            "promotion acceptance receipt directory must be a regular directory"
-        )
+        message = "promotion acceptance receipt directory must be a regular directory"
+        raise ValueError(message)
 
     entries = {entry.name for entry in directory.iterdir()}
     missing = sorted(_REQUIRED_ENTRIES - entries)
     unexpected = sorted(entries - _REQUIRED_ENTRIES)
     if missing:
-        raise ValueError(
-            f"promotion acceptance receipt directory missing entries: {missing}"
-        )
+        message = f"promotion acceptance receipt directory missing entries: {missing}"
+        raise ValueError(message)
     if unexpected:
         names = ", ".join(unexpected)
-        raise ValueError(
-            f"promotion acceptance receipt directory has unexpected entries: {names}"
+        message = (
+            "promotion acceptance receipt directory has unexpected entries: "
+            f"{names}"
         )
+        raise ValueError(message)
 
     acceptance_directory = directory / _ACCEPTANCE_DIRECTORY_NAME
     receipt_path = directory / _RECEIPT_NAME
