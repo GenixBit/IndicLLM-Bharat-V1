@@ -36,10 +36,7 @@ def verify_promotion_acceptance_receipt_directory(
         raise ValueError(message)
     if unexpected:
         names = ", ".join(unexpected)
-        message = (
-            "promotion acceptance receipt directory has unexpected entries: "
-            f"{names}"
-        )
+        message = f"promotion acceptance receipt directory has unexpected entries: {names}"
         raise ValueError(message)
 
     acceptance_directory = directory / _ACCEPTANCE_DIRECTORY_NAME
