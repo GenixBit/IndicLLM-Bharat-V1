@@ -9,7 +9,14 @@ from bharat.tokenizer.promotion_package import (
     verify_promotion_package,
 )
 
-_REQUIRED_FILES = ("decision.json", "manifest.json", "readiness.json")
+_DECISION_FILENAME = "decision.json"
+_MANIFEST_FILENAME = "manifest.json"
+_READINESS_FILENAME = "readiness.json"
+_REQUIRED_FILES = (
+    _DECISION_FILENAME,
+    _MANIFEST_FILENAME,
+    _READINESS_FILENAME,
+)
 
 
 @dataclass(frozen=True)
@@ -57,9 +64,9 @@ def verify_promotion_package_directory(
         _require_regular_file(entries[name])
 
     package = verify_promotion_package(
-        entries["manifest.json"],
-        entries["readiness.json"],
-        entries["decision.json"],
+        entries[_MANIFEST_FILENAME],
+        entries[_READINESS_FILENAME],
+        entries[_DECISION_FILENAME],
     )
     return PromotionPackageDirectoryVerification(
         package=package,
