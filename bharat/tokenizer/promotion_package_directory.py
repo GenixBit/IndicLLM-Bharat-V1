@@ -9,11 +9,7 @@ from bharat.tokenizer.promotion_package import (
     verify_promotion_package,
 )
 
-_REQUIRED_FILES = {
-    "manifest.json",
-    "readiness.json",
-    "decision.json",
-}
+_REQUIRED_FILES = {"manifest.json", "readiness.json", "decision.json"}
 
 
 @dataclass(frozen=True)
