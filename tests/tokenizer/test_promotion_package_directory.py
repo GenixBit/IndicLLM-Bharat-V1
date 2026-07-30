@@ -17,7 +17,8 @@ def _complete_package(tmp_path: Path) -> Path:
 
 
 def test_verifies_complete_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     package = _complete_package(tmp_path)
     result = SimpleNamespace(manifest_sha256="abc")
