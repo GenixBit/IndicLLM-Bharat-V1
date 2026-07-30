@@ -33,9 +33,8 @@ def verify_promotion_acceptance_directory(
     if missing:
         raise ValueError(f"promotion acceptance directory missing entries: {missing}")
     if unexpected:
-        raise ValueError(
-            f"promotion acceptance directory has unexpected entries: {unexpected}"
-        )
+        names = ", ".join(unexpected)
+        raise ValueError(f"promotion acceptance directory has unexpected entries: {names}")
 
     bundle_directory = directory / _BUNDLE_NAME
     acceptance_path = directory / _ACCEPTANCE_NAME
@@ -46,7 +45,4 @@ def verify_promotion_acceptance_directory(
         raise ValueError("promotion acceptance record must be a regular file")
 
     acceptance = verify_promotion_acceptance(bundle_directory, acceptance_path)
-    return PromotionAcceptanceDirectoryVerification(
-        directory=directory,
-        acceptance=acceptance,
-    )
+    return PromotionAcceptanceDirectoryVerification(directory, acceptance)
