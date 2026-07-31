@@ -76,4 +76,8 @@ def verify_promotion_acceptance_receipt_manifest(
     if reviewer != verified.receipt.reviewer:
         raise ValueError("promotion acceptance receipt manifest reviewer does not match")
 
-    return PromotionAcceptanceReceiptManifestVerification(verified, operator, reviewer)
+    return PromotionAcceptanceReceiptManifestVerification(
+        receipt_directory=verified,
+        operator=operator,
+        reviewer=reviewer,
+    )
