@@ -11,7 +11,9 @@ from bharat.tokenizer.promotion_acceptance_receipt_manifest import (
 _RECEIPT_DIRECTORY_NAME = "receipt-evidence"
 _MANIFEST_NAME = "acceptance-receipt-manifest.json"
 _REQUIRED_ENTRIES = {_RECEIPT_DIRECTORY_NAME, _MANIFEST_NAME}
-_INVALID_ROOT_MESSAGE = "promotion acceptance receipt manifest directory must be a regular directory"
+_INVALID_ROOT_MESSAGE = (
+    "promotion acceptance receipt manifest directory must be a regular directory"
+)
 _INVALID_ENTRIES_MESSAGE = (
     "promotion acceptance receipt manifest directory has unexpected or missing entries"
 )
