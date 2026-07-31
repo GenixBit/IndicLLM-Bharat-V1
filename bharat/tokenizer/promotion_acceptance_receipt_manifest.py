@@ -19,21 +19,13 @@ _REQUIRED_FIELDS = {
     "schema_version",
 }
 _RECEIPT_NAME = "acceptance-receipt.json"
-_INVALID_JSON_MESSAGE = (
-    "promotion acceptance receipt manifest must be valid UTF-8 JSON"
-)
-_INVALID_OBJECT_MESSAGE = (
-    "promotion acceptance receipt manifest must be a JSON object"
-)
-_INVALID_FILE_MESSAGE = (
-    "promotion acceptance receipt manifest must be a regular file"
-)
+_INVALID_JSON_MESSAGE = "promotion acceptance receipt manifest must be valid UTF-8 JSON"
+_INVALID_OBJECT_MESSAGE = "promotion acceptance receipt manifest must be a JSON object"
+_INVALID_FILE_MESSAGE = "promotion acceptance receipt manifest must be a regular file"
 _INVALID_FIELDS_MESSAGE = (
     "promotion acceptance receipt manifest has unexpected or missing fields"
 )
-_INVALID_SCHEMA_MESSAGE = (
-    "unsupported promotion acceptance receipt manifest schema"
-)
+_INVALID_SCHEMA_MESSAGE = "unsupported promotion acceptance receipt manifest schema"
 _INVALID_DIGEST_MESSAGE = (
     "promotion acceptance receipt manifest receipt_sha256 does not match"
 )
