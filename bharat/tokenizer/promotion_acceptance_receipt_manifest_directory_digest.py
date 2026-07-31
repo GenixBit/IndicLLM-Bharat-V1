@@ -11,8 +11,12 @@ from bharat.tokenizer.promotion_acceptance_receipt_manifest_directory import (
 )
 
 _INVALID_DIGEST_MESSAGE = "expected digest must be a lowercase SHA-256 hex string"
-_DIGEST_MISMATCH_MESSAGE = "promotion acceptance receipt manifest directory digest does not match"
-_INVALID_ENTRY_MESSAGE = "promotion acceptance receipt manifest directory contains a non-regular entry"
+_DIGEST_MISMATCH_MESSAGE = (
+    "promotion acceptance receipt manifest directory digest does not match"
+)
+_INVALID_ENTRY_MESSAGE = (
+    "promotion acceptance receipt manifest directory contains a non-regular entry"
+)
 
 
 @dataclass(frozen=True)
@@ -22,7 +26,9 @@ class PromotionAcceptanceReceiptManifestDirectoryDigestVerification:
 
 
 def _validate_digest(value: str) -> None:
-    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+    if len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
         raise ValueError(_INVALID_DIGEST_MESSAGE)
 
 
@@ -30,7 +36,9 @@ def promotion_acceptance_receipt_manifest_directory_sha256(root: Path) -> str:
     """Return a deterministic digest for all regular files under a local evidence root."""
 
     hasher = hashlib.sha256()
-    entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
+    entries = sorted(
+        root.rglob("*"), key=lambda path: path.relative_to(root).as_posix()
+    )
     for entry in entries:
         if entry.is_symlink():
             raise ValueError(_INVALID_ENTRY_MESSAGE)
