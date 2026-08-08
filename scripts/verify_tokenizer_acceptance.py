@@ -13,7 +13,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from bharat.tokenizer.acceptance import ThresholdConfiguration, evaluate_tokenizer_acceptance
+from bharat.tokenizer.acceptance import (
+    ThresholdConfiguration,
+    evaluate_tokenizer_acceptance,
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -28,9 +31,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Verify a local tokenizer evaluation report against thresholds."
     )
-    parser.add_argument("--report", required=True, type=Path, help="Local evaluation report JSON")
-    parser.add_argument("--thresholds", required=True, type=Path, help="Local threshold configuration JSON")
-    parser.add_argument("--tokenizer", required=True, help="Tokenizer name present in the report")
+    parser.add_argument(
+        "--report", required=True, type=Path, help="Local evaluation report JSON"
+    )
+    parser.add_argument(
+        "--thresholds",
+        required=True,
+        type=Path,
+        help="Local threshold configuration JSON",
+    )
+    parser.add_argument(
+        "--tokenizer", required=True, help="Tokenizer name present in the report"
+    )
     return parser
 
 
