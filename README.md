@@ -175,6 +175,8 @@ python scripts/generate_bharatbench_local_predictions.py \
 | Type check | `mypy bharat/` |
 | Calculate params | `python scripts/calculate_params.py --all --weight-dtype bf16` |
 
+---
+
 ## Environment Variables
 
 | Variable | Required | Purpose |
