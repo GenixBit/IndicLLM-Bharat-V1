@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.verify_tokenizer_acceptance import main
-
 from tests.tokenizer.test_acceptance import _realistic_report, _thresholds
+
+from scripts.verify_tokenizer_acceptance import main
 
 
 def _write_inputs(tmp_path: Path) -> tuple[Path, Path]:
