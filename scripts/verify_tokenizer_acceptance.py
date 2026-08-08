@@ -32,7 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Verify a local tokenizer evaluation report against thresholds."
     )
     parser.add_argument(
-        "--report", required=True, type=Path, help="Local evaluation report JSON"
+        "--report",
+        required=True,
+        type=Path,
+        help="Local evaluation report JSON",
     )
     parser.add_argument(
         "--thresholds",
@@ -41,7 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local threshold configuration JSON",
     )
     parser.add_argument(
-        "--tokenizer", required=True, help="Tokenizer name present in the report"
+        "--tokenizer",
+        required=True,
+        help="Tokenizer name present in the report",
     )
     return parser
 
