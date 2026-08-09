@@ -28,19 +28,16 @@ def _write_inputs(tmp_path: Path) -> tuple[Path, Path]:
 def test_cli_accepts_valid_local_inputs(tmp_path: Path, capsys) -> None:
     report_path, thresholds_path = _write_inputs(tmp_path)
 
-    assert (
-        main(
-            [
-                "--report",
-                str(report_path),
-                "--thresholds",
-                str(thresholds_path),
-                "--tokenizer",
-                "bharat-bpe",
-            ]
-        )
-        == 0
-    )
+    assert main(
+        [
+            "--report",
+            str(report_path),
+            "--thresholds",
+            str(thresholds_path),
+            "--tokenizer",
+            "bharat-bpe",
+        ]
+    ) == 0
 
     output = json.loads(capsys.readouterr().out)
     assert output["passed"] is True
@@ -53,25 +50,20 @@ def test_cli_returns_nonzero_for_threshold_violation(tmp_path: Path, capsys) -> 
     thresholds["thresholds"]["min_record_count"] = 99
     thresholds_path.write_text(json.dumps(thresholds), encoding="utf-8")
 
-    assert (
-        main(
-            [
-                "--report",
-                str(report_path),
-                "--thresholds",
-                str(thresholds_path),
-                "--tokenizer",
-                "bharat-bpe",
-            ]
-        )
-        == 1
-    )
+    assert main(
+        [
+            "--report",
+            str(report_path),
+            "--thresholds",
+            str(thresholds_path),
+            "--tokenizer",
+            "bharat-bpe",
+        ]
+    ) == 1
 
     output = json.loads(capsys.readouterr().out)
     assert output["passed"] is False
     record_check = next(
-        check
-        for check in output["checks"]
-        if check["name"] == "record_count"
+        check for check in output["checks"] if check["name"] == "record_count"
     )
     assert record_check["passed"] is False
