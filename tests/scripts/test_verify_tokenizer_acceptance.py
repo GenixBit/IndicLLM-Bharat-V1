@@ -64,10 +64,8 @@ def test_cli_returns_nonzero_for_threshold_violation(tmp_path: Path, capsys) -> 
     output = json.loads(capsys.readouterr().out)
     assert output["passed"] is False
     record_check = next(
-        (
-            check
-            for check in output["checks"]
-            if check["name"] == "record_count"
-        )
+        check
+        for check in output["checks"]
+        if check["name"] == "record_count"
     )
     assert record_check["passed"] is False
