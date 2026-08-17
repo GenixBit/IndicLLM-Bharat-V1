@@ -59,6 +59,7 @@ build-release-bundle = "scripts.build_release_bundle:main"
 sanity-check = "scripts.sanity_check:main"
 push-to-hub = "scripts.push_to_hub:main"
 bharat-generate = "inference.generate:main"
+bharat-api = "inference.api:main"
 
 [project.optional-dependencies]
 dev = [
