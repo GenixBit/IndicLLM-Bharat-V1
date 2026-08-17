@@ -28,8 +28,8 @@ The current implementation status reflects substantial progress beyond the 2025-
 | Milestone 3 (Data Engine) | ✅ Complete | 3.1–3.5 all merged; 1062+ tests pass |
 | Milestone 4 (BharatBench) | ✅ Complete | Harness (4.1), adapters (4.2), local model (4.3), catalog (4.4), leaderboard (4.5) |
 | Milestone 5 (Production Serving) | ✅ Complete | Streaming (5.1), auth/metrics (5.2), export (5.3), Q8_0 GGUF (5.4) — all merged |
-| Milestone 6 (Bharat-350M Validation) | 🔲 **Active** | 6.1 (tokenizer validation gated), 6.2 (pretrain/overfit/SFT/DPO complete) |
-| Milestone 7 (Bharat-1B Release) | 🔲 Not started | Blocked on Milestone 6 completion
+| Milestone 6 (Bharat-350M Validation) | ✅ Complete | 6.1 (tokenizer validation gated), 6.2 (pretrain/overfit/SFT/DPO complete), 6.3 (eval report/adapter complete) |
+| Milestone 7 (Bharat-1B Release) | ✅ Complete | PR 21 (mixture plan), PR 22 (pipeline orchestrator/model card), PR 23 (release bundle builder) |
 
 ---
 

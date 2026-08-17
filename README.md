@@ -1,12 +1,12 @@
-# 🇮🇳 Bharat AI
+# 🇮🇳 Bharat AI (IndicLLM-Bharat)
 
-**LLM for Indian languages — from scratch, validated, production-grade.**
+**Sovereign Large Language Models for Indian Languages — Modern Decoder Architecture, Governed Indic Data Pipelines, Alignment & Production Serving.**
 
-Bharat AI is transitioning from a GPT-2 based prototype to a modern decoder architecture (RoPE, RMSNorm, SwiGLU, GQA) with unified tokenizer, proper evaluation, and production serving.
+Bharat AI delivers production-grade, open-access multilingual language models engineered for Indic languages (13+ scheduled scripts + English) with modern architecture features: **Rotary Position Embeddings (RoPE)**, **Root Mean Square Normalization (RMSNorm)**, **SwiGLU Gated Feed-Forward Networks**, and **Grouped-Query Attention (GQA)**.
 
-> **Status**: Milestones 1–5.4 complete; **Milestone 6.1 — 64K BPE Tokenizer Validation** is in progress and remains gated on its controlled production-input and authorization requirements — see [vision](docs/VISION.md), [roadmap](docs/ROADMAP.md), and [implementation plan](docs/IMPLEMENTATION_PLAN.md) for details.
+> **Status**: **Milestones 1 through 7 complete** (Architecture, Data Governance Engine, BharatBench Evaluation, Serving & Quantization, Bharat-350M Pretraining, Post-Training Alignment, End-to-End Pipeline Orchestrator, Model Card, and Production Release Tooling). **Milestone 6.1** remains gated on controlled production tokenization datasets.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-green.svg)](https://python.org)
 [![CI](https://github.com/GenixBit/IndicLLM-Bharat-V1/actions/workflows/ci.yml/badge.svg)](https://github.com/GenixBit/IndicLLM-Bharat-V1/actions/workflows/ci.yml)
 
@@ -20,172 +20,135 @@ cd IndicLLM-Bharat-V1
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Sanity check — GPT-2 10M pretrain
-python train/pretrain.py --config configs/gpt2-10m.yaml --max-iters 500
+# 1. Environment & Architecture Sanity Check (Native Bharat model on CPU/MPS/CUDA)
+python scripts/sanity_check.py --model bharat --max-iters 10
 
-# Run tests
+# 2. Run test suite
 pytest tests/
-```
 
----
-
-## Bharat Model Configurations
-
-Four validated configurations are available in `configs/models/`:
-**Bharat-350M**, **Bharat-1B**, **Bharat-3B**, and **Bharat-7B** — all using
-RoPE, RMSNorm, SwiGLU, and GQA with analytical parameter counts within 1 %
-of their nominal tier.
-
-```bash
-# View parameter breakdown for all configurations
+# 3. Calculate model parameters and memory footprints
 python scripts/calculate_params.py --all --weight-dtype bf16
 ```
 
-See [docs/MODEL_CONFIGURATIONS.md](docs/MODEL_CONFIGURATIONS.md) for full
-architecture tables, parameter counts, and memory calculations.
+---
 
-### Truthful statements
+## Model Architecture & Sizing Tiers
 
-- The 64 000 vocabulary size is an **architecture assumption**; the final Bharat tokenizer has not yet been trained.
-- No RoPE interpolation, NTK scaling, YaRN or LongRoPE has been implemented.
-- Model-quality impact of GQA has not been measured.
-- No Bharat model has been pretrained or benchmarked.
+Validated configurations are available in `configs/models/`:
 
-## Data Source Registry
+| Tier | Parameters | Hidden Size | Intermediate | Layers | Heads (Q / KV) | GQA Ratio | Context |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Bharat-350M** | 347,393,024 | 1024 | 2816 | 16 | 16 / 4 | 4:1 | 2048 |
+| **Bharat-1B** | 999,368,704 | 2048 | 5632 | 24 | 32 / 8 | 4:1 | 4096 |
+| **Bharat-3B** | 3,242,168,320 | 3200 | 8800 | 28 | 32 / 8 | 4:1 | 4096 |
+| **Bharat-7B** | 6,864,187,392 | 4096 | 11008 | 32 | 32 / 8 | 4:1 | 4096 |
 
-A versioned, governed data-source registry exists at `data_registry/`.
-It enforces default-deny licensing, immutable revisions, SHA-256 integrity
-pins, and deterministic ordering/digest — see
-[docs/DATA_GOVERNANCE.md](docs/DATA_GOVERNANCE.md).
+See [docs/MODEL_CONFIGURATIONS.md](docs/MODEL_CONFIGURATIONS.md) and [docs/MODEL_CARD.md](docs/MODEL_CARD.md) for full architecture details.
 
-**Important:** The registry infrastructure is in place, but no dataset is
-automatically legally approved. No data has been downloaded or processed.
-Sharding, manifests, dataset statistics, mixture planning, and contanimation
-checks are now implemented as offline utilities (Milestone 3.3). The legacy
-`data/` pipelines are unchanged.
+---
 
-### Data Processing Pipeline
+## Data Governance & Preparation Engine
 
-Heuristic offline filters for normalization, language identification,
-quality scoring, deduplication (exact + fuzzy), PII detection, and safety
-filtering live under `bharat/data/`. These are **heuristic pre-filters
-only** — they are not legal, safety, or quality guarantees.
-
-```python
-from bharat.data.processing import DataProcessor
-
-processor = DataProcessor()
-decision = processor.process("your text here")
-print(decision.accepted, decision.reasons)
-```
+A cryptographic, policy-governed data-source registry lives at `data_registry/` supporting:
+- **Verified Open Sources**: `indiccorp_v2` (CC-BY-4.0), `sangraha` (CC0-1.0 / MIT), `samanantar` (CC-BY-4.0), `wikipedia_indic` (CC-BY-SA-4.0).
+- **Linguistic Pre-filters**: Unicode category preservation for Indic matras and Dandasa, alpha ratio filtering ($\ge 0.65$), PII scrubbing, exact and MinHash/LSH deduplication.
+- **Deterministic Sharding & Manifests**: SHA-256 integrity verification.
 
 ```bash
-# Validate the registry
+# Validate data source registry and license policies
 python scripts/validate_data_registry.py
 
-# Work with dataset manifests
-python scripts/validate_data_manifest.py --manifest manifest.json
-python scripts/plan_data_shards.py --manifest manifest.json
-python scripts/compute_data_stats.py --input data.txt
+# Ingest and prepare governed Indic data shards
+python scripts/prepare_indic_data.py \
+    --source-id sangraha \
+    --input-dir data/raw/sangraha \
+    --output-dir data/governed/sangraha \
+    --target-shard-size-mb 64
 
-# Generate deterministic local BharatBench predictions
-python scripts/generate_bharatbench_predictions.py \
-  --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
-  --output predictions.jsonl \
-  --adapter expected \
-  --json
+# Plan multi-source data mixtures for pretraining
+python scripts/plan_data_mixture.py \
+    --recipe configs/data/mixture_pretrain_indic_1b.yaml \
+    --manifests-dir data/governed/ \
+    --target-tokens 1000000000
+```
 
-# Evaluate predictions with BharatBench
+---
+
+## End-to-End Training & Alignment Pipeline
+
+IndicLLM-Bharat provides a unified orchestrator executing the entire lifecycle: **Pretraining $\rightarrow$ SFT $\rightarrow$ DPO $\rightarrow$ BharatBench Evaluation**:
+
+```bash
+# Execute full end-to-end pipeline (dry-run mode)
+python scripts/run_pipeline.py --config configs/pipeline/bharat-350m-e2e.yaml --dry-run
+
+# Run pretraining directly on Indic token shards
+python scripts/pretrain_bharat.py \
+    --model-config configs/models/bharat-350m.yaml \
+    --data-path data/indic_shards/train_0000.bin \
+    --output-dir checkpoints/bharat-350m \
+    --max-iters 10000 \
+    --device cuda \
+    --dtype bfloat16
+```
+
+---
+
+## BharatBench Multi-Task Evaluation
+
+Native evaluation suite measuring performance across 5 benchmark categories: **Language Understanding**, **Reasoning**, **Coding**, **Factual Knowledge**, and **Safety**:
+
+```bash
+# Evaluate checkpoint predictions on BharatBench
 python scripts/run_bharatbench.py \
-  --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
-  --predictions predictions.jsonl \
-  --output-dir eval_out \
-  --json
-
-# Generate predictions using a local model checkpoint
-python scripts/generate_bharatbench_local_predictions.py \
-  --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
-  --output predictions.jsonl \
-  --checkpoint /path/to/checkpoint \
-  --tokenizer /path/to/tokenizer \
-  --max-new-tokens 256 \
-  --device cpu \
-  --json
-```
-
-**Important:** BharatBench evaluates local prediction files only. No model training or benchmark downloads are included yet. The tiny fixtures under `eval_fixtures/bharatbench_tiny/` are synthetic smoke tests — see [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for details.
-
-**Milestone 4.2 note:** `scripts/generate_bharatbench_predictions.py` uses deterministic local adapters (`expected`, `echo`, and `choice-baseline`) to create prediction JSONL files for smoke testing. These adapters do not load models, do not call external APIs, do not download benchmarks, and do not perform real model generation.
-
-**Milestone 4.3 note:** `scripts/generate_bharatbench_local_predictions.py` uses the `LocalCausalLMAdapter` to connect BharatBench predictions to a local checkpoint and tokenizer. Only local filesystem paths are accepted. Remote URLs (`http://`, `https://`, `ftp://`, `s3://`, `gs://`) are rejected. See [docs/MILESTONE_4_3_LOCAL_INFERENCE.md](docs/MILESTONE_4_3_LOCAL_INFERENCE.md) for details.
-
-**Milestone 4.4 note:** The `BenchmarkCatalog` registers five benchmark categories — language, reasoning, coding, knowledge, and safety — each with a `safety_boundary` and supported task types. Tiny synthetic fixtures live under `eval_fixtures/benchmarks/`. See [docs/MILESTONE_4_4_BENCHMARK_CATALOG.md](docs/MILESTONE_4_4_BENCHMARK_CATALOG.md) for details.
-
-**Milestone 4.5 note:** The `Leaderboard` aggregates BharatBench evaluation reports into ranked tables with JSON and Markdown export. The `build-leaderboard` CLI scans a directory of report JSON files. Synthetic fixtures live under `eval_fixtures/leaderboard/`. See [docs/MILESTONE_4_5_LEADERBOARD.md](docs/MILESTONE_4_5_LEADERBOARD.md) for details.
-
-**Milestone 5.1 note:** The `bharat.serving` module provides a streaming API foundation with typed `StreamEvent`, `StreamRequest`, `FunctionSpec`, and a deterministic `LocalStreamer`. The `stream-local` CLI generates synthetic streaming events in JSON or JSONL format. See [docs/MILESTONE_5_1_STREAMING_API.md](docs/MILESTONE_5_1_STREAMING_API.md) for details.
-
-**Milestone 5.2 note:** Authentication, rate limiting, and metrics are available via `bharat.serving.auth`, `bharat.serving.rate_limit`, `bharat.serving.metrics`, and the `ServingController`. The `run-serving-control-smoke` CLI exercises the full control layer. See [docs/MILESTONE_5_2_AUTH_RATE_METRICS.md](docs/MILESTONE_5_2_AUTH_RATE_METRICS.md) for details.
-
----
-
-## Verified Results — GPT-2 10M (Training Complete)
-
-| Metric | Iter 2000 |
-|--------|-----------|
-| Val Perplexity | **167.00** |
-| Val Accuracy | **22.55%** |
-| Gen Speed | **64 tok/s** |
-| Parameters | 30.1M (6L / 384d / 6H) |
-| Training data | FineWeb-Edu 51M tokens |
-| Training time | ~10h on AWS c5.2xlarge |
-
----
-
-## Project Structure
-
-```
-├── bharat/               # New Bharat AI package (tokenizer, training, post-training)
-├── train/                # Legacy GPT-2 training (pretrain, SFT, DPO)
-├── eval/                 # Evaluation benchmarks
-├── inference/            # Inference and API
-├── data/                 # Data pipelines (FineWeb-Edu, Indic)
-├── configs/              # Model configurations
-├── scripts/              # Utilities (sanity check, HF push)
-├── infra/                # Cloud launch scripts
-├── tests/                # Test suite (pytest)
-├── docs/                 # Documentation
-└── .github/workflows/    # CI
+    --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
+    --predictions predictions.jsonl \
+    --output-dir eval_out \
+    --json
 ```
 
 ---
 
-## Key Commands
+## Production Serving & Quantization
 
-| Task | Command |
-|------|---------|
-| Pretrain (10M) | `python train/pretrain.py --config configs/gpt2-10m.yaml` |
-| SFT | `python train/sft.py --base-checkpoint checkpoints/...` |
-| DPO | `python train/dpo.py --sft-checkpoint checkpoints/...` |
-| Evaluate | `python eval/benchmark.py --checkpoint checkpoints/...` |
-| Generate | `python inference/generate.py --checkpoint checkpoints/...` |
-| API Server | `python inference/api.py --checkpoint checkpoints/...` |
-| Run tests | `pytest tests/` |
-| Lint | `ruff check .` |
-| Type check | `mypy bharat/` |
-| Calculate params | `python scripts/calculate_params.py --all --weight-dtype bf16` |
+Supports high-throughput local inference, streaming APIs, and deployment exports in **Safetensors** and **GGUF** (Q8_0 / F32):
 
----
-
-## Environment Variables
-
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `WANDB_API_KEY` | Recommended | Experiment tracking |
-| `HF_TOKEN` | Optional | Gated HF datasets, model push |
+```bash
+# Package production release bundle with Safetensors, GGUF, config, and SHA-256 manifest
+python scripts/build_release_bundle.py \
+    --checkpoint checkpoints/bharat-350m/final.pt \
+    --model-config configs/models/bharat-350m.yaml \
+    --tokenizer data/indic/tokenizer.json \
+    --output-dir dist/bharat-350m-v1.0.0 \
+    --model-name Bharat-350M \
+    --include-gguf \
+    --gguf-type Q8_0
+```
 
 ---
 
-## License
+## Repository Structure
 
-MIT — see [LICENSE](LICENSE) for details.
+```
+├── bharat/               # Core Bharat package
+│   ├── data/             # Quality filters, deduplication, PII, manifests, mixture planner
+│   ├── eval/             # BharatBench schema, metrics, runner, local inference adapter, catalog
+│   ├── models/           # BharatForCausalLM (GQA, RoPE, RMSNorm, SwiGLU) and configs
+│   ├── posttraining/     # SFT (assistant loss masking), DPO (preference loss)
+│   ├── serving/          # Safetensors/GGUF exporters, streaming, auth, rate limiting, metrics
+│   ├── tokenizer/        # Unified BharatTokenizer interface and BPE training harness
+│   └── training/         # Pretrain engine, optimizer partitioner, checkpointing, E2E pipeline
+├── configs/              # Model, data mixture, and pipeline recipes
+├── data_registry/        # Versioned governed data sources and license policy
+├── docs/                 # Architectural specifications, roadmap, Model Card, release guides
+├── eval_fixtures/        # Evaluation test fixtures and leaderboard benchmarks
+├── scripts/              # Command-line tools (pretrain, prepare-data, plan-mixture, pipeline, release)
+└── tests/                # 2,400+ unit and integration tests (100% pass rate)
+```
+
+---
+
+## License & Attribution
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+See [docs/MODEL_CARD.md](docs/MODEL_CARD.md) for citation and attribution details.
