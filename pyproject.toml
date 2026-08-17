@@ -46,6 +46,9 @@ check-tokenizer-acceptance = "scripts.check_tokenizer_acceptance:main"
 evaluate-tokenizer = "scripts.evaluate_tokenizer:main"
 validate-tokenizer-evidence = "scripts.validate_tokenizer_evidence:main"
 validate-production-tokenizer-evidence = "scripts.validate_production_tokenizer_evidence:main"
+pretrain-bharat = "scripts.pretrain_bharat:main"
+prepare-indic-data = "scripts.prepare_indic_data:main"
+plan-data-mixture = "scripts.plan_data_mixture:main"
 
 [project.optional-dependencies]
 dev = [

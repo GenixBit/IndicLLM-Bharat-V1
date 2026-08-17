@@ -9,4 +9,51 @@
 
 schema_version: 1
 default_decision: deny
-licenses: []
+licenses:
+  - identifier: "cc-by-4.0"
+    name: "Creative Commons Attribution 4.0 International"
+    decision: "allow"
+    evidence_url: "https://creativecommons.org/licenses/by/4.0/"
+    verified_at: "2026-01-01"
+    verified_by: "bharat-ai-governance"
+    commercial_use_allowed: true
+    model_training_allowed: true
+    redistribution_allowed: true
+    attribution_required: true
+    share_alike: false
+
+  - identifier: "cc0-1.0"
+    name: "Creative Commons Zero 1.0 Universal Public Domain Dedication"
+    decision: "allow"
+    evidence_url: "https://creativecommons.org/publicdomain/zero/1.0/"
+    verified_at: "2026-01-01"
+    verified_by: "bharat-ai-governance"
+    commercial_use_allowed: true
+    model_training_allowed: true
+    redistribution_allowed: true
+    attribution_required: false
+    share_alike: false
+
+  - identifier: "mit"
+    name: "MIT License"
+    decision: "allow"
+    evidence_url: "https://opensource.org/licenses/MIT"
+    verified_at: "2026-01-01"
+    verified_by: "bharat-ai-governance"
+    commercial_use_allowed: true
+    model_training_allowed: true
+    redistribution_allowed: true
+    attribution_required: true
+    share_alike: false
+
+  - identifier: "apache-2.0"
+    name: "Apache License 2.0"
+    decision: "allow"
+    evidence_url: "https://www.apache.org/licenses/LICENSE-2.0"
+    verified_at: "2026-01-01"
+    verified_by: "bharat-ai-governance"
+    commercial_use_allowed: true
+    model_training_allowed: true
+    redistribution_allowed: true
+    attribution_required: true
+    share_alike: false

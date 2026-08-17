@@ -96,7 +96,21 @@ def _build_real_generate_fn(
     from bharat.tokenizer import load_tokenizer
 
     tokenizer = load_tokenizer(str(tok_path))
-    model = BharatForCausalLM.from_pretrained(str(ckpt_path), map_location=default_device)
+    ckpt_p = Path(ckpt_path)
+    if ckpt_p.is_file():
+        from bharat.models.config import BharatModelConfig
+
+        ckpt = torch.load(ckpt_p, map_location=default_device, weights_only=False)
+        if isinstance(ckpt, dict) and "config" in ckpt and isinstance(ckpt["config"], dict):
+            config = BharatModelConfig.from_dict(ckpt["config"])
+            model = BharatForCausalLM(config)
+            model.load_state_dict(ckpt.get("model", ckpt))
+        else:
+            raise ValueError(
+                f"Checkpoint file '{ckpt_path}' must contain a valid 'config' dictionary"
+            )
+    else:
+        model = BharatForCausalLM.from_pretrained(str(ckpt_path), map_location=default_device)
     model.eval()
 
     def _generate(

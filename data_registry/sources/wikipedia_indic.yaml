@@ -1,0 +1,33 @@
+schema_version: 1
+source_id: "wikipedia_indic"
+version: "1.0.0"
+display_name: "Wikimedia Indic Language Articles"
+provider: "wikimedia"
+kind: "http"
+uri: "https://dumps.wikimedia.org"
+revision: "3456789abcdef0123456789abcdef0123456789a"
+languages:
+  - "as"
+  - "bn"
+  - "gu"
+  - "hi"
+  - "kn"
+  - "ml"
+  - "mr"
+  - "or"
+  - "pa"
+  - "sa"
+  - "ta"
+  - "te"
+  - "ur"
+domains:
+  - "general"
+splits:
+  - "train"
+purposes:
+  - "pretraining"
+status: "proposed"
+license: "cc-by-4.0"
+gated: false
+created_at: "2026-01-01"
+updated_at: "2026-01-01"

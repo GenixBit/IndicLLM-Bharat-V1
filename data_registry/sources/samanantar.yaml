@@ -1,0 +1,35 @@
+schema_version: 1
+source_id: "samanantar"
+version: "1.0.0"
+display_name: "AI4Bharat Samanantar Parallel Corpus"
+provider: "ai4bharat"
+kind: "huggingface"
+uri: "https://huggingface.co/datasets/ai4bharat/samanantar"
+revision: "23456789abcdef0123456789abcdef0123456789"
+languages:
+  - "as"
+  - "bn"
+  - "gu"
+  - "hi"
+  - "kn"
+  - "ml"
+  - "mr"
+  - "or"
+  - "pa"
+  - "ta"
+  - "te"
+  - "ur"
+  - "en"
+domains:
+  - "general"
+splits:
+  - "train"
+  - "validation"
+purposes:
+  - "pretraining"
+  - "sft"
+status: "proposed"
+license: "cc-by-4.0"
+gated: false
+created_at: "2026-01-01"
+updated_at: "2026-01-01"

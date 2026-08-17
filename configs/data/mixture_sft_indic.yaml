@@ -1,0 +1,25 @@
+# IndicLLM-Bharat-V1 — Instruction Tuning (SFT) Mixture Recipe
+#
+# Language and domain weights must each sum to exactly 1.0.
+
+recipe_name: "indic_sft_default"
+description: "Multilingual Indic instruction tuning dataset mixture for alignment and task solving"
+
+language_weights:
+  hi: 0.35  # Hindi
+  bn: 0.15  # Bengali
+  ta: 0.12  # Tamil
+  te: 0.12  # Telugu
+  mr: 0.08  # Marathi
+  gu: 0.05  # Gujarati
+  kn: 0.05  # Kannada
+  en: 0.08  # English
+
+domain_weights:
+  general: 0.50
+  code: 0.20
+  mathematics: 0.15
+  science: 0.15
+
+max_pct_per_source: 0.50
+min_record_threshold: 10

@@ -157,7 +157,17 @@ def sft_train(
                 pg["lr"] = lr
 
             with ctx:
-                _, loss = model(input_ids, labels)
+                try:
+                    out = model(input_ids, labels=labels)
+                except TypeError:
+                    out = model(input_ids, labels)
+
+                if hasattr(out, "loss") and out.loss is not None:
+                    loss = out.loss
+                elif isinstance(out, tuple | list):
+                    loss = out[1]
+                else:
+                    loss = out
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)

@@ -5,6 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 _MANIFEST_SCHEMA_VERSION = "1.0"
@@ -400,3 +401,14 @@ def create_manifest(
         policy_digest=policy_digest,
         shards=shards,
     )
+
+
+def load_manifest(path: str | Path) -> DatasetManifest:
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Manifest file not found: {p}")
+    with p.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"Manifest at {p} must be a JSON object")
+    return DatasetManifest.from_dict(data)

@@ -24,7 +24,13 @@ def per_sample_log_probs(
     should be True if input_ids[:, i+1] is a response token.
     """
     with ctx:
-        logits, _ = model(input_ids)
+        out = model(input_ids)
+        if hasattr(out, "logits"):
+            logits = out.logits
+        elif isinstance(out, tuple | list):
+            logits = out[0]
+        else:
+            logits = out
 
     log_p = F.log_softmax(logits, dim=-1)
 
