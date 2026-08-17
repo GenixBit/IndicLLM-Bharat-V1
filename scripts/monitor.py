@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""
-IndicLLM-Bharat-V1 — Training & Infrastructure Monitor
+"""IndicLLM-Bharat-V1 — Training, Infrastructure & Telemetry Monitor.
 
-Shows real-time status of all running services and training progress.
+Real-time monitoring dashboard and telemetry reporter for IndicLLM-Bharat.
+Inspects hardware accelerators (CUDA/MPS/CPU), active checkpoints, governed datasets,
+and evaluation benchmark runs.
 
 Usage:
-  python scripts/monitor.py                   # Full dashboard
-  python scripts/monitor.py --check-api       # Just API health
-  python scripts/monitor.py --check-data      # Data pipeline status
+  # Print single-shot dashboard
+  python scripts/monitor.py
+
+  # Output JSON status snapshot
+  python scripts/monitor.py --json
+
+  # Live watch mode with 5s refresh
+  python scripts/monitor.py --watch --interval 5
 """
 
 from __future__ import annotations
@@ -15,192 +21,224 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
+
+import torch
 
 
-def print_header():
-    print("\033[2J\033[H")  # Clear screen
-    print("=" * 60)
-    print("  🇮🇳 IndicLLM-Bharat-V1 — Monitor Dashboard")
-    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60)
+def get_hardware_telemetry() -> dict[str, Any]:
+    """Inspect local hardware acceleration and memory."""
+    telemetry: dict[str, Any] = {
+        "platform": sys.platform,
+        "cpu_count": os.cpu_count() or 1,
+        "device": "cpu",
+        "accelerator_available": False,
+    }
+
+    if torch.cuda.is_available():
+        telemetry["device"] = "cuda"
+        telemetry["accelerator_available"] = True
+        telemetry["cuda_device_count"] = torch.cuda.device_count()
+        telemetry["cuda_device_name"] = torch.cuda.get_device_name(0)
+        telemetry["cuda_memory_allocated_mb"] = round(
+            torch.cuda.memory_allocated(0) / (1024 * 1024), 1
+        )
+        telemetry["cuda_memory_reserved_mb"] = round(
+            torch.cuda.memory_reserved(0) / (1024 * 1024), 1
+        )
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        telemetry["device"] = "mps"
+        telemetry["accelerator_available"] = True
+        telemetry["mps_backend"] = "Apple Silicon MPS (Unified Memory)"
+    else:
+        telemetry["device"] = "cpu"
+        telemetry["accelerator_available"] = False
+
+    return telemetry
 
 
-def check_training_log(log_path: str = "train.log"):
-    """Parse training log for latest metrics."""
-    path = Path(log_path)
-    if not path.exists():
-        return None
-
-    lines = path.read_text().strip().split("\n")
-
-    # Get last training iter
-    train_lines = [line for line in lines if line.startswith("iter ")]
-    eval_lines = [line for line in lines if line.startswith("step ")]
-
-    result = {"total_lines": len(lines)}
-
-    if train_lines:
-        last = train_lines[-1]
-        parts = last.split(",")
-        iter_str = parts[0].split(":")[0].replace("iter ", "").strip()
-        loss_str = parts[0].split("loss")[1].strip() if "loss" in parts[0] else "?"
-        result["last_iter"] = int(iter_str)
-        result["last_loss"] = float(loss_str) if loss_str != "?" else None
-
-    if eval_lines:
-        last_eval = eval_lines[-1]
-        parts = last_eval.replace("step ", "").split(",")
-        result["eval_step"] = int(parts[0].split(":")[0].strip())
-        if "train loss" in last_eval:
-            result["train_loss"] = float(last_eval.split("train loss")[1].split(",")[0].strip())
-        if "val loss" in last_eval:
-            result["val_loss"] = float(last_eval.split("val loss")[1].strip())
-
-    return result
-
-
-def check_checkpoints(ckpt_dir: str = "checkpoints"):
-    """List all checkpoints with sizes."""
+def check_checkpoints(ckpt_dir: str | Path = "checkpoints") -> list[dict[str, Any]]:
+    """List checkpoints sorted by latest modification."""
     path = Path(ckpt_dir)
     if not path.exists():
         return []
 
-    checkpoints = []
+    checkpoints: list[dict[str, Any]] = []
     for f in path.rglob("*.pt"):
         size_mb = f.stat().st_size / (1024 * 1024)
         mtime = datetime.fromtimestamp(f.stat().st_mtime)
         checkpoints.append(
             {
+                "file": f.name,
                 "path": str(f),
                 "size_mb": round(size_mb, 1),
-                "modified": mtime.strftime("%Y-%m-%d %H:%M"),
+                "modified": mtime.strftime("%Y-%m-%d %H:%M:%S"),
             }
         )
     return sorted(checkpoints, key=lambda x: x["modified"], reverse=True)
 
 
-def check_data_stats(data_dir: str = "data"):
-    """Check data pipeline status."""
+def check_data_pipeline(data_dir: str | Path = "data") -> dict[str, Any]:
+    """Check governed data artifacts and binary token shards."""
     path = Path(data_dir)
-    stats = {}
+    stats: dict[str, Any] = {
+        "exists": path.exists(),
+        "total_shards": 0,
+        "shards_size_mb": 0.0,
+    }
 
-    # Check shards
-    for shard in ["shards/train.bin", "shards/val.bin"]:
-        shard_path = path / shard
-        if shard_path.exists():
-            size_mb = shard_path.stat().st_size / (1024 * 1024)
-            stats[shard] = f"{size_mb:.1f} MB"
+    if not path.exists():
+        return stats
 
-    # Check Indic data
-    indic_path = path / "indic"
-    if indic_path.exists():
-        txt_files = list(indic_path.rglob("*.txt"))
-        total_size = sum(f.stat().st_size for f in txt_files) / (1024 * 1024)
-        stats["indic_files"] = len(txt_files)
-        stats["indic_size_mb"] = round(total_size, 1)
+    bin_shards = list(path.rglob("*.bin"))
+    stats["total_shards"] = len(bin_shards)
+    total_bytes = sum(f.stat().st_size for f in bin_shards)
+    stats["shards_size_mb"] = round(total_bytes / (1024 * 1024), 2)
 
-        # Check per-language
-        for lang_dir in sorted(indic_path.iterdir()):
-            if lang_dir.is_dir():
-                lang_files = list(lang_dir.glob("*.txt"))
-                if lang_files:
-                    lang_size = sum(f.stat().st_size for f in lang_files) / 1024
-                    stats[f"lang_{lang_dir.name}"] = f"{len(lang_files)} files ({lang_size:.0f} KB)"
-
-    # Check train/val bins
-    for bin_name in ["train.bin", "val.bin"]:
-        bin_path = indic_path / bin_name if indic_path.exists() else None
-        if bin_path and bin_path.exists():
-            size_mb = bin_path.stat().st_size / (1024 * 1024)
-            stats[f"indic_{bin_name}"] = f"{size_mb:.1f} MB"
-
+    governed_manifests = list(path.rglob("*manifest*.json"))
+    stats["manifest_count"] = len(governed_manifests)
     return stats
 
 
-def check_benchmark_results(eval_dir: str = "eval"):
-    """Load latest benchmark results."""
+def check_eval_benchmarks(eval_dir: str | Path = "eval_out") -> dict[str, Any]:
+    """Inspect latest BharatBench evaluation results."""
     path = Path(eval_dir)
-    results = []
+    report: dict[str, Any] = {"exists": path.exists(), "runs": []}
+    if not path.exists():
+        return report
 
-    for f in sorted(path.glob("results_*.json"), reverse=True):
+    json_reports = sorted(path.glob("*.json"), reverse=True)
+    for f in json_reports[:5]:
         try:
-            data = json.loads(f.read_text())
-            results.append(
+            with open(f, encoding="utf-8") as rf:
+                data = json.load(rf)
+            report["runs"].append(
                 {
                     "file": f.name,
-                    "val_ppl": data.get("val_perplexity", "?"),
-                    "val_acc": data.get("val_accuracy", "?"),
-                    "train_ppl": data.get("train_perplexity", "?"),
-                    "iter": data.get("iter_num", "?"),
+                    "model_name": data.get("model_name", "Unknown"),
+                    "aggregate_score": data.get("aggregate_score", None),
+                    "total_examples": data.get("total_examples", None),
                 }
             )
         except Exception:
             pass
+    return report
 
-    return results
+
+def get_full_system_status(
+    ckpt_dir: str | Path = "checkpoints",
+    data_dir: str | Path = "data",
+    eval_dir: str | Path = "eval_out",
+) -> dict[str, Any]:
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "telemetry": get_hardware_telemetry(),
+        "checkpoints": check_checkpoints(ckpt_dir),
+        "data_pipeline": check_data_pipeline(data_dir),
+        "evaluation": check_eval_benchmarks(eval_dir),
+    }
 
 
-def print_section(title: str, content: dict | list | str):
-    """Pretty-print a dashboard section."""
-    print(f"\n  {'─' * 40}")
-    print(f"  📊 {title}")
-    print(f"  {'─' * 40}")
+def print_dashboard(status: dict[str, Any]) -> None:
+    """Pretty-print terminal monitoring dashboard."""
+    print("=" * 64)
+    print("  🇮🇳 IndicLLM-Bharat — Infrastructure & Training Telemetry")
+    print(f"  Timestamp: {status['timestamp']}")
+    print("=" * 64)
 
-    if isinstance(content, dict):
-        for k, v in content.items():
-            print(f"    {k:20s} : {v}")
-    elif isinstance(content, list):
-        for item in content:
-            if isinstance(item, dict):
-                for k, v in item.items():
-                    print(f"    {k:20s} : {v}")
-                print()
-            else:
-                print(f"    {item}")
+    # Telemetry
+    telem = status["telemetry"]
+    print("\n  🖥️  Compute & Hardware Accelerator:")
+    print(f"     Device        : {telem['device'].upper()}")
+    print(f"     CPU Cores     : {telem['cpu_count']}")
+    if telem.get("cuda_device_name"):
+        print(f"     GPU Model     : {telem['cuda_device_name']}")
+        print(f"     VRAM Allocated: {telem.get('cuda_memory_allocated_mb', 0)} MB")
+    elif telem.get("mps_backend"):
+        print(f"     MPS Backend   : {telem['mps_backend']}")
+
+    # Checkpoints
+    ckpts = status["checkpoints"]
+    print(f"\n  💾 Checkpoints Found ({len(ckpts)}):")
+    if ckpts:
+        for c in ckpts[:3]:
+            print(f"     • {c['file']:24s} | {c['size_mb']:>7.1f} MB | {c['modified']}")
     else:
-        print(f"    {content}")
+        print("     • (No .pt checkpoints in target directory)")
+
+    # Data
+    data = status["data_pipeline"]
+    print("\n  📦 Data Pipeline & Governance:")
+    print(
+        f"     Token Shards  : {data.get('total_shards', 0)} ({data.get('shards_size_mb', 0)} MB)"
+    )
+    print(f"     Manifests     : {data.get('manifest_count', 0)}")
+
+    # Evaluation
+    ev = status["evaluation"]
+    print(f"\n  📈 Evaluation Benchmarks ({len(ev.get('runs', []))} runs):")
+    if ev.get("runs"):
+        for r in ev["runs"]:
+            score_str = (
+                f"{r['aggregate_score']:.3f}" if r.get("aggregate_score") is not None else "N/A"
+            )
+            print(f"     • {r['file']:24s} | Score: {score_str}")
+    else:
+        print("     • (No evaluation reports found)")
+
+    print("\n" + "=" * 64 + "\n")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="IndicLLM Monitor")
-    parser.add_argument("--check-api", action="store_true")
-    parser.add_argument("--check-data", action="store_true")
-    parser.add_argument("--watch", action="store_true", help="Refresh every 30s")
-    args = parser.parse_args()
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="IndicLLM-Bharat Infrastructure & Telemetry Monitor"
+    )
+    parser.add_argument(
+        "--checkpoints-dir", default="checkpoints", help="Path to checkpoints directory"
+    )
+    parser.add_argument("--data-dir", default="data", help="Path to data directory")
+    parser.add_argument("--eval-dir", default="eval_out", help="Path to eval output directory")
+    parser.add_argument("--json", action="store_true", help="Output status as JSON to stdout")
+    parser.add_argument("--watch", action="store_true", help="Continuously refresh dashboard")
+    parser.add_argument(
+        "--interval", type=int, default=5, help="Refresh interval in seconds (default: 5)"
+    )
+    return parser
 
-    while True:
-        print_header()
 
-        # Training
-        train = check_training_log(os.path.expanduser("~/train.log"))
-        if train:
-            print_section("Training Progress", train)
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-        # Checkpoints
-        ckpts = check_checkpoints("checkpoints")
-        if ckpts:
-            print_section("Checkpoints", ckpts[:3])
+    try:
+        while True:
+            status = get_full_system_status(
+                ckpt_dir=args.checkpoints_dir,
+                data_dir=args.data_dir,
+                eval_dir=args.eval_dir,
+            )
 
-        # Data
-        data = check_data_stats("data")
-        if data:
-            print_section("Data Pipeline", data)
+            if args.json:
+                print(json.dumps(status, indent=2))
+            else:
+                print_dashboard(status)
 
-        # Benchmarks
-        benchmarks = check_benchmark_results("eval")
-        if benchmarks:
-            print_section("Benchmark Results", benchmarks[:3])
+            if not args.watch:
+                break
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\n  Monitor stopped.")
+        return 0
+    except Exception as e:
+        print(f"error monitoring system: {e}", file=sys.stderr)
+        return 1
 
-        print(f"\n  {'=' * 40}")
-        print(f"  Last updated: {datetime.now().strftime('%H:%M:%S')}")
-
-        if not args.watch:
-            break
-        time.sleep(30)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

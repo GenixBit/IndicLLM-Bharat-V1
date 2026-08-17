@@ -61,6 +61,7 @@ push-to-hub = "scripts.push_to_hub:main"
 bharat-generate = "inference.generate:main"
 bharat-api = "inference.api:main"
 export-ollama = "inference.export_ollama:main"
+bharat-monitor = "scripts.monitor:main"
 
 [project.optional-dependencies]
 dev = [
