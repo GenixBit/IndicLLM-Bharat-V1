@@ -58,6 +58,7 @@ generate-tokenizer-evidence = "scripts.generate_tokenizer_evidence:main"
 build-release-bundle = "scripts.build_release_bundle:main"
 sanity-check = "scripts.sanity_check:main"
 push-to-hub = "scripts.push_to_hub:main"
+bharat-generate = "inference.generate:main"
 
 [project.optional-dependencies]
 dev = [
