@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
-
-import os
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = ROOT / "scripts" / "calculate_params.py"
