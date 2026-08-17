@@ -51,9 +51,9 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 
 ### Milestone 6 — Bharat-350M Validation
 
-- [ ] 64K BPE tokenizer training and evaluation
-- [ ] Smoke test, overfit test, small-scale training
-- [ ] Comprehensive benchmark report
+- [ ] 64K BPE tokenizer training and evaluation (Milestone 6.1 — Gated on production data/approval)
+- [x] Bharat-350M pretraining engine, overfit-on-one-batch test, and SFT/DPO posttraining (Milestone 6.2 complete)
+- [ ] Comprehensive benchmark report (Milestone 6.3)
 
 ### Milestone 7 — Bharat-1B Release
 
