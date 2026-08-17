@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import os
 import subprocess
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
@@ -24,18 +23,58 @@ class CheckpointMetadata:
     package_versions: dict[str, str] = field(default_factory=dict)
 
 
-def get_git_sha() -> str:
+def get_git_sha(cwd: str | Path | None = None) -> str:
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    target_cwd = Path(cwd) if cwd else repo_root
     try:
+        env = {
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            cwd=str(target_cwd),
+            env=env,
             timeout=5,
         )
-        if result.returncode == 0:
+        if result.returncode == 0 and len(result.stdout.strip()) == 40:
             return result.stdout.strip()
     except Exception:
         pass
+
+    try:
+        git_dir = target_cwd / ".git"
+        if git_dir.is_file():
+            content = git_dir.read_text(encoding="utf-8").strip()
+            if content.startswith("gitdir:"):
+                git_dir = (target_cwd / content.split(":", 1)[1].strip()).resolve()
+        if git_dir.is_dir():
+            head_file = git_dir / "HEAD"
+            if head_file.is_file():
+                head_content = head_file.read_text(encoding="utf-8").strip()
+                if head_content.startswith("ref:"):
+                    ref_path = head_content.split(":", 1)[1].strip()
+                    ref_file = git_dir / ref_path
+                    if ref_file.is_file():
+                        candidate = ref_file.read_text(encoding="utf-8").strip()
+                        if len(candidate) == 40:
+                            return candidate
+                    packed = git_dir / "packed-refs"
+                    if packed.is_file():
+                        for line in packed.read_text(encoding="utf-8").splitlines():
+                            if line and not line.startswith("#") and not line.startswith("^"):
+                                parts = line.strip().split()
+                                if len(parts) == 2 and parts[1] == ref_path:
+                                    if len(parts[0]) == 40:
+                                        return parts[0]
+                elif len(head_content) == 40:
+                    return head_content
+    except Exception:
+        pass
+
     return ""
 
 

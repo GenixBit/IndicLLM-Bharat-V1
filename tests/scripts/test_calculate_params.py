@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import os
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = ROOT / "scripts" / "calculate_params.py"
 CONFIGS = ROOT / "configs" / "models"
@@ -12,10 +14,12 @@ PRODUCTION = ["bharat-350m.yaml", "bharat-1b.yaml", "bharat-3b.yaml", "bharat-7b
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
