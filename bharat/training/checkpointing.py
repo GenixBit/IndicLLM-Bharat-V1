@@ -67,9 +67,8 @@ def get_git_sha(cwd: str | Path | None = None) -> str:
                         for line in packed.read_text(encoding="utf-8").splitlines():
                             if line and not line.startswith("#") and not line.startswith("^"):
                                 parts = line.strip().split()
-                                if len(parts) == 2 and parts[1] == ref_path:
-                                    if len(parts[0]) == 40:
-                                        return parts[0]
+                                if len(parts) == 2 and parts[1] == ref_path and len(parts[0]) == 40:
+                                    return parts[0]
                 elif len(head_content) == 40:
                     return head_content
     except Exception:

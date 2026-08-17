@@ -7,6 +7,11 @@ from bharat.training.checkpointing import (
     save_checkpoint,
     validate_checkpoint,
 )
+from bharat.training.pipeline import (
+    PipelineConfig,
+    PipelineResult,
+    run_pipeline,
+)
 from bharat.training.pretrain import (
     PretrainConfig,
     PretrainResult,
@@ -18,6 +23,8 @@ from bharat.training.pretrain import (
 
 __all__ = [
     "CheckpointMetadata",
+    "PipelineConfig",
+    "PipelineResult",
     "PretrainConfig",
     "PretrainResult",
     "configure_optimizers",
@@ -26,6 +33,7 @@ __all__ = [
     "load_model_config_from_yaml",
     "make_checkpoint_data",
     "pretrain",
+    "run_pipeline",
     "save_checkpoint",
     "validate_checkpoint",
 ]

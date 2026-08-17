@@ -53,14 +53,14 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 
 - [ ] 64K BPE tokenizer training and evaluation (Milestone 6.1 — Gated on production data/approval)
 - [x] Bharat-350M pretraining engine, overfit-on-one-batch test, and SFT/DPO posttraining (Milestone 6.2 complete)
-- [ ] Comprehensive benchmark report (Milestone 6.3)
+- [x] Comprehensive benchmark report, local inference adapter, and category evaluation CLI (Milestone 6.3 complete)
 
 ### Milestone 7 — Bharat-1B Release
 
-- [ ] Data mixture and compute plan
-- [ ] Full pretrain → SFT → DPO pipeline
-- [ ] Safety evaluation and model card
-- [ ] Public release
+- [x] Data mixture and compute plan (PR 21 complete)
+- [x] Full pretrain → SFT → DPO → Eval pipeline orchestrator (PR 22 complete)
+- [x] Safety evaluation, Model Card (`docs/MODEL_CARD.md`), and pipeline recipes (PR 22 complete)
+- [ ] Public release package
 
 ## Verification Criteria
 
