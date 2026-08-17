@@ -86,7 +86,7 @@ def _export(tmp_path: Path, tensor_type: str, suffix: str = "") -> dict:
         ],
         capture_output=True,
         text=True,
-        env={**os.environ, **env},
+        env={**os.environ, **env, "PYTHONPATH": str(REPO_ROOT)},
     )
     if result.returncode != 0:
         raise RuntimeError(f"CLI failed:\nstdout: {result.stdout}\nstderr: {result.stderr}")

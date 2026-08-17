@@ -8,14 +8,19 @@ from pathlib import Path
 
 import pytest
 
+import os
+
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
+ROOT = SCRIPTS_DIR.parent
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
     return subprocess.run(
         [sys.executable, str(SCRIPTS_DIR / "train_tokenizer.py"), *args],
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
