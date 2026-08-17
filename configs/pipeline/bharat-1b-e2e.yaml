@@ -1,0 +1,50 @@
+# End-to-End Pipeline Recipe for Bharat-1B
+# Covers: Pretraining -> SFT -> DPO -> BharatBench Evaluation
+
+name: "bharat-1b-e2e"
+output_dir: "output/bharat-1b-pipeline"
+tokenizer_path: "data/indic/tokenizer.json"
+seed: 42
+
+pretrain:
+  enabled: true
+  model_config_path: "configs/models/bharat-1b.yaml"
+  data_path: "data/indic_shards/train_0000.bin"
+  val_data_path: "data/indic_shards/val_0000.bin"
+  max_iters: 100000
+  batch_size: 4
+  seq_len: 4096
+  learning_rate: 3.0e-4
+  warmup_iters: 2000
+  gradient_accumulation_steps: 16
+  device: "cuda"
+  dtype: "bfloat16"
+  synthetic_data: false
+
+sft:
+  enabled: true
+  data_path: "data/sft/indic_sft.jsonl"
+  max_iters: 4000
+  batch_size: 2
+  block_size: 4096
+  learning_rate: 8.0e-5
+  warmup_iters: 200
+  template_name: "indic_instruction"
+  device: "cuda"
+
+dpo:
+  enabled: true
+  data_path: "data/dpo/indic_dpo.jsonl"
+  max_iters: 2000
+  batch_size: 2
+  block_size: 4096
+  learning_rate: 3.0e-5
+  beta: 0.1
+  template_name: "indic_instruction"
+  device: "cuda"
+
+eval:
+  enabled: true
+  examples_path: "eval_fixtures/bharatbench_tiny/qa.jsonl"
+  max_new_tokens: 256
+  device: "cuda"
