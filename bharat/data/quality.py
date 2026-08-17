@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import statistics
+import unicodedata
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -29,6 +30,7 @@ class QualityConfig:
     max_chars: int = 1_000_000
     min_words: int = 10
     max_words: int = 200_000
+    min_lines: int = 1
     max_line_length: int = 1000
     min_alpha_ratio: float = 0.3
     max_repetition_ratio: float = 0.6
@@ -81,6 +83,8 @@ class QualityScorer:
             raise ValueError("min_words must be > 0")
         if self.config.max_words < self.config.min_words:
             raise ValueError("max_words must be >= min_words")
+        if self.config.min_lines <= 0:
+            raise ValueError("min_lines must be > 0")
         if not 0.0 <= self.config.min_alpha_ratio <= 1.0:
             raise ValueError("min_alpha_ratio must be in [0.0, 1.0]")
         if not 0.0 <= self.config.max_punct_ratio <= 1.0:
@@ -143,7 +147,7 @@ class QualityScorer:
             reasons.append(_REASON_CODES["url_count"])
         if f["repeated_char_ratio"] > 0.05:
             reasons.append(_REASON_CODES["repeated_char"])
-        if f["lines"] < 2:
+        if f["lines"] < self.config.min_lines:
             reasons.append(_REASON_CODES["lines"])
         is_quality = qs.overall >= 0.5 and not reasons
         return QualityDecision(
@@ -160,8 +164,8 @@ class QualityScorer:
         lines = text.splitlines()
         num_lines = len(lines)
         avg_word_len = statistics.mean(len(w) for w in words_list) if words_list else 0.0
-        alpha_chars = sum(1 for c in text if c.isalpha())
-        punct_chars = len(self._PUNCT_RE.findall(text))
+        alpha_chars = sum(1 for c in text if c.isalpha() or unicodedata.category(c).startswith("M"))
+        punct_chars = sum(1 for c in text if unicodedata.category(c).startswith("P"))
         bullet_lines = len(self._BULLET_RE.findall(text))
         ellipsis_count = len(self._ELLIPSIS_RE.findall(text))
         repeated_words = len(self._REPEATED_WORD_RE.findall(text))
