@@ -1,38 +1,35 @@
 #!/usr/bin/env bash
-# Local sanity check: nanoGPT on Shakespeare (~5 min on M2)
+# IndicLLM-Bharat — Local Fast Architecture Sanity Check
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-source .venv/bin/activate
-
-NANO="${ROOT}/vendor/nanoGPT"
-if [[ ! -d "$NANO" ]]; then
-  bash scripts/setup.sh
+if [[ -f .venv/bin/activate ]]; then
+  source .venv/bin/activate
 fi
 
-cd "$NANO"
+PYTHON=""
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    PYTHON="$candidate"
+    break
+  fi
+done
 
-# Prepare tiny dataset if missing
-if [[ ! -f data/shakespeare_char/train.bin ]]; then
-  python data/shakespeare_char/prepare.py
+if [[ -z "$PYTHON" ]]; then
+  echo "Python not found on PATH."
+  exit 1
 fi
 
-# Short training run (MPS on Apple Silicon, CPU fallback)
-python train.py config/train_shakespeare_char.py \
-  --max_iters=500 \
-  --eval_interval=100 \
-  --log_interval=10 \
-  --device=mps \
-  --compile=False \
-  || python train.py config/train_shakespeare_char.py \
-  --max_iters=500 \
-  --eval_interval=100 \
-  --log_interval=10 \
-  --device=cpu \
-  --compile=False
+echo "=========================================================="
+echo "  🇮🇳 Running IndicLLM-Bharat Native Architecture Sanity Check"
+echo "=========================================================="
+
+"$PYTHON" scripts/sanity_check.py --model bharat --device auto --max-iters 10
 
 echo ""
-echo "Local sanity check passed. nanoGPT trained on Shakespeare for 500 iterations."
-echo "Next: python data/prepare_data.py --subset sample-10BT --max-docs 100"
+echo "=========================================================="
+echo "  ✅ Native Bharat architecture sanity check passed!"
+echo "  Next: python scripts/run_pipeline.py --config configs/pipeline/bharat-350m-e2e.yaml --dry-run"
+echo "=========================================================="
