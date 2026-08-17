@@ -1,392 +1,263 @@
 #!/usr/bin/env python3
-"""
-IndicLLM-Bharat-V1 — GGUF Export + Ollama Integration
+"""IndicLLM-Bharat-V1 — GGUF Export & Ollama Integration CLI.
 
-Converts a trained IndicLLM checkpoint to GGUF format for use
-with llama.cpp, Ollama, LM Studio, and other local inference tools.
-
-Pipeline:
-  1. Convert our GPT checkpoint → HuggingFace format (safetensors)
-  2. Use llama.cpp's convert script to create GGUF
-  3. Quantize (Q4_K_M, Q5_K_M, Q8_0, etc.)
-  4. Generate Ollama Modelfile
-  5. Register with Ollama
+Exports trained BharatForCausalLM checkpoints to native GGUF format and generates
+an optimized Ollama Modelfile for seamless local inference with Ollama, llama.cpp,
+and LM Studio.
 
 Usage:
-  # Full pipeline: checkpoint → GGUF → Ollama
+  # Export checkpoint to Q8_0 GGUF + Ollama Modelfile
   python inference/export_ollama.py \
-    --checkpoint checkpoints/gpt2-124m/final.pt \
-    --name indicllm-124m \
-    --quant q4_k_m
+    --checkpoint checkpoints/bharat-350m/final.pt \
+    --name bharat-350m \
+    --output-dir dist/ollama/bharat-350m
 
-  # Just export to HF format (for push_to_hub.py)
+  # Auto-register with local Ollama runtime
   python inference/export_ollama.py \
-    --checkpoint checkpoints/gpt2-10m/ckpt.pt \
-    --name indicllm-10m \
-    --hf-only
-
-  # Skip quantization (full precision GGUF)
-  python inference/export_ollama.py \
-    --checkpoint checkpoints/gpt2-124m/final.pt \
-    --name indicllm-124m \
-    --no-quant
-
-Requirements:
-  pip install transformers safetensors
-  # For GGUF conversion:
-  git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp && make
-  # For Ollama:
-  curl -fsSL https://ollama.com/install.sh | sh
+    --checkpoint checkpoints/bharat-350m/final.pt \
+    --name bharat-350m \
+    --register
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import torch
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+from bharat.models.config import BharatModelConfig
+from bharat.serving.gguf_preflight import GGUFMetadataEntry, GGUFPreflightResult
+from bharat.serving.gguf_tensor_writer import (
+    write_gguf_f32_tensors,
+    write_gguf_q8_0_tensors,
+)
 
+DEFAULT_SYSTEM_PROMPT = (
+    "You are Bharat, a state-of-the-art multilingual Indian AI assistant. "
+    "You understand and generate high-quality text in Hindi, Bengali, Tamil, "
+    "Telugu, Marathi, Gujarati, Kannada, Malayalam, and other Indian languages."
+)
 
-# ── Step 1: Convert to HuggingFace Format ────────────────────
+MODELFILE_TEMPLATE = """FROM ./{gguf_filename}
 
-
-def convert_to_hf(ckpt_path: Path, output_dir: Path) -> dict:
-    """Convert our GPT checkpoint to HuggingFace GPT2LMHeadModel format."""
-    from transformers import GPT2Config, GPT2LMHeadModel, GPT2TokenizerFast
-
-    print("\n  [1/4] Converting checkpoint to HuggingFace format...")
-    print(f"        Input : {ckpt_path}")
-
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    cfg = ckpt.get("config", {})
-    model_cfg = cfg.get("model", {})
-
-    if not model_cfg:
-        raise ValueError("Checkpoint missing model config section")
-
-    # Create HF config
-    hf_config = GPT2Config(
-        vocab_size=model_cfg.get("vocab_size", 50257),
-        n_layer=model_cfg["n_layer"],
-        n_head=model_cfg["n_head"],
-        n_embd=model_cfg["n_embd"],
-        n_positions=model_cfg.get("block_size", 1024),
-        n_inner=4 * model_cfg["n_embd"],
-        activation_function="gelu_new",
-        resid_pdrop=0.0,
-        embd_pdrop=0.0,
-        attn_pdrop=0.0,
-        use_cache=True,
-    )
-
-    hf_model = GPT2LMHeadModel(hf_config)
-
-    # Map our weights to HF format
-    state = ckpt["model"]
-    # Strip _orig_mod prefix if present (from torch.compile)
-    state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
-
-    # Our model uses nn.Linear [out_features, in_features]
-    # HF GPT2 uses Conv1D [in_features, out_features] — need transpose
-    # Keys that need transposing: attn.c_attn, attn.c_proj, mlp.c_fc, mlp.c_proj
-    transpose_keys = {"c_attn.weight", "c_proj.weight", "c_fc.weight"}
-
-    mapped = {}
-    for k, v in state.items():
-        hf_key = (
-            k if k.startswith("transformer.") or k.startswith("lm_head.") else f"transformer.{k}"
-        )
-
-        # Transpose 2D weight matrices for Conv1D compatibility
-        if v.ndim == 2 and any(tk in k for tk in transpose_keys):
-            v = v.t()
-
-        mapped[hf_key] = v
-
-    # Load with strict=False (lm_head may be tied to wte)
-    missing, _unexpected = hf_model.load_state_dict(mapped, strict=False)
-    if missing:
-        print(f"        Warning: {len(missing)} missing keys (may be OK for tied weights)")
-
-    # Save
-    output_dir.mkdir(parents=True, exist_ok=True)
-    hf_model.save_pretrained(output_dir, safe_serialization=True)
-
-    # Save tokenizer
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    tokenizer.save_pretrained(output_dir)
-
-    params = sum(p.numel() for p in hf_model.parameters()) / 1e6
-    iter_num = ckpt.get("iter_num", "?")
-
-    print(f"        Output: {output_dir}")
-    print(f"        Model : {params:.1f}M params (iter {iter_num})")
-
-    return {
-        "params_m": params,
-        "iter_num": iter_num,
-        "model_cfg": model_cfg,
-        "hf_dir": output_dir,
-    }
-
-
-# ── Step 2: Convert HF → GGUF ───────────────────────────────
-
-
-def convert_to_gguf(hf_dir: Path, gguf_path: Path, llama_cpp_dir: Path | None = None) -> bool:
-    """Convert HF model to GGUF using llama.cpp's convert script."""
-    print("\n  [2/4] Converting to GGUF format...")
-
-    # Find convert script
-    convert_script = None
-    search_paths = [
-        llama_cpp_dir / "convert_hf_to_gguf.py" if llama_cpp_dir else None,
-        Path.home() / "llama.cpp" / "convert_hf_to_gguf.py",
-        Path("/usr/local/bin/convert_hf_to_gguf.py"),
-        ROOT / "tools" / "llama.cpp" / "convert_hf_to_gguf.py",
-    ]
-    for p in search_paths:
-        if p and p.exists():
-            convert_script = p
-            break
-
-    if not convert_script:
-        print("        ⚠ llama.cpp convert script not found.")
-        print("        Install: git clone https://github.com/ggerganov/llama.cpp")
-        print("        Then re-run with: --llama-cpp ~/llama.cpp")
-        print("        Skipping GGUF conversion (HF format still available)")
-        return False
-
-    cmd = [
-        sys.executable,
-        str(convert_script),
-        str(hf_dir),
-        "--outfile",
-        str(gguf_path),
-        "--outtype",
-        "f16",
-    ]
-    print(f"        Running: {' '.join(cmd[-4:])}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        print(f"        ✗ Convert failed: {result.stderr[:200]}")
-        return False
-
-    size_mb = gguf_path.stat().st_size / 1e6
-    print(f"        ✓ {gguf_path.name} ({size_mb:.0f} MB)")
-    return True
-
-
-# ── Step 3: Quantize GGUF ────────────────────────────────────
-
-
-def quantize_gguf(
-    gguf_input: Path, gguf_output: Path, quant: str, llama_cpp_dir: Path | None = None
-) -> bool:
-    """Quantize GGUF using llama.cpp's llama-quantize."""
-    print(f"\n  [3/4] Quantizing to {quant.upper()}...")
-
-    quantize_bin = None
-    search_paths = [
-        llama_cpp_dir / "build" / "bin" / "llama-quantize" if llama_cpp_dir else None,
-        llama_cpp_dir / "llama-quantize" if llama_cpp_dir else None,
-        Path.home() / "llama.cpp" / "build" / "bin" / "llama-quantize",
-        Path("/usr/local/bin/llama-quantize"),
-    ]
-    for p in search_paths:
-        if p and p.exists():
-            quantize_bin = p
-            break
-
-    if not quantize_bin:
-        # Try finding it via which
-        result = subprocess.run(["which", "llama-quantize"], capture_output=True, text=True)
-        if result.returncode == 0:
-            quantize_bin = Path(result.stdout.strip())
-
-    if not quantize_bin:
-        print("        ⚠ llama-quantize not found, skipping quantization")
-        print("        Build: cd ~/llama.cpp && make llama-quantize")
-        return False
-
-    cmd = [str(quantize_bin), str(gguf_input), str(gguf_output), quant]
-    print(f"        Running: llama-quantize → {quant}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        print(f"        ✗ Quantize failed: {result.stderr[:200]}")
-        return False
-
-    size_mb = gguf_output.stat().st_size / 1e6
-    ratio = gguf_output.stat().st_size / gguf_input.stat().st_size
-    print(f"        ✓ {gguf_output.name} ({size_mb:.0f} MB, {ratio:.1%} of F16)")
-    return True
-
-
-# ── Step 4: Generate Ollama Modelfile ─────────────────────────
-
-
-def generate_modelfile(model_path: Path, name: str, output_dir: Path, info: dict) -> Path:
-    """Generate Ollama Modelfile for the exported model."""
-    print("\n  [4/4] Generating Ollama Modelfile...")
-
-    modelfile_path = output_dir / "Modelfile"
-    model_cfg = info.get("model_cfg", {})
-
-    modelfile_content = f"""# IndicLLM-Bharat — Ollama Modelfile
-# Model: {name} ({info.get("params_m", "?")}M params)
-# Trained: iter {info.get("iter_num", "?")}
-
-FROM {model_path.resolve()}
-
-# Sampling parameters
-PARAMETER temperature 0.7
+# Model Parameters
+PARAMETER temperature 0.8
+PARAMETER top_p 0.95
 PARAMETER top_k 50
-PARAMETER top_p 0.9
-PARAMETER repeat_penalty 1.1
-PARAMETER num_ctx {model_cfg.get("block_size", 1024)}
+PARAMETER num_ctx {context_length}
 
-# Stop tokens
+# Stop Sequences
 PARAMETER stop "<|endoftext|>"
+PARAMETER stop "<|instruction|>"
+PARAMETER stop "<|response|>"
 
-# System prompt
-SYSTEM \"\"\"You are IndicLLM-Bharat, a multilingual Indian language model.
-You can understand and generate text in Hindi, Bengali, Tamil, Telugu,
-Marathi, Gujarati, Kannada, Malayalam, and other Indic languages.
-Respond helpfully and accurately.\"\"\"
+# System Prompt
+SYSTEM \"\"\"{system_prompt}\"\"\"
 
-# Chat template
-TEMPLATE \"\"\"{{{{ if .System }}}}System: {{{{ .System }}}}
-{{{{ end }}}}{{{{ range .Messages }}}}{{{{ if eq .Role "user" }}}}User: {{{{ .Content }}}}
-{{{{ else if eq .Role "assistant" }}}}Assistant: {{{{ .Content }}}}
-{{{{ end }}}}{{{{ end }}}}Assistant: \"\"\"
+# Indic Chat Template
+TEMPLATE \"\"\"{{{{ if .System }}}}<|system|>
+{{{{ .System }}}}
+{{{{ end }}}}{{{{ if .Prompt }}}}<|instruction|>
+{{{{ .Prompt }}}}
+{{{{ end }}}}<|response|>
+\"\"\"
 """
 
-    modelfile_path.write_text(modelfile_content)
-    print(f"        ✓ {modelfile_path}")
+
+def generate_modelfile(
+    gguf_filename: str,
+    output_dir: Path,
+    context_length: int = 4096,
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+) -> Path:
+    """Generate an optimized Ollama Modelfile."""
+    modelfile_content = MODELFILE_TEMPLATE.format(
+        gguf_filename=gguf_filename,
+        context_length=context_length,
+        system_prompt=system_prompt,
+    )
+    modelfile_path = output_dir / "Modelfile"
+    modelfile_path.write_text(modelfile_content, encoding="utf-8")
     return modelfile_path
 
 
-def register_ollama(modelfile: Path, name: str) -> bool:
-    """Register model with Ollama."""
-    result = subprocess.run(["which", "ollama"], capture_output=True, text=True)
-    if result.returncode != 0:
-        print("\n  Ollama not installed. Install: curl -fsSL https://ollama.com/install.sh | sh")
-        print(f"  Then register manually: ollama create {name} -f {modelfile}")
-        return False
+def export_ollama(
+    checkpoint_path: str | Path,
+    output_dir: str | Path,
+    name: str = "bharat",
+    quant: str = "q8_0",
+    context_length: int = 4096,
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+    register: bool = False,
+) -> dict[str, Any]:
+    cp_path = Path(checkpoint_path).resolve()
+    if not cp_path.is_file() and not cp_path.is_dir():
+        raise FileNotFoundError(f"Checkpoint not found at: {cp_path}")
 
-    print(f"\n  Registering with Ollama as '{name}'...")
-    result = subprocess.run(
-        ["ollama", "create", name, "-f", str(modelfile)], capture_output=True, text=True
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n{'=' * 60}")
+    print("  IndicLLM-Bharat — Native GGUF Export & Ollama Integration")
+    print(f"  Checkpoint : {cp_path}")
+    print(f"  Target Name: {name}")
+    print(f"  Quant Type : {quant.upper()}")
+    print(f"  Output Dir : {out_dir}")
+    print(f"{'=' * 60}\n")
+
+    ckpt_file = cp_path if cp_path.is_file() else cp_path / "final.pt"
+    if not ckpt_file.exists():
+        ckpt_file = cp_path / "ckpt.pt"
+
+    ckpt_data = torch.load(ckpt_file, map_location="cpu", weights_only=False)
+    state_dict = ckpt_data.get("model", ckpt_data)
+    state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+
+    # Extract model config
+    if "metadata" in ckpt_data and hasattr(ckpt_data["metadata"], "model_config"):
+        cfg_obj = BharatModelConfig.from_dict(ckpt_data["metadata"].model_config)
+        context_length = cfg_obj.max_position_embeddings
+    elif "model_config" in ckpt_data:
+        m_cfg = ckpt_data["model_config"]
+        cfg_obj = BharatModelConfig.from_dict(m_cfg if isinstance(m_cfg, dict) else m_cfg.__dict__)
+        context_length = cfg_obj.max_position_embeddings
+
+    # Perform preflight and native GGUF export
+    quant_lower = quant.lower()
+    gguf_filename = f"{name}-{quant_lower}.gguf"
+    gguf_out_path = out_dir / gguf_filename
+
+    print(f"  [1/2] Writing native GGUF ({quant_lower.upper()})...")
+    preflight = GGUFPreflightResult(
+        schema_version=1,
+        architecture="bharat",
+        alignment=32,
+        tensor_count=len(state_dict),
+        output_file=gguf_filename,
+        metadata=(
+            GGUFMetadataEntry(key="general.architecture", value_type="string", value="bharat"),
+            GGUFMetadataEntry(key="general.name", value_type="string", value=name),
+            GGUFMetadataEntry(
+                key="general.quantization_version", value_type="string", value=quant_lower
+            ),
+        ),
+        gguf_tensor_type=quant_lower,
     )
-    if result.returncode == 0:
-        print(f"  ✓ Registered! Run: ollama run {name}")
-        return True
+
+    if quant_lower in ("q8_0", "q8"):
+        write_gguf_q8_0_tensors(preflight, state_dict, gguf_out_path)
+    elif quant_lower in ("f32", "fp32"):
+        write_gguf_f32_tensors(preflight, state_dict, gguf_out_path)
     else:
-        print(f"  ✗ Registration failed: {result.stderr[:200]}")
-        print(f"  Manual: ollama create {name} -f {modelfile}")
-        return False
+        raise ValueError(f"Unsupported native quantization type: {quant}. Choose 'q8_0' or 'f32'.")
+
+    print(f"        ✓ Saved GGUF ({gguf_out_path.stat().st_size:,} bytes) to {gguf_out_path.name}")
+
+    # Generate Ollama Modelfile
+    print("  [2/2] Generating Ollama Modelfile...")
+    modelfile = generate_modelfile(
+        gguf_filename=gguf_filename,
+        output_dir=out_dir,
+        context_length=context_length,
+        system_prompt=system_prompt,
+    )
+    print(f"        ✓ Generated {modelfile}")
+
+    registered = False
+    if register:
+        ollama_bin = shutil.which("ollama")
+        if ollama_bin:
+            print(f"\n  Registering with Ollama runtime as '{name}'...")
+            res = subprocess.run(
+                [ollama_bin, "create", name, "-f", str(modelfile)],
+                capture_output=True,
+                text=True,
+                cwd=str(out_dir),
+            )
+            if res.returncode == 0:
+                print(f"  ✅ Successfully registered with Ollama! Run with: ollama run {name}")
+                registered = True
+            else:
+                print(f"  ⚠️ Ollama registration failed: {res.stderr[:200]}")
+        else:
+            print("\n  [INFO] 'ollama' binary not found on PATH. Run manually:")
+            print(f"     cd {out_dir} && ollama create {name} -f Modelfile")
+
+    return {
+        "name": name,
+        "gguf_path": str(gguf_out_path),
+        "modelfile_path": str(modelfile),
+        "registered": registered,
+        "quant": quant_lower,
+    }
 
 
-# ── Main ─────────────────────────────────────────────────────
-
-
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="IndicLLM → GGUF → Ollama export pipeline",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Full pipeline
-  python inference/export_ollama.py --checkpoint checkpoints/gpt2-10m/ckpt.pt --name indicllm-10m
-
-  # Just HuggingFace format
-  python inference/export_ollama.py --checkpoint checkpoints/gpt2-10m/ckpt.pt --hf-only
-
-  # Custom quantization
-  python inference/export_ollama.py --checkpoint checkpoints/gpt2-124m/final.pt --quant q5_k_m
-""",
+        description="IndicLLM-Bharat Native GGUF Export & Ollama Integration CLI"
     )
     parser.add_argument(
-        "--checkpoint", type=Path, required=True, help="Path to ckpt.pt or final.pt"
+        "--checkpoint",
+        type=Path,
+        required=True,
+        help="Path to checkpoint file (.pt)",
     )
-    parser.add_argument("--name", default="indicllm", help="Model name for Ollama")
     parser.add_argument(
-        "--quant", default="q4_k_m", help="Quantization level (q4_k_m, q5_k_m, q8_0, f16)"
+        "--name",
+        default="bharat",
+        help="Target model name for Ollama",
+    )
+    parser.add_argument(
+        "--quant",
+        default="q8_0",
+        choices=["q8_0", "f32"],
+        help="Native GGUF quantization format (default: q8_0)",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
-        help="Output directory (default: inference/ollama/<name>)",
+        help="Output directory for GGUF and Modelfile (default: dist/ollama/<name>)",
     )
-    parser.add_argument("--llama-cpp", type=Path, default=None, help="Path to llama.cpp directory")
-    parser.add_argument("--hf-only", action="store_true", help="Only export to HuggingFace format")
-    parser.add_argument("--no-quant", action="store_true", help="Skip quantization (F16 GGUF)")
-    parser.add_argument("--no-ollama", action="store_true", help="Don't register with Ollama")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--system-prompt",
+        default=DEFAULT_SYSTEM_PROMPT,
+        help="Custom default system prompt for Modelfile",
+    )
+    parser.add_argument(
+        "--register",
+        action="store_true",
+        help="Automatically register model with local Ollama runtime",
+    )
+    return parser
 
-    out_dir = args.output_dir or ROOT / "inference" / "ollama" / args.name
-    hf_dir = out_dir / "hf"
 
-    print(f"\n{'=' * 60}")
-    print("  IndicLLM-Bharat → GGUF → Ollama Export Pipeline")
-    print(f"  Checkpoint: {args.checkpoint}")
-    print(f"  Name      : {args.name}")
-    print(f"  Quant     : {args.quant}")
-    print(f"  Output    : {out_dir}")
-    print(f"{'=' * 60}")
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-    # Step 1: Convert to HF
-    info = convert_to_hf(args.checkpoint, hf_dir)
+    out_dir = args.output_dir or Path("dist") / "ollama" / args.name
 
-    if args.hf_only:
-        print(f"\n  ✅ HuggingFace export complete: {hf_dir}")
-        print(
-            f"  Push to hub: python scripts/push_to_hub.py --checkpoint {args.checkpoint} --repo GenixBit/IndicLLM-Bharat"
+    try:
+        export_ollama(
+            checkpoint_path=args.checkpoint,
+            output_dir=out_dir,
+            name=args.name,
+            quant=args.quant,
+            system_prompt=args.system_prompt,
+            register=args.register,
         )
-        return
+    except Exception as e:
+        print(f"error exporting to ollama: {e}", file=sys.stderr)
+        return 1
 
-    # Step 2: GGUF
-    gguf_f16 = out_dir / f"{args.name}-f16.gguf"
-    has_gguf = convert_to_gguf(hf_dir, gguf_f16, args.llama_cpp)
-
-    # Step 3: Quantize
-    gguf_final = gguf_f16
-    if has_gguf and not args.no_quant and args.quant != "f16":
-        gguf_quant = out_dir / f"{args.name}-{args.quant}.gguf"
-        if quantize_gguf(gguf_f16, gguf_quant, args.quant, args.llama_cpp):
-            gguf_final = gguf_quant
-
-    # Step 4: Ollama Modelfile
-    model_for_ollama = gguf_final if has_gguf else hf_dir
-    modelfile = generate_modelfile(model_for_ollama, args.name, out_dir, info)
-
-    # Step 5: Register (optional)
-    if not args.no_ollama and has_gguf:
-        register_ollama(modelfile, args.name)
-
-    print(f"\n{'=' * 60}")
-    print("  ✅ Export complete!")
-    print(f"  HF model  : {hf_dir}")
-    if has_gguf:
-        print(f"  GGUF      : {gguf_final}")
-    print(f"  Modelfile : {modelfile}")
-    print("\n  Quick start:")
-    if has_gguf:
-        print(f"    ollama create {args.name} -f {modelfile}")
-        print(f"    ollama run {args.name}")
-    else:
-        print(f"    python inference/generate.py --checkpoint {args.checkpoint}")
-        print(f"    python inference/api.py --checkpoint {args.checkpoint}")
-    print(f"{'=' * 60}\n")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
