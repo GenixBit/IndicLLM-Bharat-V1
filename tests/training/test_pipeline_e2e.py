@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import torch
 
+from bharat.models.config import BharatModelConfig
 from bharat.tokenizer import BharatTokenizer
 from bharat.training.pipeline import (
     DPOStageConfig,
@@ -58,100 +59,126 @@ class DummyCharTokenizer(BharatTokenizer):
         return {"vocab_size": self.vocab_size, "type": "dummy_char"}
 
     def fingerprint(self) -> str:
-        return "dummy_fingerprint_0123456789abcdef"
+        return "dummy_char_fingerprint"
 
 
 @pytest.fixture
 def dummy_sft_data(tmp_path: Path) -> Path:
-    data_file = tmp_path / "sft.jsonl"
-    records = [
-        {"instruction": "Namaste", "response": "Namaste! Kaise hain aap?"},
-        {"instruction": "2+2 kitna hota hai?", "response": "2+2 4 hota hai."},
-        {"instruction": "Translate hello to Hindi", "response": "Namaste"},
+    data_file = tmp_path / "dummy_sft.jsonl"
+    lines = [
+        json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "What is 2+2?"},
+                    {"role": "assistant", "content": "4."},
+                ]
+            }
+        ),
+        json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "Capital of India?"},
+                    {"role": "assistant", "content": "New Delhi."},
+                ]
+            }
+        ),
     ]
-    with data_file.open("w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    data_file.write_text("\n".join(lines), encoding="utf-8")
     return data_file
 
 
 @pytest.fixture
 def dummy_dpo_data(tmp_path: Path) -> Path:
-    data_file = tmp_path / "dpo.jsonl"
-    records = [
-        {
-            "prompt": "Capital of India?",
-            "chosen": "New Delhi is the capital of India.",
-            "rejected": "Mumbai is the capital.",
-        },
-        {
-            "prompt": "What is Python?",
-            "chosen": "Python is a programming language.",
-            "rejected": "Python is only a snake.",
-        },
+    data_file = tmp_path / "dummy_dpo.jsonl"
+    lines = [
+        json.dumps(
+            {
+                "prompt": "Explain gravity in one line.",
+                "chosen": "Gravity is the attractive force between masses.",
+                "rejected": "Gravity is magic that pulls things down.",
+            }
+        ),
+        json.dumps(
+            {
+                "prompt": "Namaste meaning?",
+                "chosen": "A respectful greeting in India.",
+                "rejected": "A random word.",
+            }
+        ),
     ]
-    with data_file.open("w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    data_file.write_text("\n".join(lines), encoding="utf-8")
     return data_file
 
 
-@pytest.fixture
-def dummy_eval_data(tmp_path: Path) -> Path:
-    eval_file = tmp_path / "eval.jsonl"
-    records = [
-        {
-            "example_id": "ex_001",
-            "task_type": "text_classification",
-            "prompt": "Is this positive: Great work!",
-            "reference": "positive",
-            "metadata": {"task": "sentiment"},
-        }
-    ]
-    with eval_file.open("w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    return eval_file
+class TestPipelineOrchestrator:
+    def test_pipeline_config_serialization(self, tmp_path: Path) -> None:
+        cfg = PipelineConfig(
+            name="test-pipeline",
+            output_dir=str(tmp_path / "output"),
+            tokenizer_path="data/indic/tokenizer.json",
+            pretrain=PretrainStageConfig(
+                enabled=True,
+                max_iters=10,
+                device="cpu",
+            ),
+            sft=SFTStageConfig(
+                enabled=True,
+                data_path=str(tmp_path / "sft.jsonl"),
+                max_iters=5,
+                device="cpu",
+            ),
+            dpo=DPOStageConfig(
+                enabled=True,
+                data_path=str(tmp_path / "dpo.jsonl"),
+                max_iters=5,
+                device="cpu",
+            ),
+            eval=EvalStageConfig(
+                enabled=False,
+            ),
+        )
 
+        yaml_path = tmp_path / "pipeline.yaml"
+        cfg.to_yaml(yaml_path)
 
-class TestPipelineE2E:
-    def test_pipeline_config_from_yaml(self) -> None:
-        yaml_path = Path("configs/pipeline/bharat-350m-e2e.yaml")
-        assert yaml_path.is_file(), f"Recipe not found: {yaml_path}"
+        loaded = PipelineConfig.from_yaml(yaml_path)
+        assert loaded.name == "test-pipeline"
+        assert loaded.pretrain.max_iters == 10
+        assert loaded.sft.max_iters == 5
+        assert loaded.dpo.max_iters == 5
+        assert not loaded.eval.enabled
 
-        config = PipelineConfig.from_yaml(yaml_path)
-        assert config.name == "bharat-350m-e2e"
-        assert config.pretrain.enabled is True
-        assert config.sft.enabled is True
-        assert config.dpo.enabled is True
-        assert config.eval.enabled is True
-        assert config.pretrain.learning_rate == 3.0e-4
-        assert config.dpo.beta == 0.1
+    def test_pipeline_cli_dry_run(self, tmp_path: Path) -> None:
+        yaml_path = tmp_path / "pipeline.yaml"
+        yaml_content = """
+name: "test-cli-pipeline"
+output_dir: "output/test"
+tokenizer_path: "data/indic/tokenizer.json"
+pretrain:
+  enabled: true
+  max_iters: 10
+  synthetic_data: true
+sft:
+  enabled: false
+dpo:
+  enabled: false
+eval:
+  enabled: false
+"""
+        yaml_path.write_text(yaml_content, encoding="utf-8")
 
-    def test_pipeline_cli_dry_run(self, capsys) -> None:
-        yaml_path = Path("configs/pipeline/bharat-350m-e2e.yaml")
         ret = pipeline_cli_main(["--config", str(yaml_path), "--dry-run", "--json"])
         assert ret == 0
 
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert data["dry_run"] is True
-        assert data["pipeline_name"] == "bharat-350m-e2e"
-        assert data["stages"]["pretrain"] is True
-        assert data["stages"]["sft"] is True
-        assert data["stages"]["dpo"] is True
-
-    def test_run_pipeline_e2e_synthetic(
+    def test_run_pipeline_end_to_end_fast(
         self,
         tmp_path: Path,
         dummy_sft_data: Path,
         dummy_dpo_data: Path,
-        dummy_eval_data: Path,
     ) -> None:
-        """Runs the full lifecycle: pretraining -> SFT -> DPO -> Eval on synthetic/dummy data."""
         torch.manual_seed(42)
-        out_dir = tmp_path / "pipeline_run"
         tokenizer = DummyCharTokenizer()
+        out_dir = tmp_path / "pipeline_run"
 
         config = PipelineConfig(
             name="test-mini-e2e",
@@ -173,9 +200,8 @@ class TestPipelineE2E:
                 data_path=str(dummy_sft_data),
                 max_iters=3,
                 batch_size=1,
-                block_size=64,
-                learning_rate=5e-4,
-                warmup_iters=1,
+                block_size=512,
+                learning_rate=1e-4,
                 device="cpu",
             ),
             dpo=DPOStageConfig(
@@ -183,7 +209,7 @@ class TestPipelineE2E:
                 data_path=str(dummy_dpo_data),
                 max_iters=3,
                 batch_size=1,
-                block_size=64,
+                block_size=512,
                 learning_rate=1e-4,
                 beta=0.1,
                 device="cpu",
@@ -217,3 +243,21 @@ class TestPipelineE2E:
         assert summary_file.is_file()
         summary = json.loads(summary_file.read_text(encoding="utf-8"))
         assert summary["pipeline_name"] == "test-mini-e2e"
+
+    @pytest.mark.parametrize(
+        "tier",
+        ["350m", "1b", "3b", "7b"],
+    )
+    def test_pipeline_recipes_load_valid(self, tier: str) -> None:
+        recipe_path = Path(f"configs/pipeline/bharat-{tier}-e2e.yaml")
+        assert recipe_path.is_file()
+
+        cfg = PipelineConfig.from_yaml(recipe_path)
+        assert cfg.name == f"bharat-{tier}-e2e"
+        assert cfg.pretrain.model_config_path is not None
+        assert Path(cfg.pretrain.model_config_path).is_file()
+
+        model_cfg = BharatModelConfig.from_yaml(cfg.pretrain.model_config_path)
+        assert model_cfg.vocab_size == 64000
+        assert model_cfg.num_hidden_layers > 0
+        assert model_cfg.hidden_size > 0

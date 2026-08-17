@@ -111,6 +111,11 @@ class PipelineConfig:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    def to_yaml(self, path: str | Path) -> None:
+        p = Path(path)
+        with p.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(self.to_dict(), f, sort_keys=False)
+
 
 @dataclass
 class PipelineResult:
