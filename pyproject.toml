@@ -60,6 +60,7 @@ sanity-check = "scripts.sanity_check:main"
 push-to-hub = "scripts.push_to_hub:main"
 bharat-generate = "inference.generate:main"
 bharat-api = "inference.api:main"
+export-ollama = "inference.export_ollama:main"
 
 [project.optional-dependencies]
 dev = [
