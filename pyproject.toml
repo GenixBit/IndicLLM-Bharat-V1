@@ -50,6 +50,8 @@ pretrain-bharat = "scripts.pretrain_bharat:main"
 prepare-indic-data = "scripts.prepare_indic_data:main"
 plan-data-mixture = "scripts.plan_data_mixture:main"
 run-pipeline = "scripts.run_pipeline:main"
+build-release-bundle = "scripts.build_release_bundle:main"
+sanity-check = "scripts.sanity_check:main"
 
 [project.optional-dependencies]
 dev = [

@@ -60,7 +60,7 @@ All current capabilities are powered by the legacy GPT-2 codebase. New developme
 - [x] Data mixture and compute plan (PR 21 complete)
 - [x] Full pretrain → SFT → DPO → Eval pipeline orchestrator (PR 22 complete)
 - [x] Safety evaluation, Model Card (`docs/MODEL_CARD.md`), and pipeline recipes (PR 22 complete)
-- [ ] Public release package
+- [x] Public release packaging and distribution tooling (PR 23 complete)
 
 ## Verification Criteria
 
