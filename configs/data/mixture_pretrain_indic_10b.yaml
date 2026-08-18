@@ -1,0 +1,44 @@
+# IndicLLM-Bharat-V1 — Pretraining Data Mixture Recipe (10B Tokens Scale)
+#
+# Covers all 22 official 8th Schedule Indian languages + English anchor.
+# Language and domain weights must each sum to exactly 1.0.
+
+recipe_name: "indic_pretrain_10b"
+description: "Large-scale multilingual Indic pretraining mixture across 22 scheduled languages with domain diversity"
+
+language_weights:
+  hi: 0.25  # Hindi
+  bn: 0.10  # Bengali
+  ta: 0.08  # Tamil
+  te: 0.08  # Telugu
+  mr: 0.07  # Marathi
+  gu: 0.05  # Gujarati
+  kn: 0.05  # Kannada
+  ml: 0.05  # Malayalam
+  pa: 0.03  # Punjabi
+  or: 0.03  # Odia
+  ur: 0.03  # Urdu
+  as: 0.02  # Assamese
+  sa: 0.02  # Sanskrit
+  ne: 0.01  # Nepali
+  sd: 0.01  # Sindhi
+  ks: 0.01  # Kashmiri
+  kok: 0.01 # Konkani
+  mai: 0.01 # Maithili
+  doi: 0.01 # Dogri
+  brx: 0.01 # Bodo
+  sat: 0.01 # Santali
+  mni: 0.01 # Manipuri (Meitei)
+  en: 0.05  # English anchor & reasoning alignment
+
+domain_weights:
+  general: 0.50
+  code: 0.15
+  mathematics: 0.10
+  science: 0.10
+  legal: 0.05
+  medical: 0.05
+  finance: 0.05
+
+max_pct_per_source: 0.35
+min_record_threshold: 1000

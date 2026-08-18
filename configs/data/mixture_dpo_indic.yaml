@@ -1,0 +1,26 @@
+# IndicLLM-Bharat-V1 — Direct Preference Optimization (DPO) Mixture Recipe
+#
+# Language and domain weights must each sum to exactly 1.0.
+
+recipe_name: "indic_dpo_default"
+description: "Multilingual Indic preference alignment mixture for safety, helpfulness, and factual precision"
+
+language_weights:
+  hi: 0.35  # Hindi
+  bn: 0.15  # Bengali
+  ta: 0.12  # Tamil
+  te: 0.12  # Telugu
+  mr: 0.08  # Marathi
+  gu: 0.05  # Gujarati
+  kn: 0.05  # Kannada
+  en: 0.08  # English
+
+domain_weights:
+  general: 0.40
+  safety: 0.25
+  code: 0.15
+  mathematics: 0.10
+  science: 0.10
+
+max_pct_per_source: 0.50
+min_record_threshold: 10
