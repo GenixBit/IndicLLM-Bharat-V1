@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""IndicLLM-Bharat-V1 — Dataset Statistics Computation CLI.
+
+Computes comprehensive character, language, quality score, and safety statistics
+across raw or preprocessed Indic text files, JSONL datasets, or directories.
+
+Usage:
+  python scripts/compute_data_stats.py --input data/indic/
+  python scripts/compute_data_stats.py --input data/corpus.jsonl --json
+"""
 
 from __future__ import annotations
 
@@ -37,24 +46,24 @@ def _read_texts(path: Path) -> list[str]:
         return [path.read_text(encoding="utf-8")]
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compute dataset statistics from local text files")
     parser.add_argument(
         "--input", required=True, help="Path to text file, JSONL file, or directory"
     )
     parser.add_argument("--json", action="store_true", help="Output JSON")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     input_path = Path(args.input)
 
     if not input_path.exists():
         print(f"error: input path not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     texts = _read_texts(input_path)
     if not texts:
         print("error: no text records found", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     processor = DataProcessor()
     stats = compute_statistics(texts, processor=processor)
@@ -80,7 +89,9 @@ def main() -> None:
             )
         )
     else:
-        print("Dataset Statistics")
+        print("=" * 60)
+        print("  🇮🇳 IndicLLM-Bharat — Dataset Statistics")
+        print("=" * 60)
         print(f"  Records:              {stats.record_count}")
         print(f"  Total chars:          {stats.total_chars}")
         print(f"  Total UTF-8 bytes:    {stats.total_utf8_bytes}")
@@ -93,7 +104,10 @@ def main() -> None:
         print(f"  Duplicate rejections: {stats.duplicate_rejection_count}")
         print(f"  Accepted:             {stats.accepted_count}")
         print(f"  Rejected:             {stats.rejected_count}")
+        print("=" * 60)
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
