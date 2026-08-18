@@ -146,6 +146,51 @@ ollama run bharat-350m "नमस्ते! आप कैसे हैं?"
 
 ---
 
+## Inference Latency & Throughput Profiler
+
+Benchmark Time-To-First-Token (TTFT), inter-token latency (ITL), generation throughput (tok/s), and memory footprint across batch sizes and context lengths:
+
+```bash
+# Benchmark model architecture across standard sweeps
+bharat-profile --model-config configs/models/bharat-350m.yaml --batch-sizes 1,2,4 --prompt-lengths 64,256 --gen-lengths 32,64
+
+# Benchmark a trained checkpoint on GPU/MPS and emit JSON report
+bharat-profile --checkpoint checkpoints/bharat-350m/final.pt --device auto --dtype bf16 --json --output profile_report.json
+```
+
+---
+
+## Interactive Streaming Web Playground
+
+Launch an interactive single-page web UI with real-time token streaming, 22 Indian language prompt starters, and live hyperparameter controls:
+
+```bash
+# Launch interactive playground on http://localhost:7860
+bharat-playground --checkpoint checkpoints/bharat-350m/final.pt --port 7860
+
+# Launch with synthetic tiny model for testing
+bharat-playground --model-size tiny --port 7860
+```
+
+---
+
+## Multi-GPU & Distributed Training Recipes
+
+Production-ready Accelerate and DeepSpeed recipes are provided under `configs/distributed/`:
+
+```bash
+# Multi-GPU Distributed Data Parallel (DDP)
+accelerate launch --config_file configs/distributed/accelerate_ddp.yaml scripts/pretrain_bharat.py ...
+
+# Fully Sharded Data Parallel (FSDP with BharatDecoderLayer wrapping & BF16)
+accelerate launch --config_file configs/distributed/accelerate_fsdp.yaml scripts/pretrain_bharat.py ...
+
+# DeepSpeed ZeRO-2 / ZeRO-3 with activation checkpointing
+deepspeed --config_file configs/distributed/deepspeed_zero3.yaml scripts/pretrain_bharat.py ...
+```
+
+---
+
 ## System Telemetry & Training Monitor
 
 Inspect real-time GPU VRAM, Apple Silicon MPS unified memory, system CPU/RAM, active checkpoint steps, and ingestion pipeline progress:
