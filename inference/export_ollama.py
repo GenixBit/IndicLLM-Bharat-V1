@@ -115,8 +115,12 @@ def export_ollama(
         ckpt_file = cp_path / "ckpt.pt"
 
     ckpt_data = torch.load(ckpt_file, map_location="cpu", weights_only=False)
-    state_dict = ckpt_data.get("model", ckpt_data)
-    state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+    raw_state_dict = ckpt_data.get("model", ckpt_data)
+    state_dict = {
+        k.replace("_orig_mod.", ""): v
+        for k, v in raw_state_dict.items()
+        if not k.endswith((".inv_freq", ".cos_cached", ".sin_cached"))
+    }
 
     # Extract model config
     if "metadata" in ckpt_data and hasattr(ckpt_data["metadata"], "model_config"):
