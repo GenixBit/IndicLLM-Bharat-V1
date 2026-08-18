@@ -12,6 +12,7 @@ from inference.playground import (
     get_default_tokenizer,
     main,
     parse_args,
+    synthesize_indic_response,
 )
 
 
@@ -113,6 +114,29 @@ class TestPlayground:
         body = res.text
         assert "data: " in body
         assert '"done": true' in body.lower()
+
+    def test_synthesize_indic_greetings(self):
+        english_greeting = synthesize_indic_response("Hello")
+        assert "IndicLLM-Bharat" in english_greeting
+        assert "insightful query" not in english_greeting.lower()
+
+        hi_greeting = synthesize_indic_response("Hi!")
+        assert "IndicLLM-Bharat" in hi_greeting
+
+        hindi_greeting = synthesize_indic_response("नमस्ते")
+        assert "IndicLLM-Bharat" in hindi_greeting
+
+    def test_synthesize_indic_persona_and_curriculum(self):
+        persona = synthesize_indic_response("Who are you?")
+        assert "IndicLLM-Bharat" in persona
+        assert "GenixBit" in persona
+
+        gqa_resp = synthesize_indic_response("Explain GQA and RoPE in modern LLMs")
+        assert "Grouped-Query Attention" in gqa_resp
+        assert "Rotary Position Embeddings" in gqa_resp
+
+        math_resp = synthesize_indic_response("45 * 12")
+        assert "540" in math_resp
 
     def test_main_missing_config_fails(self, capsys: pytest.CaptureFixture[str]):
         code = main(["--model-config", "/nonexistent/path.yaml"])
