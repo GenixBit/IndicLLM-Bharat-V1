@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""IndicLLM-Bharat-V1 — Dataset Approval Validation CLI.
+"""IndicLLM-Bharat-V1 — Dataset Approval Validator CLI.
 
-Validates a formal dataset approval record against its target dataset manifest.
+Validates data governance approvals against source dataset manifests for legal compliance,
+PII sanitization review, contamination clearance, and authorization status.
 
 Usage:
   python scripts/validate_dataset_approval.py \
@@ -16,15 +17,20 @@ import json
 import sys
 from pathlib import Path
 
-from bharat.data.approval import DatasetApproval, validate_approval_for_manifest
+from bharat.data.approval import (
+    DatasetApproval,
+    validate_approval_for_manifest,
+)
 from bharat.data.manifest import DatasetManifest
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Validate a dataset approval against its manifest")
+    parser = argparse.ArgumentParser(
+        description="Validate a dataset approval against a dataset manifest"
+    )
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON file")
     parser.add_argument("--approval", required=True, help="Path to approval JSON file")
-    parser.add_argument("--json", action="store_true", help="Output JSON only")
+    parser.add_argument("--json", action="store_true", help="Output JSON")
 
     args = parser.parse_args(argv)
     manifest_path = Path(args.manifest)
@@ -34,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not manifest_path.exists():
         errors.append(f"Manifest file not found: {manifest_path}")
+
     if not approval_path.exists():
         errors.append(f"Approval file not found: {approval_path}")
 
@@ -86,9 +93,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Status: INVALID ({len(errors)} errors)")
             for e in errors:
                 print(f"    - {e}")
+            print(
+                "error: validation failed:\n" + "\n".join(f"  - {e}" for e in errors),
+                file=sys.stderr,
+            )
         else:
             print("  Status: VALID")
             if approval:
+                print(f"  Approval valid: {approval.approval_id}")
                 print(f"  Approval ID: {approval.approval_id}")
                 print(f"  Dataset ID : {approval.dataset_id}")
                 print(f"  Approver   : {approval.approver}")

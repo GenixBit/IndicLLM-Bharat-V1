@@ -90,12 +90,15 @@ def main(argv: list[str] | None = None) -> int:
         print("=" * 60)
         print("  🇮🇳 IndicLLM-Bharat — Data Preparation Report")
         print("=" * 60)
-        print(f"  Dataset:     {config.source_id}")
-        print(f"  Status:      {'DRY RUN' if args.dry_run else 'WRITTEN'}")
-        print(f"  Total input: {report.total_records:,} records")
-        print(f"  Accepted:    {report.accepted_records:,} records")
-        print(f"  Rejected:    {report.rejected_records:,} records")
-        print(f"  Shards:      {report.shard_count}")
+        print(f"  Dataset:          {config.source_id}")
+        print(f"  Status:           {'DRY RUN' if args.dry_run else 'WRITTEN'}")
+        print(f"  Total records:    {report.total_records:,}")
+        print(f"  Accepted records: {report.accepted_records:,}")
+        print(f"  Rejected records: {report.rejected_records:,}")
+        if not args.dry_run:
+            print(f"  Shards written:   {report.shard_count}")
+        else:
+            print(f"  Shards:           {report.shard_count}")
         print("=" * 60)
 
     return 0

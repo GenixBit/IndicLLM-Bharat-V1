@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""IndicLLM-Bharat-V1 — Dataset Manifest Validation CLI.
+"""IndicLLM-Bharat-V1 — Dataset Manifest Validator CLI.
 
-Validates integrity, schema constraints, and checksums of dataset manifest JSON files.
+Validates data manifest integrity, cryptographic digests, schema compliance,
+and shard coverage.
 
 Usage:
   python scripts/validate_data_manifest.py --manifest data/governed/sangraha_hi/manifest.json
@@ -19,31 +20,28 @@ from bharat.data.manifest import DatasetManifest
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Validate a dataset manifest JSON file")
+    parser = argparse.ArgumentParser(description="Validate a dataset manifest file")
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON file")
-    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument("--json", action="store_true", help="Output JSON result")
 
     args = parser.parse_args(argv)
     manifest_path = Path(args.manifest)
 
     errors: list[str] = []
     warnings: list[str] = []
+    manifest: DatasetManifest | None = None
 
     if not manifest_path.exists():
         errors.append(f"manifest file not found: {manifest_path}")
-    elif manifest_path.suffix != ".json":
-        errors.append(f"manifest must be a JSON file, got '{manifest_path.suffix}'")
-
-    manifest: DatasetManifest | None = None
-    if not errors:
+    else:
         try:
             raw = manifest_path.read_text(encoding="utf-8")
             data = json.loads(raw)
             manifest = DatasetManifest.from_dict(data)
         except json.JSONDecodeError as e:
             errors.append(f"invalid JSON: {e}")
-        except ValueError as e:
-            errors.append(str(e))
+        except Exception as e:
+            errors.append(f"manifest parse error: {e}")
 
     if manifest is not None:
         manifest_errors = manifest.validate()
@@ -75,9 +73,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Status: INVALID ({len(errors)} errors)")
             for e in errors:
                 print(f"    - {e}")
+            print(
+                "error: validation failed:\n" + "\n".join(f"  - {e}" for e in errors),
+                file=sys.stderr,
+            )
         else:
             print("  Status: VALID")
             if manifest:
+                print(f"  Manifest valid: {manifest.dataset_id}")
                 print(f"  Dataset: {manifest.dataset_id}")
                 print(f"  Records: {manifest.records:,}")
                 print(f"  Shards : {len(manifest.shards)}")
