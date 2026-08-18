@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""IndicLLM-Bharat-V1 — BharatBench Baseline Prediction Generator CLI.
+
+Generates deterministic BharatBench prediction JSONL outputs using mock or baseline
+adapters (e.g. expected, echo, choice-baseline).
+
+Usage:
+  python scripts/generate_bharatbench_predictions.py \
+    --examples eval_fixtures/bharatbench_tiny/qa.jsonl \
+    --output predictions.jsonl \
+    --adapter expected
+"""
 
 from __future__ import annotations
 
@@ -6,6 +17,7 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from bharat.eval.adapters import build_prediction_adapter
@@ -48,7 +60,7 @@ def _load_examples(path: Path) -> list[EvalExample]:
     return examples
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Generate BharatBench prediction JSONL files from local examples"
     )
@@ -62,21 +74,21 @@ def main() -> None:
     )
     parser.add_argument("--json", action="store_true", help="Output JSON only")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     examples_path = Path(args.examples)
     output_path = Path(args.output)
 
     if _is_remote_url(str(examples_path)):
         print(f"error: Remote examples path rejected: {examples_path}", file=sys.stderr)
-        sys.exit(1)
+        return 1
     if _is_remote_url(str(output_path)):
         print(f"error: Remote output path rejected: {output_path}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     if not examples_path.exists():
         print(f"error: Examples file not found: {examples_path}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     try:
         examples = _load_examples(examples_path)
@@ -85,7 +97,7 @@ def main() -> None:
         write_predictions_jsonl(predictions, output_path)
     except (TypeError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     result = {
         "adapter": args.adapter,
@@ -95,11 +107,19 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(result, sort_keys=True))
+        print(json.dumps(result, sort_keys=True, indent=2))
     else:
-        print(f"Generated {len(predictions)} predictions using adapter={args.adapter}")
-        print(f"Output: {output_path}")
+        print("=" * 60)
+        print("  🇮🇳 BharatBench Baseline Predictions")
+        print("=" * 60)
+        print(f"  Adapter    : {args.adapter}")
+        print(f"  Examples   : {len(examples)}")
+        print(f"  Predictions: {len(predictions)}")
+        print(f"  Output File: {output_path}")
+        print("=" * 60)
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
