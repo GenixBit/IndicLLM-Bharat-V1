@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""IndicLLM-Bharat-V1 — Dataset Manifest Validation CLI.
+
+Validates integrity, schema constraints, and checksums of dataset manifest JSON files.
+
+Usage:
+  python scripts/validate_data_manifest.py --manifest data/governed/sangraha_hi/manifest.json
+  python scripts/validate_data_manifest.py --manifest data/governed/sangraha_hi/manifest.json --json
+"""
 
 from __future__ import annotations
 
@@ -10,12 +18,12 @@ from pathlib import Path
 from bharat.data.manifest import DatasetManifest
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate a dataset manifest JSON file")
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON file")
     parser.add_argument("--json", action="store_true", help="Output JSON")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     manifest_path = Path(args.manifest)
 
     errors: list[str] = []
@@ -58,24 +66,30 @@ def main() -> None:
             result["dataset_id"] = manifest.dataset_id
             result["records"] = manifest.records
             result["sha256"] = manifest.sha256
-            if not manifest_errors:
-                result["computed_digest"] = actual_digest
         print(json.dumps(result, indent=2))
     else:
-        if not errors:
-            print(f"Manifest valid: {manifest.dataset_id} ({manifest.records} records)")
-            if warnings:
-                for w in warnings:
-                    print(f"  warning: {w}")
-        else:
+        print("=" * 60)
+        print(f"  🇮🇳 Dataset Manifest Validation: {manifest_path.name}")
+        print("=" * 60)
+        if errors:
+            print(f"  Status: INVALID ({len(errors)} errors)")
             for e in errors:
-                print(f"error: {e}", file=sys.stderr)
+                print(f"    - {e}")
+        else:
+            print("  Status: VALID")
+            if manifest:
+                print(f"  Dataset: {manifest.dataset_id}")
+                print(f"  Records: {manifest.records:,}")
+                print(f"  Shards : {len(manifest.shards)}")
+                print(f"  SHA-256: {manifest.sha256}")
+        if warnings:
+            print(f"  Warnings ({len(warnings)}):")
             for w in warnings:
-                print(f"warning: {w}", file=sys.stderr)
+                print(f"    - {w}")
+        print("=" * 60)
 
-    if errors:
-        sys.exit(1)
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
