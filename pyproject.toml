@@ -73,6 +73,7 @@ bharat-train-smart = "scripts.train_smart_bharat:main"
 bharat-preferences = "scripts.generate_preference_curriculum:main"
 bharat-train-dpo = "scripts.train_dpo_bharat:main"
 bharat-pack-tokens = "scripts.pack_tokens:main"
+bharat-benchmark = "scripts.evaluate_indic_benchmarks:main"
 
 [project.optional-dependencies]
 dev = [

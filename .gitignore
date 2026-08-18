@@ -58,3 +58,5 @@ __pycache__/
 .venv
 data/curriculum/
 data/preferences/
+data/binary_shards/
+reports/
