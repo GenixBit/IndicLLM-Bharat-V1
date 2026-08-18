@@ -62,6 +62,7 @@ bharat-generate = "inference.generate:main"
 bharat-api = "inference.api:main"
 export-ollama = "inference.export_ollama:main"
 bharat-monitor = "scripts.monitor:main"
+validate-q8-0-compatibility = "scripts.validate_q8_0_compatibility:main"
 
 [project.optional-dependencies]
 dev = [
