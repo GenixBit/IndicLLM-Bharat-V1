@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""IndicLLM-Bharat-V1 — Data Sharding Planner CLI.
+
+Plans deterministic contiguous byte/record partition boundaries for dataset shards
+based on an input dataset manifest.
+
+Usage:
+  python scripts/plan_data_shards.py --manifest data/governed/sangraha_hi/manifest.json
+  python scripts/plan_data_shards.py --manifest data/governed/sangraha_hi/manifest.json --json
+"""
 
 from __future__ import annotations
 
@@ -11,19 +20,19 @@ from bharat.data.manifest import DatasetManifest
 from bharat.data.sharding import ShardPlanner
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Plan data shards from a dataset manifest")
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON file")
     parser.add_argument("--max-records", type=int, default=10000, help="Max records per shard")
     parser.add_argument("--max-bytes", type=int, default=0, help="Max bytes per shard")
     parser.add_argument("--json", action="store_true", help="Output JSON")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     manifest_path = Path(args.manifest)
 
     if not manifest_path.exists():
         print(f"error: manifest file not found: {manifest_path}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     try:
         raw = manifest_path.read_text(encoding="utf-8")
@@ -31,7 +40,7 @@ def main() -> None:
         manifest = DatasetManifest.from_dict(data)
     except Exception as e:
         print(f"error: failed to load manifest: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     planner = ShardPlanner(
         dataset_id=manifest.dataset_id,
@@ -47,7 +56,7 @@ def main() -> None:
         )
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     if args.json:
         output = {
@@ -60,16 +69,21 @@ def main() -> None:
         }
         print(json.dumps(output, indent=2))
     else:
-        print(f"Shard plan for {manifest.dataset_id} ({manifest.split}):")
-        print(f"  Total records: {manifest.records}")
-        print(f"  Total bytes:   {manifest.bytes_utf8}")
-        print(f"  Shards:        {len(plans)}")
+        print("=" * 60)
+        print("  🇮🇳 IndicLLM-Bharat — Sharding Plan")
+        print("=" * 60)
+        print(f"  Dataset: {manifest.dataset_id} ({manifest.split})")
+        print(f"  Total records: {manifest.records:,}")
+        print(f"  Total bytes:   {manifest.bytes_utf8:,}")
+        print(f"  Planned shards: {len(plans)}")
         for p in plans:
             print(
-                f"  [{p.index:04d}] {p.shard_id}: "
-                f"{p.expected_records} records, {p.expected_bytes} bytes"
+                f"    - {p.shard_id}: records [{p.record_start}:{p.record_end}], bytes {p.bytes_utf8:,}"
             )
+        print("=" * 60)
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

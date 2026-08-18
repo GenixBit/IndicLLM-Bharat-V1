@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""IndicLLM-Bharat-V1 — Serving Engine Control & Smoke Verification CLI.
+
+Runs local end-to-end streaming serving verification with token authentication,
+sliding-window rate limiting, and Prometheus metrics recording.
+
+Usage:
+  python scripts/run_serving_control_smoke.py --prompt "नमस्ते भारत" --json
+"""
 
 from __future__ import annotations
 
@@ -25,7 +33,7 @@ def _is_remote_url(path: str) -> bool:
     return bool(_URL_RE.match(path))
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run a local serving control smoke test with auth, rate limiting, and metrics"
     )
@@ -49,11 +57,11 @@ def main() -> None:
         help="Output machine-readable JSON result",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.output and _is_remote_url(args.output):
         print(f"error: Remote output path rejected: {args.output}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     config = AuthConfig(valid_api_keys=("test-key-001", "test-key-002"))
     rate_config = RateLimitConfig(max_requests=10, window_seconds=60.0)
@@ -70,10 +78,14 @@ def main() -> None:
         max_tokens=args.max_tokens,
     )
 
-    events = controller.handle_request(
-        request=request,
-        api_key=args.api_key,
-    )
+    try:
+        events = controller.handle_request(
+            request=request,
+            api_key=args.api_key,
+        )
+    except Exception as e:
+        print(f"error: serving request failed: {e}", file=sys.stderr)
+        return 1
 
     if args.format == "json":
         output = stream_events_to_json(events)
@@ -95,13 +107,19 @@ def main() -> None:
         }
         if args.output:
             result["output_path"] = str(args.output)
-        print(json.dumps(result, sort_keys=True))
+        print(json.dumps(result, sort_keys=True, indent=2))
     else:
-        print(f"Events ({len(events)}):")
+        print("=" * 60)
+        print("  🇮🇳 IndicLLM-Bharat — Serving Smoke Test")
+        print("=" * 60)
+        print(f"  Events ({len(events)}):")
         print(output)
-        print("Metrics:")
+        print("  Metrics:")
         print(metrics_output)
+        print("=" * 60)
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
