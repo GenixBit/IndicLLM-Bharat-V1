@@ -419,6 +419,30 @@ def create_playground_app(
     return app
 
 
+def create_default_app() -> FastAPI:
+    """Create default instance of playground app with tiny configuration for server runner."""
+    cfg = BharatModelConfig(
+        vocab_size=1000,
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        max_position_embeddings=128,
+    )
+    model = BharatForCausalLM(cfg)
+    return create_playground_app(
+        model=model,
+        config=cfg,
+        tokenizer=get_default_tokenizer(),
+        device=torch.device("cpu"),
+        model_name="Bharat-350M",
+    )
+
+
+app = create_default_app()
+
+
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Launch IndicLLM-Bharat interactive web playground",
