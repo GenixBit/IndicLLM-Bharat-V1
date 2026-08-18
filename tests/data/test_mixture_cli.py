@@ -3,13 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from bharat.data.manifest import ShardManifest, create_manifest
 from scripts.plan_data_mixture import load_recipe
 from scripts.plan_data_mixture import main as cli_main
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-PRETRAIN_RECIPE = ROOT / "configs" / "data" / "mixture_pretrain_indic_1b.yaml"
+PRETRAIN_1B_RECIPE = ROOT / "configs" / "data" / "mixture_pretrain_indic_1b.yaml"
+PRETRAIN_10B_RECIPE = ROOT / "configs" / "data" / "mixture_pretrain_indic_10b.yaml"
 SFT_RECIPE = ROOT / "configs" / "data" / "mixture_sft_indic.yaml"
+DPO_RECIPE = ROOT / "configs" / "data" / "mixture_dpo_indic.yaml"
 
 
 def _create_mock_manifest(
@@ -57,20 +61,21 @@ def _create_mock_manifest(
 
 
 class TestDataMixtureCLI:
-    def test_load_official_recipes(self) -> None:
-        """Verify that pretraining and SFT recipe configurations load and validate constraint sums."""
-        assert PRETRAIN_RECIPE.is_file(), f"Pretrain recipe missing: {PRETRAIN_RECIPE}"
-        assert SFT_RECIPE.is_file(), f"SFT recipe missing: {SFT_RECIPE}"
+    @pytest.mark.parametrize(
+        "recipe_path",
+        [PRETRAIN_1B_RECIPE, PRETRAIN_10B_RECIPE, SFT_RECIPE, DPO_RECIPE],
+    )
+    def test_load_official_recipes(self, recipe_path: Path) -> None:
+        """Verify that all official recipe configurations load and validate constraint sums."""
+        assert recipe_path.is_file(), f"Recipe missing: {recipe_path}"
 
-        pretrain_constraint = load_recipe(PRETRAIN_RECIPE)
-        assert abs(sum(pretrain_constraint.language_weights.values()) - 1.0) < 1e-6
-        assert abs(sum(pretrain_constraint.domain_weights.values()) - 1.0) < 1e-6
+        constraint = load_recipe(recipe_path)
+        assert abs(sum(constraint.language_weights.values()) - 1.0) < 1e-6
+        assert abs(sum(constraint.domain_weights.values()) - 1.0) < 1e-6
 
-        sft_constraint = load_recipe(SFT_RECIPE)
-        assert abs(sum(sft_constraint.language_weights.values()) - 1.0) < 1e-6
-        assert abs(sum(sft_constraint.domain_weights.values()) - 1.0) < 1e-6
-
-    def test_plan_data_mixture_cli_execution(self, tmp_path: Path, capsys) -> None:
+    def test_plan_data_mixture_cli_execution(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Verify plan_data_mixture CLI runs end-to-end and outputs structured mixture plan."""
         manifests_dir = tmp_path / "manifests"
         _create_mock_manifest(manifests_dir, "indiccorp_v2", "hi", "general", records=10000)
