@@ -24,11 +24,10 @@ def _run(args: list[str]) -> tuple[int, str]:
     sys.stdout = out = StringIO()
     sys.stderr = StringIO()
     try:
-        try:
-            main()
-        except SystemExit as e:
-            return e.code, out.getvalue()
-        return 0, out.getvalue()
+        ret = main()
+        return (ret if ret is not None else 0), out.getvalue()
+    except SystemExit as e:
+        return (e.code if e.code is not None else 0), out.getvalue()
     finally:
         sys.argv = old_argv
         sys.stdout = old_stdout

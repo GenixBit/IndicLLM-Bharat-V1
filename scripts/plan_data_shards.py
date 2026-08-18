@@ -70,16 +70,14 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(output, indent=2))
     else:
         print("=" * 60)
-        print("  🇮🇳 IndicLLM-Bharat — Sharding Plan")
+        print("  🇮🇳 IndicLLM-Bharat — Shard plan")
         print("=" * 60)
         print(f"  Dataset: {manifest.dataset_id} ({manifest.split})")
         print(f"  Total records: {manifest.records:,}")
         print(f"  Total bytes:   {manifest.bytes_utf8:,}")
-        print(f"  Planned shards: {len(plans)}")
+        print(f"  Shards:        {len(plans)}")
         for p in plans:
-            print(
-                f"    - {p.shard_id}: records [{p.record_start}:{p.record_end}], bytes {p.bytes_utf8:,}"
-            )
+            print(f"    - {p.shard_id}: records {p.expected_records:,}, bytes {p.expected_bytes:,}")
         print("=" * 60)
 
     return 0
