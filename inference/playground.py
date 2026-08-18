@@ -62,7 +62,7 @@ INDIC_LANGUAGE_PRESETS: dict[str, dict[str, str]] = {
     "pa": {"name": "Punjabi (ਪੰਜਾਬੀ)", "starter": "ਭਾਰਤ ਦੇ ਮਹਾਨ ਇਤਿਹਾਸ ਅਤੇ ਸੱਭਿਆਚਾਰ ਬਾਰੇ ਦੱਸੋ।"},
     "or": {"name": "Odia (ଓଡ଼ିଆ)", "starter": "ଭାରତର ପ୍ରାଚୀନ ଇତିହାସ ଏବଂ ସଂସ୍କୃତି ବିଷୟରେ କୁହନ୍ତୁ।"},
     "as": {"name": "Assamese (অসমীয়া)", "starter": "ভাৰতৰ চহকী ঐতিহ্য আৰু সংস্কৃতিৰ বিষয়ে চমুকৈ কওক।"},
-    "ur": {"name": "Urdu (اردو)", "starter": "ہندوستان کی تاریخ اور تہذیب و ثقافت پر روشنی ڈالیں۔"},  # noqa: RUF001
+    "ur": {"name": "Urdu (اردو)", "starter": "ہندوستان کی تاریخ اور تہذیب و ثقافت پر روشنی ڈالیں۔"},
     "sa": {"name": "Sanskrit (संस्कृतम्)", "starter": "भारतवर्षस्य समृद्धपरम्परायाः विषये संक्षेपेण वर्णयतु।"},
     "ne": {
         "name": "Nepali (नेपाली)",
@@ -427,10 +427,10 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
 
     if has_arabic:
         if "سلام" in p or "آداب" in p:
-            return "آداب! میں **IndicLLM-Bharat** ہوں — ۲۲ ہندوستانی زبانوں کے لیے ایک جدید AI ماڈل۔ میں آپ کی کیا مدد کر سکتا ہوں؟"  # noqa: RUF001
+            return "آداب! میں **IndicLLM-Bharat** ہوں — ۲۲ ہندوستانی زبانوں کے لیے ایک جدید AI ماڈل۔ میں آپ کی کیا مدد کر سکتا ہوں؟"
         if "دارالحکومت" in p:
-            return "ہندوستان کا دارالحکومت **نئی دہلی** (New Delhi) ہے۔"  # noqa: RUF001
-        return f'**"{p}"** کے متعلق جواب:\n\nIndicLLM-Bharat اردو اور تمام ہندوستانی زبانوں میں مدد فراہم کرتا ہے۔'  # noqa: RUF001
+            return "ہندوستان کا دارالحکومت **نئی دہلی** (New Delhi) ہے۔"
+        return f'**"{p}"** کے متعلق جواب:\n\nIndicLLM-Bharat اردو اور تمام ہندوستانی زبانوں میں مدد فراہم کرتا ہے۔'
 
     if has_devanagari:
         if "मराठी" in p or "द्या" in p or "सांगा" in p:

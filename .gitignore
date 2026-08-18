@@ -56,3 +56,5 @@ infra/.aws_instance_state
 __pycache__/
 *.pyc
 .venv
+data/curriculum/
+data/preferences/

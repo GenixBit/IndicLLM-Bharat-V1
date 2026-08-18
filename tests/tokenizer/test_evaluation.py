@@ -235,7 +235,7 @@ def _run_eval(tmp_path: Path, records: list[EvaluationRecord]) -> dict:
         ("te-metrics-001", "te", "తెలుగు భాష ఆంధ్రప్రదేశ్ రాష్ట్ర భాష।"),
         ("kn-metrics-001", "kn", "ಕನ್ನಡ ಭಾಷೆ ಕರ್ನಾಟಕ ರಾಜ್ಯದ ಅಧಿಕೃತ ಭಾಷೆ।"),
         ("ml-metrics-001", "ml", "മലയാളം കേരളത്തിന്റെ ഔദ്യോഗിക ഭാഷയാണ്।"),
-        ("ur-metrics-001", "ur", "اردو ہندوستان کی ایک اہم زبان ہے۔"),  # noqa: RUF001
+        ("ur-metrics-001", "ur", "اردو ہندوستان کی ایک اہم زبان ہے۔"),
     ],
 )
 def test_language_metrics(
