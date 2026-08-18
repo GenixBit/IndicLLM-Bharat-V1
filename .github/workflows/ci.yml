@@ -118,7 +118,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install mypy torch transformers datasets numpy pyyaml tokenizers sentencepiece
       - name: Run mypy
-        run: mypy bharat/
+        run: mypy --explicit-package-bases bharat/ scripts/ inference/
 
   test:
     needs: changes
