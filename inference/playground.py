@@ -628,9 +628,9 @@ def get_default_tokenizer() -> BharatTokenizer:
 
 
 def create_playground_app(
-    model: BharatForCausalLM,
+    model: Any,
     config: BharatModelConfig,
-    tokenizer: BharatTokenizer | None = None,
+    tokenizer: Any = None,
     device: torch.device | None = None,
     model_name: str = "Bharat-350M",
 ) -> FastAPI:
@@ -797,6 +797,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Path to YAML model config",
     )
     group.add_argument(
+        "--hf-model",
+        type=str,
+        help="HuggingFace model ID to load for live neural inference (e.g. Qwen/Qwen2.5-0.5B-Instruct)",
+    )
+    group.add_argument(
         "--model-size",
         choices=["350m", "1b", "3b", "7b", "tiny"],
         default="350m",
@@ -825,7 +830,23 @@ def main(args: list[str] | None = None) -> int:
         device = torch.device(parsed.device)
 
     # Initialize model
-    if parsed.checkpoint:
+    if parsed.hf_model:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        print(f"Loading HuggingFace model: {parsed.hf_model}...")
+        tokenizer = AutoTokenizer.from_pretrained(parsed.hf_model)
+        model = AutoModelForCausalLM.from_pretrained(parsed.hf_model).to(device)
+        model_name = parsed.hf_model.split("/")[-1]
+        cfg = BharatModelConfig(
+            vocab_size=getattr(model.config, "vocab_size", 32000),
+            hidden_size=getattr(model.config, "hidden_size", 512),
+            intermediate_size=getattr(model.config, "intermediate_size", 1024),
+            num_hidden_layers=getattr(model.config, "num_hidden_layers", 4),
+            num_attention_heads=getattr(model.config, "num_attention_heads", 8),
+            num_key_value_heads=getattr(model.config, "num_key_value_heads", 4),
+            max_position_embeddings=getattr(model.config, "max_position_embeddings", 4096),
+        )
+    elif parsed.checkpoint:
         ckpt_p = Path(parsed.checkpoint)
         if not ckpt_p.is_file():
             print(f"Error: Checkpoint not found: {ckpt_p}", file=sys.stderr)
@@ -841,6 +862,7 @@ def main(args: list[str] | None = None) -> int:
         if "model" in ckpt:
             model.load_state_dict(ckpt["model"])
         model_name = f"Bharat-{ckpt_p.stem}"
+        tokenizer = get_default_tokenizer()
     elif parsed.model_config:
         cfg_p = Path(parsed.model_config)
         if not cfg_p.is_file():
@@ -849,6 +871,7 @@ def main(args: list[str] | None = None) -> int:
         cfg = BharatModelConfig.from_yaml(cfg_p)
         model = BharatForCausalLM(cfg).to(device)
         model_name = f"Bharat-{cfg_p.stem}"
+        tokenizer = get_default_tokenizer()
     else:
         tier = parsed.model_size
         if tier == "tiny":
@@ -867,8 +890,8 @@ def main(args: list[str] | None = None) -> int:
             cfg = BharatModelConfig.from_yaml(yaml_p) if yaml_p.is_file() else BharatModelConfig()
             model_name = f"Bharat-{tier.upper()}"
         model = BharatForCausalLM(cfg).to(device)
+        tokenizer = get_default_tokenizer()
 
-    tokenizer = get_default_tokenizer()
     app = create_playground_app(
         model=model,
         config=cfg,
