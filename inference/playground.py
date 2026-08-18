@@ -115,6 +115,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     textarea:focus { border-color: var(--accent); }
     button { background: var(--accent); color: white; border: none; padding: 0 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }
     button:hover { background: var(--accent-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
     label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 6px; }
     select, input[type="text"] { width: 100%; background: var(--bg-card); border: 1px solid var(--border); color: white; padding: 8px 10px; border-radius: 6px; outline: none; }
     .slider-group { display: flex; flex-direction: column; gap: 4px; }
@@ -232,6 +233,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const text = input.value.trim();
       if (!text) return;
 
+      const sendBtn = document.getElementById('send-btn');
+      sendBtn.disabled = true;
       input.value = '';
       const msgBox = document.getElementById('messages');
 
@@ -257,12 +260,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         repetition_penalty: parseFloat(document.getElementById('rep_penalty').value)
       };
 
+      let buffer = '';
       try {
         const response = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errText}`);
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -273,30 +282,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\\n');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\\n');
+          buffer = lines.pop() || '';
+
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = JSON.parse(line.slice(6));
-              if (data.token) {
-                fullText += data.token;
-                tokenCount++;
-                asstDiv.innerText = fullText;
-                msgBox.scrollTop = msgBox.scrollHeight;
-              }
-              if (data.done) {
-                const dur = ((performance.now() - startTime) / 1000).toFixed(2);
-                const speed = (tokenCount / Math.max(dur, 0.01)).toFixed(1);
-                const tel = document.createElement('div');
-                tel.className = 'telemetry';
-                tel.innerText = `⚡ ${tokenCount} tokens in ${dur}s (${speed} tok/s)`;
-                asstDiv.appendChild(tel);
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(trimmed.slice(6));
+                if (data.token) {
+                  fullText += data.token;
+                  tokenCount++;
+                  asstDiv.innerText = fullText;
+                  msgBox.scrollTop = msgBox.scrollHeight;
+                }
+                if (data.done) {
+                  const dur = ((performance.now() - startTime) / 1000).toFixed(2);
+                  const speed = (tokenCount / Math.max(dur, 0.01)).toFixed(1);
+                  const tel = document.createElement('div');
+                  tel.className = 'telemetry';
+                  tel.innerText = `⚡ ${tokenCount} tokens in ${dur}s (${speed} tok/s)`;
+                  asstDiv.appendChild(tel);
+                }
+              } catch (parseErr) {
+                console.warn('SSE Parse error:', parseErr, trimmed);
               }
             }
           }
         }
       } catch (err) {
         asstDiv.innerText = `Error: ${err.message}`;
+      } finally {
+        sendBtn.disabled = false;
       }
     }
 
@@ -377,58 +395,82 @@ def create_playground_app(
     @app.post("/api/generate")
     async def generate_stream(req: GenerateRequest) -> StreamingResponse:
         async def event_generator() -> AsyncGenerator[str, None]:
-            full_prompt = (
-                f"<|im_start|>system\n{req.system_prompt}<|im_end|>\n"
-                f"<|im_start|>user\n{req.prompt}<|im_end|>\n"
-                f"<|im_start|>assistant\n"
-            )
-            raw_input_ids = tok.encode(full_prompt)
-            input_ids = [t % config.vocab_size for t in raw_input_ids]
-            tensor_ids = torch.tensor([input_ids], dtype=torch.long, device=dev)
+            try:
+                full_prompt = (
+                    f"<|im_start|>system\n{req.system_prompt}<|im_end|>\n"
+                    f"<|im_start|>user\n{req.prompt}<|im_end|>\n"
+                    f"<|im_start|>assistant\n"
+                )
+                raw_input_ids = tok.encode(full_prompt)
+                input_ids = [t % config.vocab_size for t in raw_input_ids]
 
-            generated_tokens = 0
-            curr_ids = tensor_ids
+                # Ensure prompt fits in context window
+                max_pos = config.max_position_embeddings
+                if len(input_ids) >= max_pos:
+                    input_ids = input_ids[-(max_pos - 16) :]
 
-            with torch.no_grad():
-                for _ in range(req.max_tokens):
-                    out = model(curr_ids)
-                    logits = out.logits[:, -1, :]
+                tensor_ids = torch.tensor([input_ids], dtype=torch.long, device=dev)
+                generated_tokens = 0
+                curr_ids = tensor_ids
 
-                    if req.temperature > 0:
-                        probs = torch.softmax(logits / req.temperature, dim=-1)
-                        next_token = torch.multinomial(probs, num_samples=1)
-                    else:
-                        next_token = torch.argmax(logits, dim=-1, keepdim=True)
+                with torch.no_grad():
+                    for _ in range(req.max_tokens):
+                        if curr_ids.shape[1] >= max_pos:
+                            break
 
-                    token_id = next_token.item()
-                    generated_tokens += 1
+                        out = model(curr_ids)
+                        logits = out.logits[:, -1, :]
 
-                    if token_id in (tok.eos_token_id, tok.pad_token_id):
-                        break
+                        if req.temperature > 0:
+                            probs = torch.softmax(logits / req.temperature, dim=-1)
+                            next_token = torch.multinomial(probs, num_samples=1)
+                        else:
+                            next_token = torch.argmax(logits, dim=-1, keepdim=True)
 
-                    token_text = tok.decode([token_id])
-                    curr_ids = torch.cat([curr_ids, next_token], dim=1)
+                        token_id = next_token.item()
+                        generated_tokens += 1
 
-                    yield f"data: {json.dumps({'token': token_text, 'done': False})}\n\n"
-                    await asyncio.sleep(0.005)
+                        if token_id in (tok.eos_token_id, tok.pad_token_id):
+                            break
 
-            yield f"data: {json.dumps({'token': '', 'done': True, 'count': generated_tokens})}\n\n"
+                        token_text = tok.decode([token_id])
+                        curr_ids = torch.cat([curr_ids, next_token], dim=1)
 
-        return StreamingResponse(event_generator(), media_type="text/event-stream")
+                        yield f"data: {json.dumps({'token': token_text, 'done': False})}\n\n"
+                        await asyncio.sleep(0.005)
+
+                yield f"data: {json.dumps({'token': '', 'done': True, 'count': generated_tokens})}\n\n"
+            except Exception as err:
+                yield f"data: {json.dumps({'token': f' [Error: {err}]', 'done': True, 'error': str(err)})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     return app
 
 
 def create_default_app() -> FastAPI:
-    """Create default instance of playground app with tiny configuration for server runner."""
-    cfg = BharatModelConfig(
-        vocab_size=1000,
-        hidden_size=64,
-        intermediate_size=128,
-        num_hidden_layers=2,
-        num_attention_heads=4,
-        num_key_value_heads=2,
-        max_position_embeddings=128,
+    """Create default instance of playground app with configuration for server runner."""
+    yaml_p = ROOT_DIR / "configs" / "models" / "bharat-350m.yaml"
+    cfg = (
+        BharatModelConfig.from_yaml(yaml_p)
+        if yaml_p.is_file()
+        else BharatModelConfig(
+            vocab_size=64000,
+            hidden_size=512,
+            intermediate_size=1024,
+            num_hidden_layers=4,
+            num_attention_heads=8,
+            num_key_value_heads=4,
+            max_position_embeddings=4096,
+        )
     )
     model = BharatForCausalLM(cfg)
     return create_playground_app(
@@ -522,7 +564,7 @@ def main(args: list[str] | None = None) -> int:
                 num_hidden_layers=2,
                 num_attention_heads=4,
                 num_key_value_heads=2,
-                max_position_embeddings=128,
+                max_position_embeddings=4096,
             )
             model_name = "Bharat-Tiny"
         else:
