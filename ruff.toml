@@ -8,6 +8,9 @@ ignore = [
     "E501",  # handled by formatter
     "B904",  # raise-within-try
     "N812",  # lowercase functional imported as F (pytorch convention)
+    "RUF001",  # ambiguous unicode in multilingual Indic scripts
+    "RUF002",  # ambiguous unicode in docstrings
+    "RUF003",  # ambiguous unicode in comments
 ]
 
 [lint.per-file-ignores]

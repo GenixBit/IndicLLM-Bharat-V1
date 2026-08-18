@@ -70,6 +70,8 @@ bharat-profile = "scripts.profile_inference:main"
 bharat-playground = "inference.playground:main"
 bharat-curriculum = "scripts.generate_indic_curriculum:main"
 bharat-train-smart = "scripts.train_smart_bharat:main"
+bharat-preferences = "scripts.generate_preference_curriculum:main"
+bharat-train-dpo = "scripts.train_dpo_bharat:main"
 
 [project.optional-dependencies]
 dev = [
@@ -114,3 +116,10 @@ ignore_errors = true
 [tool.coverage.run]
 source = ["bharat", "train", "eval", "inference", "scripts"]
 branch = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = ["RUF001", "RUF002", "RUF003"]
