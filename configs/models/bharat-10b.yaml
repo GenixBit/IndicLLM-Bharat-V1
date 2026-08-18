@@ -1,0 +1,22 @@
+schema_version: 1
+model_name: Bharat-10B
+size_label: 10B
+target_parameter_count: 10000000000
+expected_parameter_count: 10121220096
+
+architecture:
+  vocab_size: 64000
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_hidden_layers: 44
+  num_attention_heads: 32
+  num_key_value_heads: 8
+  max_position_embeddings: 4096
+  rope_theta: 500000.0
+  rms_norm_eps: 0.000001
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
+  initializer_range: 0.02
+  attention_bias: false
+  mlp_bias: false
+  tie_word_embeddings: false
