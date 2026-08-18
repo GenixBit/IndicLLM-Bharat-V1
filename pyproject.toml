@@ -66,6 +66,8 @@ validate-q8-0-compatibility = "scripts.validate_q8_0_compatibility:main"
 check-production-tokenizer-evidence-readiness = "scripts.check_production_tokenizer_evidence_readiness:main"
 build-production-tokenizer-evidence = "scripts.build_production_tokenizer_evidence:main"
 generate-bharatbench-predictions = "scripts.generate_bharatbench_predictions:main"
+bharat-profile = "scripts.profile_inference:main"
+bharat-playground = "inference.playground:main"
 
 [project.optional-dependencies]
 dev = [
