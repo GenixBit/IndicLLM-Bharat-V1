@@ -64,6 +64,10 @@ class TestPlayground:
         assert args.port == 8080
         assert args.device == "cpu"
 
+    def test_parse_args_hf_model(self):
+        args = parse_args(["--hf-model", "Qwen/Qwen2.5-0.5B-Instruct"])
+        assert args.hf_model == "Qwen/Qwen2.5-0.5B-Instruct"
+
     def test_index_page(self, playground_client: TestClient):
         res = playground_client.get("/")
         assert res.status_code == 200
