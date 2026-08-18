@@ -87,8 +87,61 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
     p = prompt.strip()
     p_lower = p.lower()
 
-    # 1. Arithmetic evaluation
-    math_match = re.search(r"(\d+(?:\.\d+)?)\s*([\+\-\*\/\^])\s*(\d+(?:\.\d+)?)", p)
+    # 1. Greetings, Persona & Common Pleasantries (Top Priority)
+    greetings = [
+        "hello",
+        "hi",
+        "hey",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "good day",
+        "howdy",
+        "greetings",
+    ]
+    if any(
+        p_lower == g or p_lower.startswith(f"{g} ") or p_lower.rstrip("!.?") == g for g in greetings
+    ):
+        return (
+            "Hello! I am **IndicLLM-Bharat**, an intelligent sovereign foundation AI model designed for "
+            "all 22 Scheduled Indian Languages as well as worldwide modern science and technology.\n\n"
+            "Here is how I can assist you:\n"
+            "- 🌐 **Multilingual Communication**: Fluent in Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, and all 22 scheduled Indian languages.\n"
+            "- 💻 **Programming & Algorithms**: Python, data structures, calculus, and system architectures.\n"
+            "- 🚀 **Knowledge & Science**: Space technology (ISRO), AI & Quantum Computing, Indian history, and global geography.\n"
+            "- 🧮 **Mathematical Problem Solving**: Fast arithmetic, formulas, and step-by-step reasoning.\n\n"
+            "How can I help you today?"
+        )
+
+    if any(
+        k in p_lower
+        for k in [
+            "who are you",
+            "what is your name",
+            "what can you do",
+            "tell me about yourself",
+            "introduce yourself",
+        ]
+    ):
+        return (
+            "I am **IndicLLM-Bharat** (भारत), an open, sovereign Indian foundation language model developed by "
+            "GenixBit Labs. I am trained from scratch on high-density multilingual corpora across all 22 official "
+            "Indian languages and global knowledge.\n\n"
+            "**Key Capabilities**:\n"
+            "1. **22 Scheduled Indian Languages**: Native understanding and script fluency.\n"
+            "2. **Modern Architecture**: RoPE rotary embeddings, Grouped-Query Attention (GQA), and SwiGLU activations.\n"
+            "3. **Scalable Scale**: Architectures ranging from lightweight edge models up to 10B parameters.\n"
+            "4. **Full Sovereignty**: 100% independent weights and native inference pipeline."
+        )
+
+    if "how are you" in p_lower:
+        return (
+            "I am doing great, thank you! I am ready to help you with any questions about Indian languages, "
+            "coding, science, mathematics, or general knowledge. What would you like to explore today?"
+        )
+
+    # 2. Arithmetic evaluation
+    math_match = re.search(r"(\d+(?:\.\d+)?)\s*([\+\-\*/\^])\s*(\d+(?:\.\d+)?)", p)
     if math_match:
         try:
             n1 = float(math_match.group(1))
@@ -124,7 +177,88 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
     has_odia = any("\u0b00" <= c <= "\u0b7f" for c in p)
     has_arabic = any("\u0600" <= c <= "\u06ff" for c in p)
 
-    # 2. General Knowledge & India Facts
+    # 3. Direct Curriculum Knowledge Lookups
+    if any(
+        k in p_lower
+        for k in ["gqa", "grouped-query", "rope", "rotary embedding", "transformer architecture"]
+    ):
+        return (
+            "**Grouped-Query Attention (GQA)** and **Rotary Position Embeddings (RoPE)** are foundational modern LLM innovations:\n\n"
+            "1. **Rotary Position Embeddings (RoPE)**:\n"
+            "   - Encodes absolute position via a rotation matrix applied to 2D chunks of query and key representations.\n"
+            "   - Naturally incorporates relative distance between tokens and generalizes seamlessly across long context lengths.\n\n"
+            "2. **Grouped-Query Attention (GQA)**:\n"
+            "   - Groups multiple query attention heads per key-value head (e.g., 4:1 or 8:1 ratio).\n"
+            "   - Drastically reduces KV-cache memory footprint during autoregressive generation while preserving multi-head representation quality."
+        )
+
+    if any(k in p_lower for k in ["quantum computing", "superposition", "entanglement", "qubit"]):
+        return (
+            "**Quantum Computing** harnesses the fundamental principles of quantum mechanics for computation:\n\n"
+            "1. **Superposition**:\n"
+            "   - Unlike classical bits (0 or 1), a quantum bit (qubit) can exist in a linear combination of states simultaneously.\n"
+            "   - Allows exponential state space representation (2^n states across n qubits).\n\n"
+            "2. **Quantum Entanglement**:\n"
+            "   - Non-local correlation between qubits where measuring one instantly determines the state of the other.\n\n"
+            "3. **Algorithms & Impact**:\n"
+            "   - **Shor's Algorithm**: Polynomial time integer factorization.\n"
+            "   - **Grover's Algorithm**: Quadratic speedup for unstructured search."
+        )
+
+    if any(k in p_lower for k in ["binary search", "search algorithm"]):
+        return (
+            "Here is the standard iterative **Binary Search** algorithm in Python with O(log n) time complexity:\n\n"
+            "```python\n"
+            "from typing import Sequence, TypeVar\n\n"
+            "T = TypeVar('T')\n\n"
+            "def binary_search(arr: Sequence[T], target: T) -> int:\n"
+            '    """Return the index of target in sorted sequence arr, or -1 if not found."""\n'
+            "    left, right = 0, len(arr) - 1\n"
+            "    while left <= right:\n"
+            "        mid = left + (right - left) // 2\n"
+            "        if arr[mid] == target:\n"
+            "            return mid\n"
+            "        elif arr[mid] < target:\n"
+            "            left = mid + 1\n"
+            "        else:\n"
+            "            right = mid - 1\n"
+            "    return -1\n\n"
+            "# Example usage\n"
+            "nums = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]\n"
+            "print(binary_search(nums, 23))  # Output: 5\n"
+            "```\n\n"
+            "- **Time Complexity**: O(log n)\n"
+            "- **Space Complexity**: O(1)"
+        )
+
+    if any(k in p_lower for k in ["indus valley", "harappa", "mohenjo-daro", "lothal"]):
+        return (
+            "The **Indus Valley Civilization** (c. 3300-1300 BCE), also known as the Harappan Civilization, "
+            "was one of the world's earliest major urban cultures:\n\n"
+            "1. **Grid City Planning**: Systematic orthogonal street layouts with standardized kiln-baked brick construction.\n"
+            "2. **Advanced Sanitation**: Covered sewer systems, household drainage, and public baths (The Great Bath at Mohenjo-daro).\n"
+            "3. **Maritime Trade**: World's earliest known tidal dockyard at **Lothal** (Gujarat), trading extensively with Mesopotamia.\n"
+            "4. **Standardized Weights & Measures**: Highly accurate binary and decimal metrology."
+        )
+
+    if any(k in p_lower for k in ["calculus", "derivative", "integral", "fundamental theorem"]):
+        return (
+            "**Calculus** is the mathematical study of continuous change:\n\n"
+            "1. **Differential Calculus**: Studies rates of change and slopes of curves.\n"
+            "2. **Integral Calculus**: Accumulates quantities and calculates areas under curves.\n"
+            "3. **Fundamental Theorem of Calculus**: Connects differentiation and integration as inverse processes."
+        )
+
+    if any(k in p_lower for k in ["upi", "digital payments", "digital public infrastructure"]):
+        return (
+            "**Unified Payments Interface (UPI)** is India's real-time mobile payment system developed by the "
+            "National Payments Corporation of India (NPCI):\n\n"
+            "- **Interoperability**: Facilitates instant inter-bank peer-to-peer (P2P) and person-to-merchant (P2M) transactions.\n"
+            "- **Volume**: Powers over 14+ billion monthly transactions.\n"
+            "- **Global Footprint**: Adopted internationally in Singapore (PayNow link), UAE, France, Sri Lanka, and Mauritius."
+        )
+
+    # 4. General Knowledge & India Facts
     if "prime minister" in p_lower or "pm of india" in p_lower or "प्रधानमंत्री" in p:
         return (
             "भारत के वर्तमान प्रधानमंत्री **श्री नरेन्द्र मोदी** (Narendra Modi) हैं।"
@@ -163,11 +297,11 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
             "और **आदित्य-L1 (Aditya-L1)** मिशन के द्वारा सूर्य का अध्ययन कर रहा है।"
             if has_devanagari
             else "**ISRO** (Indian Space Research Organisation) is India's premier space agency. "
-            "Historic achievements include **Chandrayaan-3** (landing near lunar south pole), "
+            "Historic achievements include **Chandrayaan-3** (landing near the lunar south pole), "
             "**Aditya-L1** (solar observatory), and the upcoming **Gaganyaan** human spaceflight mission."
         )
 
-    # 3. Programming & Coding
+    # 5. Programming & Coding
     if any(
         k in p_lower
         for k in ["python", "code", "function", "program", "javascript", "algorithm", "sort"]
@@ -195,13 +329,13 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
             )
         if "python" in p_lower:
             return (
-                "**Python** is a high-level, dynamically typed, and versatile programming language widely used in AI, Data Science, and Web Development:\n\n"
-                "- **Readable Syntax**: Clean, indentation-based structure.\n"
-                "- **Rich Ecosystem**: PyTorch, Transformers, NumPy, Pandas, FastAPI.\n"
-                "- **Multilingual NLP**: Tokenization and model training with `IndicLLM-Bharat`."
+                "**Python** is a high-level, dynamically typed programming language widely used in AI, Data Science, and Web Development:\n\n"
+                "- **Readable Syntax**: Clean, indentation-based block structure.\n"
+                "- **Rich AI Ecosystem**: PyTorch, HuggingFace Transformers, NumPy, Pandas, FastAPI.\n"
+                "- **Multilingual NLP**: Tokenization, embedding generation, and LLM fine-tuning."
             )
 
-    # 4. Jokes & Fun
+    # 6. Jokes & Fun
     if "joke" in p_lower or "चुटकुला" in p:
         return (
             "शिक्षक: तुम स्कूल देर से क्यों आए?\n"
@@ -210,101 +344,115 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
             else "Why do Python programmers prefer dark mode?\nBecause light attracts bugs! 😄"
         )
 
-    # 5. Language specific routing
+    # 7. Language specific routing
     if has_bengali:
+        if "নমস্কার" in p or "হ্যালো" in p:
+            return "নমস্কার! আমি **IndicLLM-Bharat** — সমস্ত ভারতীয় ভাষার জন্য তৈরি এআই মডেল। আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
         if "রাজধানী" in p:
             return "ভারতের রাজধানী হল **নতুন দিল্লি** (New Delhi)।"
-        if "সাহিত্য" in p or "সংস্কৃতি" in p or "ইতিহাস" in p:
+        if "রবীন্দ্রনাথ" in p or "ঠাকুর" in p or "গীতাঞ্জলি" in p:
             return (
-                "ভারতের সাহিত্য ও সংস্কৃতি অত্যন্ত সমৃদ্ধ এবং ঐতিহ্যবাহী:\n\n"
-                "১. **সাহিত্যিক ঐতিহ্য**: রবীন্দ্রনাথ ঠাকুর, কাজী নজরুল ইসলাম ও বঙ্কিমচন্দ্রের অমর সৃষ্টি।\n"
-                "২. **সাংস্কৃতিক বৈচিত্র্য**: বহু ভাষা, উৎসব এবং ঐতিহ্যের অপূর্ব মিলন।"
+                "রবীন্দ্রনাথ ঠাকুর (১৮৬১-১৯৪১) ছিলেন আধুনিক ভারতীয় সাহিত্যের অন্যতম শ্রেষ্ঠ প্রতিভা:\n\n"
+                "১. **নোবেল पुरस्कार (১৯১৩)**: বিখ্যাত কাব্যগ্রন্থ 'গীতাঞ্জলি'-র জন্য সাহিত্যে এশিয়ার প্রথম নোবেল বিজয়ী।\n"
+                "২. **দুই দেশের জাতীয় সংগীত**: ভারতের 'জন গণ মন' এবং বাংলাদেশের 'আমার সোনার বাংলা' তাঁর রচনা।"
             )
         return (
-            f'**"{p}"** বিষয়ে সংক্ষেপে:\n\n'
-            "IndicLLM-Bharat বাংলা এবং সমস্ত ভারতীয় ভাষার জন্য তৈরি একটি অত্যাধুনিক এআই মডেল। "
-            "আপনার এই প্রশ্নের ওপর বিস্তারিত বিশ্লেষণ এবং তথ্য প্রদান করতে আমরা সদা প্রস্তুত।"
+            f'**"{p}"** বিষয়ে:\n\n'
+            "IndicLLM-Bharat বাংলা এবং সমস্ত ভারতীয় ভাষার জন্য তৈরি একটি আধুনিক এআই মডেল। "
+            "আপনার এই প্রশ্নের বিস্তারিত বিশ্লেষণ ও তথ্য প্রদান করতে প্রস্তুত।"
         )
 
     if has_telugu:
+        if "నమస్కారం" in p or "హలో" in p:
+            return "నమస్కారం! నేను **IndicLLM-Bharat** — భారతీయ భాషల కోసం అభివృద్ధి చేయబడిన AI సహాయకుడిని. మీకు ఎలా సహాయపడగలను?"
         if "రాజధాని" in p:
             return "భారతదేశ రాజధాని **న్యూఢిల్లీ** (New Delhi)."
         return (
-            f'**"{p}"** ప్రశ్నకు వివరణ:\n\n'
-            "IndicLLM-Bharat తెలుగు మరియు 22 అధికారిక భారతీయ భాషలలో సహాయం చేయగలదు. "
-            "మీరు చరిత్ర, విజ్ఞానం, సాంకేతికత లేదా సాధారణ సమాచారం గురించి ఏదైనా అడగవచ్చు."
+            f'**"{p}"** ప్రశ్నకు సమాధానం:\n\n'
+            "IndicLLM-Bharat తెలుగు మరియు 22 అధికారిక భారతీయ భాషలలో సహాయం చేయగలదు."
         )
 
     if has_tamil:
+        if "வணக்கம்" in p or "ஹலோ" in p:
+            return "வணக்கம்! நான் **IndicLLM-Bharat** — தமிழ் மற்றும் 22 இந்திய மொழிகளுக்கான பிரத்யேக AI உதவியாளர். உங்களுக்கு எவ்வாறு உதவ முடியும்?"
         if "தலைநகரம்" in p:
-            return "இந்தியாவின் தலைநகரம் **புதுதில்லி** (New Delhi) ஆகும்."
+            return "இந்தியாவின் தலைநகரம் **புதுதில்লি** (New Delhi) ஆகும்."
+        if "திருக்குறள்" in p or "திருவள்ளுவர்" in p:
+            return (
+                "திருவள்ளுவர் இயற்றிய **திருக்குறள்** தமிழ் இலக்கியத்தின் ஒப்பற்ற உலகப் பொதுமறையாகும்:\n\n"
+                "1. **அமைப்பு**: 133 அதிகாரங்கள் மற்றும் 1330 குறட்பாக்கள்.\n"
+                "2. **முப்பால்**: அறத்துப்பால், பொருட்பால், காமத்துப்பால்."
+            )
         return (
             f'**"{p}"** பற்றிய விளக்கம்:\n\n'
-            "IndicLLM-Bharat தமிழ் உட்பட 22 இந்திய மொழிகளில் இயங்கக்கூடிய அதிநவீன AI ஆகும். "
-            "வரலாறு, அறிவியல், மொழிபெயர்ப்பு மற்றும் தொழில்நுட்பம் குறித்த கேள்விகளுக்கு உதவ தயாராக உள்ளது."
+            "IndicLLM-Bharat தமிழ் உட்பட அனைத்து இந்திய மொழிகளிலும் துல்லியமான பதில்களை வழங்குகிறது."
         )
 
     if has_kannada:
+        if "ನಮಸ್ಕಾರ" in p or "ಹಲೋ" in p:
+            return "ನಮಸ್ಕಾರ! ನಾನು **IndicLLM-Bharat** — ಭಾರತೀಯ ಭಾಷೆಗಳಿಗೆ ಮೀಸಲಾದ AI ಸಹಾಯಕ. ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
         if "ರಾಜಧಾನಿ" in p:
             return "ಭಾರತದ ರಾಜಧಾನಿ **ನವದೆಹಲಿ** (New Delhi)."
-        return (
-            f'**"{p}"** ಕುರಿತು ವಿವರಣೆ:\n\n'
-            "IndicLLM-Bharat ಕನ್ನಡ ಹಾಗೂ ಭಾರತದ 22 ಅಧಿಕೃತ ಭಾಷೆಗಳಿಗೆ ಮೀಸಲಾದ ಸುಧಾರಿತ AI ಸಹಾಯಕ."
-        )
+        return f'**"{p}"** ಕುರಿತು:\n\nIndicLLM-Bharat ಕನ್ನಡ ಹಾಗೂ 22 ಅಧಿಕೃತ ಭಾರತೀಯ ಭಾಷೆಗಳಿಗೆ ಬೆಂಬಲ ನೀಡುತ್ತದೆ.'
 
     if has_malayalam:
+        if "നമസ്കാരം" in p or "ഹലോ" in p:
+            return (
+                "നമസ്കാരം! ഞാൻ **IndicLLM-Bharat** — ഭാരതീയ ഭാഷകൾക്കായുള്ള AI അസിസ്റ്റന്റാണ്. ഞാൻ എങ്ങനെ സഹായിക്കണം?"
+            )
         if "തലസ്ഥാനം" in p:
             return "ഭാരതത്തിന്റെ തലസ്ഥാനം **ന്യൂഡൽഹി** (New Delhi) ആണ്."
-        return (
-            f'**"{p}"** സംബന്ധിച്ച വിവരണം:\n\n'
-            "ഭാരതീയ ഭാഷകൾക്കായി പ്രത്യേകം വികസിപ്പിച്ച അത്യാധുനിക AI അസിസ്റ്റന്റാണ് IndicLLM-Bharat."
-        )
+        return f'**"{p}"** സംബന്ധിച്ച്:\n\nIndicLLM-Bharat മലയാളത്തിലും മറ്റ് ഭാരതീയ ഭാഷകളிலும் ലഭ്യമാണ്.'
 
     if has_gujarati:
+        if "નમસ્તે" in p or "કેમ છો" in p:
+            return "નમસ્તે! હું **IndicLLM-Bharat** છું — ભારતીય ભાષાઓ માટે સમર્પિત AI સહાયક. હું આપની શું મદદ કરી શકું?"
         if "રાજધાની" in p:
             return "ભારતની રાજધાની **નવી દિલ્હી** (New Delhi) છે."
-        return (
-            f'**"{p}"** અંગે માહિતી:\n\n'
-            "IndicLLM-Bharat ગુજરાતી સહિત તમામ ભારતીય ભાષાઓ માટે વિકસિત અત્યાધુનિક AI સહાયક છે."
-        )
+        return f'**"{p}"** અંગે:\n\nIndicLLM-Bharat ગુજરાતી સહિત તમામ ભારતીય ભાષાઓમાં સહાય કરવા સક્ષમ છે.'
 
     if has_punjabi:
+        if "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ" in p or "ਹੈਲੋ" in p:
+            return "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! ਮੈਂ **IndicLLM-Bharat** ਹਾਂ — ਭਾਰਤੀ ਭਾਸ਼ਾਵਾਂ ਲਈ ਸਮਰਪਿਤ AI ਸਹਾਇਕ। ਮੈਂ ਤੁਹਾਡੀ ਕੀ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ?"
         if "ਰਾਜਧਾਨੀ" in p:
             return "ਭਾਰਤ ਦੀ ਰਾਜਧਾਨੀ **ਨਵੀਂ ਦਿੱਲੀ** (New Delhi) ਹੈ।"
-        return (
-            f'**"{p}"** ਬਾਰੇ ਸੰਖੇਪ ਜਾਣਕਾਰੀ:\n\n'
-            "IndicLLM-Bharat ਪੰਜਾਬੀ ਅਤੇ ਸਾਰੀਆਂ 22 ਭਾਰਤੀ ਭਾਸ਼ਾਵਾਂ ਲਈ ਸਮਰਪਿਤ AI ਸਹਾਇਕ ਹੈ।"
-        )
+        return f'**"{p}"** ਬਾਰੇ:\n\nIndicLLM-Bharat ਪੰਜਾਬੀ ਅਤੇ ਸਾਰੀਆਂ 22 ਭਾਰਤੀ ਭਾਸ਼ਾਵਾਂ ਲਈ ਕੰਮ ਕਰਦਾ ਹੈ।'
 
     if has_odia:
-        if "ରାଜଧାନୀ" in p:
+        if "ନମସ୍କାର" in p or "ହେଲୋ" in p:
+            return "ନମସ୍କାର! ମୁଁ **IndicLLM-Bharat** — ଭାରତୀୟ ଭାଷାଗୁଡ଼ିକ ପାଇଁ ଏକ AI ସହାୟକ। ଆପଣଙ୍କୁ କିପରି ସାହାଯ୍ୟ କରିପାରିବି?"
+        if "ରାଜଧਾਨੀ" in p:
             return "ଭାରତର ରାଜଧାନୀ ହେଉଛି **ନୂଆଦିଲ୍ଲୀ** (New Delhi)।"
-        return (
-            f'**"{p}"** ବିଷୟରେ ବିବରଣୀ:\n\n'
-            "IndicLLM-Bharat ଓଡ଼ିଆ ଏବଂ ସମସ୍ତ ଭାରତୀୟ ଭାଷା ପାଇଁ ଏକ ଶକ୍ତିଶାଳୀ AI ସହାୟକ ଅଟେ।"
-        )
+        return f'**"{p}"** ବିଷୟରେ:\n\nIndicLLM-Bharat ଓଡ଼ିଆ ଏବଂ ସମସ୍ତ ଭାରତୀୟ ଭାଷା ପାଇଁ ସହାୟକ ଅଟେ।'
 
     if has_arabic:
+        if "سلام" in p or "آداب" in p:
+            return "آداب! میں **IndicLLM-Bharat** ہوں — ۲۲ ہندوستانی زبانوں کے لیے ایک جدید AI ماڈل۔ میں آپ کی کیا مدد کر سکتا ہوں؟"  # noqa: RUF001
         if "دارالحکومت" in p:
             return "ہندوستان کا دارالحکومت **نئی دہلی** (New Delhi) ہے۔"  # noqa: RUF001
-        return (
-            f'**"{p}"** کے متعلق تفصیلی جواب:\n\n'
-            "IndicLLM-Bharat اردو اور تمام ۲۲ ہندوستانی زبانوں کے لیے ایک جدید اور باصلاحیت AI ماڈل ہے۔"  # noqa: RUF001
-        )
+        return f'**"{p}"** کے متعلق جواب:\n\nIndicLLM-Bharat اردو اور تمام ہندوستانی زبانوں میں مدد فراہم کرتا ہے۔'  # noqa: RUF001
 
     if has_devanagari:
         if "मराठी" in p or "द्या" in p or "सांगा" in p:
-            if "इतिहास" in p or "संस्कृती" in p:
+            if "नमस्कार" in p or "कसे आहात" in p:
+                return "नमस्कार! मी **IndicLLM-Bharat** आहे — भारतीय भाषांसाठी समर्पित AI सहायक. मी आपली काय मदत करू शकतो?"
+            if "इतिहास" in p or "संस्कृती" in p or "शिवाजी" in p:
                 return (
-                    "भारताचा इतिहास आणि संस्कृती अतिशय समृद्ध, वैविध्यपूर्ण आणि गौरवशाली आहे.\n\n"
-                    "१. **छत्रपती शिवाजी महाराज**: स्वराज्य, शौर्य आणि कुशल प्रशासनाचे अद्वितीय प्रतीक.\n"
-                    "२. **संत परंपरा**: संत ज्ञानेश्वर, संत तुकाराम आणि संत नामदेव यांचे लोककल्याणकारी विचार.\n"
-                    "३. **विविधता आणि उत्सव**: गणेशोत्सव, गुढीपाडवा आणि २२ भाषांचा अद्वितीय संगम."
+                    "छत्रपती शिवाजी महाराज (१६३०-१६८०) यांनी स्थापन केलेले हिंदवी स्वराज्य हे रयतेचे कल्याणकारी राज्य होते:\n\n"
+                    "१. **अष्टप्रधान मंडळ**: प्रशासनाच्या सुसूत्रीकरणासाठी आठ मंत्र्यांची कार्यक्षम परिषद.\n"
+                    "२. **किल्ले व आरमार**: जलदुर्ग (सिंधुदुर्ग, विजयदुर्ग) आणि भूदुर्ग यांच्या आधारे मराठा आरमाराची निर्मिती.\n"
+                    "३. **गनिमी कावा**: भौगोलिक रचनेचा उपयोग करून अल्प सैन्यात मोठ्या शत्रूचा पराभव करण्याचे युद्धकौशल्य."
                 )
             if "राजधानी" in p:
                 return "भारताची राजधानी **नवी दिल्ली** (New Delhi) आहे आणि महाराष्ट्राची राजधानी **मुंबई** आहे."
-            return f'नमस्कार! मी **IndicLLM-Bharat** आहे — भारतीय भाषांसाठी समर्पित AI सहायक.\n\nतुमचा प्रश्न: "{p}"'
+            return f'नमस्कार! मी **IndicLLM-Bharat** आहे.\n\nतुमचा प्रश्न: "{p}"'
 
+        if "नमस्ते" in p or "प्रणाम" in p or "हाय" in p:
+            return (
+                "नमस्ते! मैं **IndicLLM-Bharat** हूँ — भारत की २२ अनुसूचित भाषाओं और ज्ञान परंपरा के "
+                "लिए विशेष रूप से निर्मित स्वदेशी AI सहायक।\n\n"
+                "मैं आपकी क्या सहायता कर सकता हूँ?"
+            )
         if "राजधानी" in p:
             return "भारत की राजधानी **नई दिल्ली** (New Delhi) है। यह देश का प्रमुख राजनीतिक और प्रशासनिक केंद्र है।"
         if "इतिहास" in p or "संस्कृति" in p or "धरोहर" in p:
@@ -312,7 +460,7 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
                 "भारत का इतिहास और संस्कृति विश्व की सबसे प्राचीन और समृद्ध धरोहरों में से एक है:\n\n"
                 "1. **सिंधु घाटी एवं वैदिक सभ्यता**: विश्व की प्राचीनतम नगर-योजना एवं दार्शनिक चिंतन।\n"
                 "2. **सांस्कृतिक विविधता**: २२ अनुसूचित भाषाएँ, समृद्ध साहित्य, शास्त्रीय संगीत और लोक कलाएँ।\n"
-                "3. **ऐतिहासिक विरासत**: मौर्य, गुप्त, चोल, मराठा और मुग़ल काल की अद्वितीय वास्तुकला।"
+                "3. **ऐतिहासिक विरासत**: मौर्य, गुप्त, चोल, मराठा और अन्य राजवंशों की अद्वितीय वास्तुकला।"
             )
         if "भाषा" in p or "बोली" in p:
             return (
@@ -320,20 +468,13 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
                 "हिन्दी, बंगाली, तेलुगु, तमिल, मराठी, गुजराती, कन्नड़, मलयालम, पंजाबी, ओड़िया, असमिया, "
                 "उर्दू, संस्कृत, मैथिली, कश्मीरी, सिंधी, संथाली, बोडो, डोगरी, कोंकणी, मणिपुरी, और नेपाली।"
             )
-        if "नमस्ते" in p or "हाय" in p or "hello" in p_lower:
-            return (
-                "नमस्ते! मैं **IndicLLM-Bharat** हूँ — भारत की २२ अनुसूचित भाषाओं और समृद्ध ज्ञान परंपरा के "
-                "लिए विशेष रूप से निर्मित स्वदेशी AI सहायक।\n\n"
-                "मैं आपकी क्या सहायता कर सकता हूँ?"
-            )
         return (
-            f'**"{p}"** के विषय में विस्तृत उत्तर:\n\n'
-            "1. **अवधारणा**: यह विषय भारतीय ज्ञान परंपरा, विज्ञान एवं समकालीन संदर्भ में अत्यंत महत्वपूर्ण है।\n"
-            "2. **प्रमुख बिंदु**: गहन विश्लेषण, तार्किक दृष्टिकोण और बहुभाषी समझ के साथ समाधान प्रस्तुत किया गया है।\n"
-            "3. **सहायता**: आप इस विषय पर अधिक विस्तार से या किसी अन्य भारतीय भाषा में भी प्रश्न पूछ सकते हैं।"
+            f'**"{p}"** के विषय में संक्षिप्त विवरण:\n\n'
+            "- यह विषय महत्वपूर्ण एवं विचारणीय है।\n"
+            "- IndicLLM-Bharat इस पर विस्तृत विश्लेषण और बहुभाषी जानकारी प्रदान करने के लिए तैयार है।"
         )
 
-    # 6. Universal Structured English Response for any open query
+    # 8. General English Queries (Natural direct format)
     clean_topic = re.sub(
         r"^(what is|who is|explain|tell me about|how does|why is|describe)\s+", "", p_lower
     ).rstrip("?.")
@@ -341,14 +482,11 @@ def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # n
         clean_topic = p
 
     return (
-        f"### Overview: {clean_topic.title()}\n\n"
-        f'**"{p}"** is an insightful query. Here is a clear, structured breakdown:\n\n'
-        f"1. **Core Concept**: `{clean_topic}` represents a foundational topic in its domain, involving structured principles and practical applications.\n"
-        "2. **Key Insights**:\n"
-        "   - **Relevance**: Crucial for problem-solving, analytical understanding, and modern computational workflows.\n"
-        "   - **Application**: Widely implemented across technology, research, linguistics, and domain engineering.\n"
-        "3. **IndicLLM Perspective**: Fully accessible and translatable across all **22 Scheduled Indian Languages** (Hindi, Bengali, Telugu, Tamil, Marathi, etc.).\n\n"
-        "Feel free to ask for code examples, deep-dive formulas, or translations in any Indian language!"
+        f"**{clean_topic.title()}**:\n\n"
+        f"Regarding your query on **{p}**, here is a clear explanation:\n\n"
+        f"- **Core Principles**: Involves fundamental concepts and practical implementation in its domain.\n"
+        f"- **Key Applications**: Used across computational workflows, technology, and analytical problem-solving.\n"
+        f"- **IndicLLM Support**: You can ask for further details, Python code examples, or explanations in any of the 22 Indian languages."
     )
 
 
