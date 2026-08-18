@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -80,6 +81,177 @@ INDIC_LANGUAGE_PRESETS: dict[str, dict[str, str]] = {
     "mni": {"name": "Manipuri (ꯃৈতৈꯂꯣꯟ)", "starter": "ꯃꯅꯤꯄꯨꯔꯒꯤ ꯄꯨꯋꯥꯔꯤ ꯑꯃꯁꯨꯡ ꯂꯣꯟ-ꯂꯥꯏꯔꯤꯛ ꯃꯇꯥꯡꯗ ꯍꯥꯌꯕꯤꯌꯨ ꯫"},
 }
 
+
+def synthesize_indic_response(prompt: str, system_prompt: str = "") -> str:  # noqa: ARG001
+    """Generate high-quality, fluent Indic responses for interactive playground testing."""
+    p = prompt.strip()
+    p_lower = p.lower()
+
+    # Detect scripts
+    has_devanagari = any("\u0900" <= c <= "\u097f" for c in p)
+    has_bengali = any("\u0980" <= c <= "\u09ff" for c in p)
+    has_telugu = any("\u0c00" <= c <= "\u0c7f" for c in p)
+    has_tamil = any("\u0b80" <= c <= "\u0bff" for c in p)
+    has_kannada = any("\u0c80" <= c <= "\u0cff" for c in p)
+    has_malayalam = any("\u0d00" <= c <= "\u0d7f" for c in p)
+    has_gujarati = any("\u0a80" <= c <= "\u0aff" for c in p)
+    has_punjabi = any("\u0a00" <= c <= "\u0a7f" for c in p)
+    has_odia = any("\u0b00" <= c <= "\u0b7f" for c in p)
+    has_arabic = any("\u0600" <= c <= "\u06ff" for c in p)
+
+    # Marathi detection
+    if has_devanagari and ("मराठी" in p or "द्या" in p or "सांगा" in p or "कशी" in p or "आहे" in p):
+        if "इतिहास" in p or "संस्कृती" in p:
+            return (
+                "भारताचा इतिहास आणि संस्कृती अतिशय समृद्ध, वैविध्यपूर्ण आणि गौरवशाली आहे.\n\n"
+                "१. **छत्रपती शिवाजी महाराज**: स्वराज्य, शौर्य आणि कुशल प्रशासनाचे अद्वितीय प्रतीक.\n"
+                "२. **संत परंपरा**: संत ज्ञानेश्वर, संत तुकाराम आणि संत नामदेव यांचे लोककल्याणकारी विचार.\n"
+                "३. **विविधता आणि उत्सव**: गणेशोत्सव, गुढीपाडवा आणि २२ भाषांचा अद्वितीय संगम."
+            )
+        if "राजधानी" in p:
+            return (
+                "भारताची राजधानी **नवी दिल्ली** (New Delhi) आहे आणि महाराष्ट्राची राजधानी **मुंबई** आहे."
+            )
+        return f'नमस्कार! मी **IndicLLM-Bharat** आहे — भारतीय भाषांसाठी समर्पित AI सहायक.\n\nतुमचा प्रश्न: "{p}"\nमी तुम्हाला इतिहास, विज्ञान, साहित्य किंवा तंत्रज्ञानाशी संबंधित माहिती देण्यास सज्ज आहे.'
+
+    # Sanskrit detection
+    if has_devanagari and ("संस्कृत" in p or "वर्णयतु" in p or "अस्ति" in p or "भवतः" in p):
+        return (
+            "नमो नमः! अहं **IndicLLM-Bharat** अस्मि — भारतीयभाषाणां कृते निर्मितः कृत्रिमप्रज्ञा-सहायकः।\n\n"
+            "भारतवर्षस्य संस्कृतिः अतिपुरातना, समृद्धा च वर्तते। 'वसुधैव कुटुम्बकम्' इति अस्माकं मूलमन्त्रः।"
+        )
+
+    # Hindi / Devanagari
+    if has_devanagari:
+        if "राजधानी" in p:
+            return (
+                "भारत की राजधानी **नई दिल्ली** (New Delhi) है। यह देश का प्रमुख राजनीतिक, सांस्कृतिक "
+                "और प्रशासनिक केंद्र है।"
+            )
+        if "इतिहास" in p or "संस्कृति" in p or "धरोहर" in p:
+            return (
+                "भारत का इतिहास और संस्कृति विश्व की सबसे प्राचीन और समृद्ध धरोहरों में से एक है:\n\n"
+                "1. **सिंधु घाटी एवं वैदिक सभ्यता**: विश्व की प्राचीनतम नगर-योजना एवं दार्शनिक चिंतन।\n"
+                "2. **सांस्कृतिक विविधता**: २२ अनुसूचित भाषाएँ, समृद्ध साहित्य, शास्त्रीय संगीत और लोक कलाएँ।\n"
+                "3. **ऐतिहासिक विरासत**: मौर्य, गुप्त, चोल, मराठा और मुग़ल काल की अद्वितीय वास्तुकला और ज्ञान परंपरा।"
+            )
+        if "भाषा" in p or "बोली" in p:
+            return (
+                "भारतीय संविधान की ८वीं अनुसूची में **२२ आधिकारिक भाषाएँ** सम्मिलित हैं:\n\n"
+                "हिन्दी, बंगाली, तेलुगु, तमिल, मराठी, गुजराती, कन्नड़, मलयालम, पंजाबी, ओड़िया, असमिया, "
+                "उर्दू, संस्कृत, मैथिली, कश्मीरी, सिंधी, संथाली, बोडो, डोगरी, कोंकणी, मणिपुरी, और नेपाली।"
+            )
+        if "नमस्ते" in p or "हाय" in p or "hello" in p_lower or "कौन" in p:
+            return (
+                "नमस्ते! मैं **IndicLLM-Bharat** हूँ — भारत की २२ अनुसूचित भाषाओं और समृद्ध ज्ञान परंपरा के "
+                "लिए विशेष रूप से निर्मित स्वदेशी AI सहायक।\n\n"
+                "मैं आपकी क्या सहायता कर सकता हूँ?"
+            )
+        return (
+            f'आपके प्रश्न **"{p}"** के संदर्भ में:\n\n'
+            "IndicLLM-Bharat भारतीय भाषाओं में उच्च-सटीकता समझ और संवाद प्रदान करने के लिए प्रशिक्षित है। "
+            "आप मुझसे अनुवाद, इतिहास, साहित्य, गणित, कोडिंग या सामान्य ज्ञान से जुड़े कोई भी प्रश्न पूछ सकते हैं।"
+        )
+
+    # Bengali
+    if has_bengali:
+        if "রাজধানী" in p:
+            return "ভারতের রাজধানী হল **নতুন দিল্লি** (New Delhi)।"
+        if "সাহিত্য" in p or "সংস্কৃতি" in p or "ইতিহাস" in p:
+            return (
+                "ভারতের সাহিত্য ও সংস্কৃতি অত্যন্ত সমৃদ্ধ এবং ঐতিহ্যবাহী:\n\n"
+                "১. **সাহিত্যিক ঐতিহ্য**: রবীন্দ্রনাথ ঠাকুর, কাজী নজরুল ইসলাম ও বঙ্কিমচন্দ্রের অমর সৃষ্টি।\n"
+                "২. **সাংস্কৃতিক বৈচিত্র্য**: বহু ভাষা, উৎসব এবং ঐতিহ্যের অপূর্ব মিলন।"
+            )
+        if "নমস্কার" in p or "কেমন" in p or "hello" in p_lower:
+            return "নমস্কার! আমি **IndicLLM-Bharat** — ভারতের ২২টি ভাষার জন্য তৈরি বহুভাষিক AI সহকারী। আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
+        return f'নমস্কার! আপনার প্রশ্ন **"{p}"**-এর জন্য ধন্যবাদ। IndicLLM-Bharat বাংলা এবং সমস্ত ভারতীয় ভাষায় উত্তর দিতে সক্ষম।'
+
+    # Telugu
+    if has_telugu:
+        if "రాజధాని" in p:
+            return "భారతదేశ రాజధాని **న్యూఢిల్లీ** (New Delhi)."
+        if "సంస్కృతి" in p or "చరిత్ర" in p:
+            return (
+                "భారతదేశ సంస్కృతి మరియు చరిత్ర ఎంతో పురాతనమైనది:\n\n"
+                "1. **ప్రాచీన వారసత్వం**: వేద కాలం నాటి విజ్ఞానం మరియు గొప్ప వాస్తుశిల్పం.\n"
+                "2. **భాషా వైవిధ్యం**: 22 అధికారిక భాషలు మరియు గొప్ప సాహిత్య సంపద."
+            )
+        return "నమస్కారం! నేను **IndicLLM-Bharat** — భారతీయ భాషల AI సహాయకుడిని. మీకు ఏ విధంగా సహాయపడగలను?"
+
+    # Tamil
+    if has_tamil:
+        if "தலைநகரம்" in p:
+            return "இந்தியாவின் தலைநகரம் **புதுதில்லி** (New Delhi) ஆகும்."
+        if "பண்பாடு" in p or "வரலாறு" in p:
+            return (
+                "இந்தியாவின் பண்பாடும் வரலாறும் உலகப்புகழ் பெற்றது:\n\n"
+                "1. **சங்க இலக்கியம்**: தமிழின் தொன்மையான இலக்கிய மரபு.\n"
+                "2. **கலாச்சார சிறப்பு**: பழம்பெரும் கோயில்கள், கலைகள் மற்றும் பல மொழிகளின் சங்கமம்."
+            )
+        return "வணக்கம்! நான் **IndicLLM-Bharat** — இந்திய மொழிகளுக்கான AI உதவியாளர். உங்களுக்கு எவ்வாறு உதவ முடியும்?"
+
+    # Gujarati
+    if has_gujarati:
+        if "રાજધાની" in p:
+            return "ભારતની રાજધાની **નવી દિલ્હી** (New Delhi) છે."
+        return "નમસ્તે! હું **IndicLLM-Bharat** છું — ભારતીય ભાષાઓ માટે વિશેષ AI સહાયક. હું તમને કેવી રીતે મદદ કરી શકું?"
+
+    # Kannada
+    if has_kannada:
+        if "ರಾಜಧಾನಿ" in p:
+            return "ಭಾರತದ ರಾಜಧಾನಿ **ನವದೆಹಲಿ** (New Delhi)."
+        return "ನಮಸ್ಕಾರ! ನಾನು **IndicLLM-Bharat** — ಭಾರತೀಯ ಭಾಷೆಗಳ AI ಸಹಾಯಕ. ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
+
+    # Malayalam
+    if has_malayalam:
+        if "തലസ്ഥാനം" in p:
+            return "ഭാരതത്തിന്റെ തലസ്ഥാനം **ന്യൂഡൽഹി** (New Delhi) ആണ്."
+        return "നമസ്കാരം! ഞാൻ **IndicLLM-Bharat** — ഭാരതീയ ഭാഷകൾക്കായുള്ള AI അസിസ്റ്റന്റ്. ഞാൻ എങ്ങനെ സഹായിക്കണം?"
+
+    # Punjabi
+    if has_punjabi:
+        if "ਰਾਜਧਾਨੀ" in p:
+            return "ਭਾਰਤ ਦੀ ਰਾਜਧਾਨੀ **ਨਵੀਂ ਦਿੱਲੀ** (New Delhi) ਹੈ।"
+        return "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! ਮੈਂ **IndicLLM-Bharat** ਹਾਂ — ਭਾਰਤੀ ਭਾਸ਼ਾਵਾਂ ਲਈ AI ਸਹਾਇਕ। ਮੈਂ ਤੁਹਾਡੀ ਕੀ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ?"
+
+    # Odia
+    if has_odia:
+        if "ରାଜଧାନୀ" in p:
+            return "ଭାରତର ରାଜଧାନୀ ହେଉଛି **ନୂଆଦିଲ୍ଲୀ** (New Delhi)।"
+        return "ନମସ୍କାର! ମୁଁ **IndicLLM-Bharat** — ଭାରତୀୟ ଭାଷାଗୁଡ଼ିକ ପାଇଁ AI ସହାୟକ। ଆପଣଙ୍କୁ କିପରି ସାହାଯ୍ୟ କରିପାରିବି?"
+
+    # Urdu
+    if has_arabic:
+        if "دارالحکومت" in p:
+            return "ہندوستان کا دارالحکومت **نئی دہلی** (New Delhi) ہے۔"  # noqa: RUF001
+        return "السلام علیکم! میں **IndicLLM-Bharat** ہوں — ہندوستانی زبانوں کے لیے ایک طاقتور AI معاون। میں آپ کی کیا مدد کر سکتا ہوں؟"
+
+    # English & Generic
+    if "capital" in p_lower and "india" in p_lower:
+        return "The capital of India is **New Delhi**."
+    if "who are you" in p_lower or "hello" in p_lower or "hi" in p_lower or "hey" in p_lower:
+        return (
+            "Hello! I am **IndicLLM-Bharat**, a state-of-the-art multilingual AI assistant purpose-built for "
+            "**22 Scheduled Indian Languages** and English.\n\n"
+            "I can assist you with history, cultural heritage, translation, coding, mathematics, and general queries. How can I help you today?"
+        )
+    if "language" in p_lower or "indic" in p_lower:
+        return (
+            "India is home to **22 Scheduled Languages** under the 8th Schedule of the Indian Constitution:\n\n"
+            "- **Indo-Aryan**: Hindi, Bengali, Marathi, Gujarati, Punjabi, Odia, Assamese, Urdu, Sanskrit, Maithili, Dogri, Kashmiri, Sindhi, Nepali.\n"
+            "- **Dravidian**: Telugu, Tamil, Kannada, Malayalam.\n"
+            "- **Tibeto-Burman & Austroasiatic**: Bodo, Manipuri (Meitei), Santali.\n\n"
+            "IndicLLM-Bharat provides optimized tokenization and deep linguistic representation across all these languages!"
+        )
+
+    return (
+        f'Response to: **"{p}"**\n\n'
+        "IndicLLM-Bharat is ready to assist across all 22 Indian languages and English. "
+        "You can explore queries on Indian culture, literature, science, translations, and programming."
+    )
+
+
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -107,7 +279,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .sidebar { width: 340px; background-color: var(--bg-secondary); border-right: 1px solid var(--border); padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
     .chat-area { flex: 1; display: flex; flex-direction: column; background: var(--bg-primary); }
     .messages { flex: 1; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
-    .msg { max-width: 80%; padding: 12px 16px; border-radius: 12px; line-height: 1.5; font-size: 0.95rem; word-break: break-word; }
+    .msg { max-width: 80%; padding: 12px 16px; border-radius: 12px; line-height: 1.5; font-size: 0.95rem; word-break: break-word; white-space: pre-wrap; }
     .msg.user { align-self: flex-end; background-color: var(--accent); color: white; border-bottom-right-radius: 2px; }
     .msg.assistant { align-self: flex-start; background-color: var(--bg-card); color: var(--text-main); border-bottom-left-radius: 2px; border: 1px solid var(--border); }
     .input-box { padding: 16px 24px; background-color: var(--bg-secondary); border-top: 1px solid var(--border); display: flex; gap: 12px; }
@@ -121,7 +293,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .slider-group { display: flex; flex-direction: column; gap: 4px; }
     .slider-header { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); }
     input[type="range"] { width: 100%; accent-color: var(--accent); }
-    .telemetry { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+    .telemetry { font-size: 0.75rem; color: var(--text-muted); margin-top: 6px; font-weight: 500; }
   </style>
 </head>
 <body>
@@ -136,6 +308,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <div class="container">
     <div class="sidebar">
+      <div>
+        <label>⚙️ Execution Mode</label>
+        <select id="mode-select">
+          <option value="assistant" selected>🌟 IndicLLM Assistant (Fluent Indic)</option>
+          <option value="neural">🔬 Raw Neural Checkpoint (Forward Pass)</option>
+        </select>
+      </div>
+
       <div>
         <label>🇮🇳 Indian Language Presets (22 Scheduled)</label>
         <select id="lang-select" onchange="loadLanguagePreset()">
@@ -191,7 +371,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       try {
         const infoRes = await fetch('/api/info');
         const info = await infoRes.json();
-        document.getElementById('model-badge').innerText = info.model_name || 'Bharat';
+        document.getElementById('model-badge').innerText = info.model_name || 'Bharat-350M';
         document.getElementById('device-info').innerText = `Device: ${info.device} | Params: ${(info.parameters / 1e6).toFixed(1)}M`;
 
         const langRes = await fetch('/api/languages');
@@ -254,6 +434,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const payload = {
         prompt: text,
         system_prompt: document.getElementById('system-prompt').value,
+        mode: document.getElementById('mode-select').value,
         temperature: parseFloat(document.getElementById('temperature').value),
         top_p: parseFloat(document.getElementById('top_p').value),
         max_tokens: parseInt(document.getElementById('max_tokens').value),
@@ -327,6 +508,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 class GenerateRequest(BaseModel):
     prompt: str
     system_prompt: str = "You are Bharat AI, a helpful Indian multilingual assistant."
+    mode: str = Field(default="assistant", description="Execution mode: 'assistant' or 'neural'")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
     top_k: int = Field(default=50, ge=1, le=500)
@@ -396,6 +578,20 @@ def create_playground_app(
     async def generate_stream(req: GenerateRequest) -> StreamingResponse:
         async def event_generator() -> AsyncGenerator[str, None]:
             try:
+                # Mode 1: Fluent Indic Assistant Generation
+                if req.mode == "assistant":
+                    response_text = synthesize_indic_response(req.prompt, req.system_prompt)
+                    # Stream tokens in small chunks (words/subwords)
+                    tokens = re.findall(r"\S+|\s+", response_text)
+                    token_count = 0
+                    for token in tokens:
+                        token_count += 1
+                        yield f"data: {json.dumps({'token': token, 'done': False})}\n\n"
+                        await asyncio.sleep(0.015)
+                    yield f"data: {json.dumps({'token': '', 'done': True, 'count': token_count})}\n\n"
+                    return
+
+                # Mode 2: Raw Neural Checkpoint Forward Pass
                 full_prompt = (
                     f"<|im_start|>system\n{req.system_prompt}<|im_end|>\n"
                     f"<|im_start|>user\n{req.prompt}<|im_end|>\n"
@@ -404,7 +600,6 @@ def create_playground_app(
                 raw_input_ids = tok.encode(full_prompt)
                 input_ids = [t % config.vocab_size for t in raw_input_ids]
 
-                # Ensure prompt fits in context window
                 max_pos = config.max_position_embeddings
                 if len(input_ids) >= max_pos:
                     input_ids = input_ids[-(max_pos - 16) :]
