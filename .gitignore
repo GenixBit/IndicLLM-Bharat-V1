@@ -23,6 +23,7 @@ wandb/
 data/raw/
 data/shards/
 data/tokenizer/
+data/curriculum/
 vendor/nanoGPT/data/
 vendor/nanoGPT/out/
 

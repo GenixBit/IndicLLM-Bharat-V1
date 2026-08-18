@@ -68,6 +68,8 @@ build-production-tokenizer-evidence = "scripts.build_production_tokenizer_eviden
 generate-bharatbench-predictions = "scripts.generate_bharatbench_predictions:main"
 bharat-profile = "scripts.profile_inference:main"
 bharat-playground = "inference.playground:main"
+bharat-curriculum = "scripts.generate_indic_curriculum:main"
+bharat-train-smart = "scripts.train_smart_bharat:main"
 
 [project.optional-dependencies]
 dev = [

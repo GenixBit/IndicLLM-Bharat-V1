@@ -797,13 +797,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Path to YAML model config",
     )
     group.add_argument(
-        "--hf-model",
-        type=str,
-        help="HuggingFace model ID to load for live neural inference (e.g. Qwen/Qwen2.5-0.5B-Instruct)",
-    )
-    group.add_argument(
         "--model-size",
-        choices=["350m", "1b", "3b", "7b", "tiny"],
+        choices=["tiny", "small", "350m", "1b", "3b", "7b", "10b"],
         default="350m",
         help="Standard model size tier",
     )
@@ -830,23 +825,7 @@ def main(args: list[str] | None = None) -> int:
         device = torch.device(parsed.device)
 
     # Initialize model
-    if parsed.hf_model:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        print(f"Loading HuggingFace model: {parsed.hf_model}...")
-        tokenizer = AutoTokenizer.from_pretrained(parsed.hf_model)
-        model = AutoModelForCausalLM.from_pretrained(parsed.hf_model).to(device)
-        model_name = parsed.hf_model.split("/")[-1]
-        cfg = BharatModelConfig(
-            vocab_size=getattr(model.config, "vocab_size", 32000),
-            hidden_size=getattr(model.config, "hidden_size", 512),
-            intermediate_size=getattr(model.config, "intermediate_size", 1024),
-            num_hidden_layers=getattr(model.config, "num_hidden_layers", 4),
-            num_attention_heads=getattr(model.config, "num_attention_heads", 8),
-            num_key_value_heads=getattr(model.config, "num_key_value_heads", 4),
-            max_position_embeddings=getattr(model.config, "max_position_embeddings", 4096),
-        )
-    elif parsed.checkpoint:
+    if parsed.checkpoint:
         ckpt_p = Path(parsed.checkpoint)
         if not ckpt_p.is_file():
             print(f"Error: Checkpoint not found: {ckpt_p}", file=sys.stderr)
@@ -856,6 +835,8 @@ def main(args: list[str] | None = None) -> int:
             cfg = BharatModelConfig.from_dict(ckpt["metadata"].model_config)
         elif "model_config" in ckpt:
             cfg = BharatModelConfig.from_dict(ckpt["model_config"])
+        elif "config" in ckpt and isinstance(ckpt["config"], dict):
+            cfg = BharatModelConfig.from_dict(ckpt["config"])
         else:
             cfg = BharatModelConfig()
         model = BharatForCausalLM(cfg).to(device)
@@ -876,7 +857,7 @@ def main(args: list[str] | None = None) -> int:
         tier = parsed.model_size
         if tier == "tiny":
             cfg = BharatModelConfig(
-                vocab_size=1000,
+                vocab_size=64000,
                 hidden_size=64,
                 intermediate_size=128,
                 num_hidden_layers=2,
@@ -885,6 +866,17 @@ def main(args: list[str] | None = None) -> int:
                 max_position_embeddings=4096,
             )
             model_name = "Bharat-Tiny"
+        elif tier == "small":
+            cfg = BharatModelConfig(
+                vocab_size=64000,
+                hidden_size=256,
+                intermediate_size=512,
+                num_hidden_layers=4,
+                num_attention_heads=8,
+                num_key_value_heads=4,
+                max_position_embeddings=4096,
+            )
+            model_name = "Bharat-Small"
         else:
             yaml_p = ROOT_DIR / "configs" / "models" / f"bharat-{tier}.yaml"
             cfg = BharatModelConfig.from_yaml(yaml_p) if yaml_p.is_file() else BharatModelConfig()
