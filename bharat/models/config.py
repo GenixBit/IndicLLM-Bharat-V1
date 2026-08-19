@@ -27,6 +27,7 @@ class BharatModelConfig:
     attention_bias: bool = False
     mlp_bias: bool = False
     tie_word_embeddings: bool = True
+    rope_scaling: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         errors: list[str] = []
@@ -121,6 +122,19 @@ class BharatModelConfig:
                 f"initializer_range must be positive (> 0.0), got {self.initializer_range}"
             )
 
+        if self.rope_scaling is not None:
+            if not isinstance(self.rope_scaling, dict):
+                errors.append(f"rope_scaling must be a dictionary, got {type(self.rope_scaling)}")
+            else:
+                s_type = self.rope_scaling.get("type", self.rope_scaling.get("rope_type"))
+                if s_type not in ("linear", "dynamic_ntk", "yarn"):
+                    errors.append(
+                        f"rope_scaling type must be one of 'linear', 'dynamic_ntk', 'yarn', got {s_type!r}"
+                    )
+                factor = self.rope_scaling.get("factor")
+                if factor is not None and (not isinstance(factor, int | float) or factor <= 0):
+                    errors.append(f"rope_scaling factor must be a positive number, got {factor}")
+
         if errors:
             raise ValueError("BharatModelConfig validation failed:\n" + "\n".join(errors))
 
@@ -159,6 +173,7 @@ class BharatModelConfig:
             "attention_bias",
             "mlp_bias",
             "tie_word_embeddings",
+            "rope_scaling",
         }
         filtered = {k: v for k, v in d.items() if k in known_keys}
         return cls(**filtered)

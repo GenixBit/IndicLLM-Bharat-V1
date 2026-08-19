@@ -146,6 +146,7 @@ class GroupedQueryAttention(nn.Module):
             head_dim=self.head_dim,
             max_position_embeddings=config.max_position_embeddings,
             rope_theta=config.rope_theta,
+            rope_scaling=config.rope_scaling,
         )
 
     def forward(

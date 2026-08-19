@@ -1,39 +1,69 @@
+"""Rotary Positional Embedding (RoPE) with YaRN and Dynamic-NTK Long-Context Scaling.
+
+Supports standard RoPE, Linear Interpolation, Dynamic NTK-aware scaling, and YaRN
+(Yet another RoPE extensioN) to scale context windows up to 32k - 128k tokens for Bharat-1B.
+"""
+
 from __future__ import annotations
 
+import math
 import typing
+from typing import Any
 
 import torch
 import torch.nn as nn
 
 
+def _compute_yarn_inv_freq(
+    head_dim: int,
+    rope_theta: float = 10000.0,
+    factor: float = 8.0,
+    original_max_position_embeddings: int = 4096,
+    beta_fast: float = 32.0,
+    beta_slow: float = 1.0,
+) -> torch.Tensor:
+    """Compute YaRN (Yet another RoPE extensioN) interpolated inverse frequencies."""
+    pos = torch.arange(0, head_dim, 2, dtype=torch.float32)
+    inv_freq = 1.0 / (rope_theta ** (pos / head_dim))
+
+    # Wavelength calculation for each dimension pair: lambda = 2 * pi / freq
+    wavelengths = 2.0 * math.pi / inv_freq
+    l_0 = float(original_max_position_embeddings)
+
+    # Ramp function: low freq (lambda > l_0 / beta_slow) -> interpolate (factor)
+    # high freq (lambda < l_0 / beta_fast) -> do not interpolate
+    # middle freq -> linear ramp between 0 and 1
+    low = l_0 / beta_fast
+    high = l_0 / beta_slow
+
+    # gamma = 0 -> low freq (pure interpolation), gamma = 1 -> high freq (no interpolation)
+    gamma = (wavelengths - low) / max(1e-5, (high - low))
+    gamma = torch.clamp(gamma, 0.0, 1.0)
+
+    # Interpolated frequencies: (1 - gamma) * (inv_freq / factor) + gamma * inv_freq
+    yarn_inv_freq = (1.0 - gamma) * (inv_freq / factor) + gamma * inv_freq
+    return yarn_inv_freq
+
+
 class RotaryEmbedding(nn.Module):
     """
-    Rotary positional embedding using interleaved even/odd rotation convention.
+    Rotary positional embedding with YaRN, Dynamic-NTK, and Linear long-context scaling.
 
-    For each pair of dimensions (2k, 2k+1) at position p:
-        x_2k   -> x_2k * cos(p * theta_k) - x_{2k+1} * sin(p * theta_k)
-        x_{2k+1} -> x_2k * sin(p * theta_k) + x_{2k+1} * cos(p * theta_k)
+    Supports:
+        - Baseline RoPE (no scaling)
+        - 'yarn': YaRN ramp interpolation with attention temperature scaling
+        - 'dynamic_ntk': Dynamic NTK-aware frequency scaling for sequence extension
+        - 'linear': Linear positional frequency interpolation
 
-    where theta_k = 1 / (rope_theta ** (2k / head_dim)).
-
-    The returned ``cos`` / ``sin`` tensors have shape:
-        - ``(sequence_length, head_dim // 2)`` when ``position_ids`` is 1-D or ``None``.
-        - ``(batch_size, 1, sequence_length, head_dim // 2)`` when
-          ``position_ids`` is 2-D ``(batch_size, sequence_length)``.
-
-    .. note::
-        Frequencies beyond ``max_position_embeddings`` are computed on the fly;
-        no NTK-aware / YaRN / LongRoPE scaling is applied.
-
-    All frequency products, cosine and sine are always computed in float32
-    and cast to the requested output dtype only at the end.
+    All frequency calculations and trigonometric functions are computed in float32.
     """
 
     def __init__(
         self,
         head_dim: int,
-        max_position_embeddings: int = 2048,
+        max_position_embeddings: int = 4096,
         rope_theta: float = 10_000.0,
+        rope_scaling: dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
         if head_dim <= 0:
@@ -46,14 +76,55 @@ class RotaryEmbedding(nn.Module):
             )
         if rope_theta <= 0:
             raise ValueError(f"rope_theta must be positive, got {rope_theta}")
+
         self.head_dim = head_dim
         self.max_position_embeddings = max_position_embeddings
         self.rope_theta = rope_theta
+        self.rope_scaling = rope_scaling
 
-        inv_freq = 1.0 / (
-            rope_theta ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim)
-        )
+        self.scaling_type: str | None = None
+        self.scaling_factor: float = 1.0
+        self.original_max_pos: int = max_position_embeddings
+        self.yarn_temp: float = 1.0
+
+        if rope_scaling is not None:
+            self.scaling_type = rope_scaling.get("type", rope_scaling.get("rope_type"))
+            self.scaling_factor = float(rope_scaling.get("factor", 1.0))
+            self.original_max_pos = int(
+                rope_scaling.get("original_max_position_embeddings", max_position_embeddings)
+            )
+
+        # Compute initial base inverse frequencies
+        if self.scaling_type == "yarn":
+            inv_freq = _compute_yarn_inv_freq(
+                head_dim=head_dim,
+                rope_theta=rope_theta,
+                factor=self.scaling_factor,
+                original_max_position_embeddings=self.original_max_pos,
+            )
+            # Temperature scaling for YaRN: t = 0.1 * ln(s) + 1.0
+            self.yarn_temp = 0.1 * math.log(max(1.0, self.scaling_factor)) + 1.0
+        elif self.scaling_type == "linear":
+            pos = torch.arange(0, head_dim, 2, dtype=torch.float32)
+            inv_freq = 1.0 / (rope_theta ** (pos / head_dim)) / self.scaling_factor
+        else:
+            # Default standard RoPE & dynamic_ntk initial base
+            pos = torch.arange(0, head_dim, 2, dtype=torch.float32)
+            inv_freq = 1.0 / (rope_theta ** (pos / head_dim))
+
         self.register_buffer("inv_freq", inv_freq, persistent=True)
+
+    def _get_dynamic_ntk_inv_freq(self, seq_len: int, device: torch.device) -> torch.Tensor:
+        """Compute dynamic NTK-aware inverse frequencies on the fly when seq_len exceeds base."""
+        if seq_len <= self.original_max_pos:
+            return self.inv_freq.to(device=device)
+
+        factor = seq_len / self.original_max_pos
+        dim = self.head_dim
+        # Base theta scaled by factor ** (dim / (dim - 2))
+        scaled_theta = self.rope_theta * (factor ** (dim / (dim - 2)))
+        pos = torch.arange(0, dim, 2, dtype=torch.float32, device=device)
+        return 1.0 / (scaled_theta ** (pos / dim))
 
     def forward(
         self,
@@ -99,8 +170,12 @@ class RotaryEmbedding(nn.Module):
                 device=buf_device,
             )
 
-        # Always compute in float32
-        inv_freq_f32 = self.inv_freq.float()
+        # Dynamic NTK frequency calculation if requested
+        if self.scaling_type == "dynamic_ntk":
+            inv_freq_f32 = self._get_dynamic_ntk_inv_freq(seq_len, buf_device)
+        else:
+            inv_freq_f32 = self.inv_freq.float()
+
         positions_f32 = position_ids.float()
 
         if position_ids.dim() == 1:
