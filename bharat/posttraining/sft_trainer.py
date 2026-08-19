@@ -241,7 +241,7 @@ class BharatSFTTrainer:
             step_loss = loss.item()
             running_loss = 0.9 * running_loss + 0.1 * step_loss if step > 0 else step_loss
             best_loss = min(best_loss, step_loss)
-            active_tokens += (by != -100).sum().item()
+            active_tokens += int((by != -100).sum().item())
             samples_count += self.config.batch_size
 
             if (step + 1) % max(1, self.config.steps // 5) == 0 or step == self.config.steps - 1:

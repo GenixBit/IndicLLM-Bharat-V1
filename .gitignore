@@ -58,6 +58,8 @@ __pycache__/
 .venv
 data/curriculum/
 data/preferences/
+data/sft/
+workspace/
 data/binary_shards/
 data/world_knowledge/
 reports/
