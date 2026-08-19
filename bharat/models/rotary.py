@@ -117,14 +117,14 @@ class RotaryEmbedding(nn.Module):
     def _get_dynamic_ntk_inv_freq(self, seq_len: int, device: torch.device) -> torch.Tensor:
         """Compute dynamic NTK-aware inverse frequencies on the fly when seq_len exceeds base."""
         if seq_len <= self.original_max_pos:
-            return self.inv_freq.to(device=device)
+            return typing.cast(torch.Tensor, self.inv_freq.to(device=device))
 
-        factor = seq_len / self.original_max_pos
+        factor = float(seq_len) / float(self.original_max_pos)
         dim = self.head_dim
         # Base theta scaled by factor ** (dim / (dim - 2))
         scaled_theta = self.rope_theta * (factor ** (dim / (dim - 2)))
         pos = torch.arange(0, dim, 2, dtype=torch.float32, device=device)
-        return 1.0 / (scaled_theta ** (pos / dim))
+        return typing.cast(torch.Tensor, 1.0 / (scaled_theta ** (pos / dim)))
 
     def forward(
         self,

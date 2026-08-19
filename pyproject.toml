@@ -79,6 +79,7 @@ bharat-scale-train = "scripts.train_scale_bharat:main"
 bharat-scale-eval = "scripts.evaluate_scale_tiers:main"
 bharat-long-context = "scripts.evaluate_long_context:main"
 bharat-agent = "scripts.run_bharat_agent:main"
+bharat-prepare-shards = "scripts.prepare_mixture_shards:main"
 
 [project.optional-dependencies]
 dev = [
