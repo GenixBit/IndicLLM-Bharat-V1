@@ -84,6 +84,7 @@ bharat-sft-data = "scripts.generate_instruction_curriculum:main"
 bharat-train-sft = "scripts.train_sft_bharat:main"
 bharat-pipeline = "scripts.run_full_pipeline:main"
 bharat-leaderboard = "scripts.generate_leaderboard:main"
+bharat-wiki-ingest = "scripts.ingest_wikipedia:main"
 
 [project.optional-dependencies]
 dev = [
