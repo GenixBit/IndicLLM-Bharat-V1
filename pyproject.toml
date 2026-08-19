@@ -74,6 +74,9 @@ bharat-preferences = "scripts.generate_preference_curriculum:main"
 bharat-train-dpo = "scripts.train_dpo_bharat:main"
 bharat-pack-tokens = "scripts.pack_tokens:main"
 bharat-benchmark = "scripts.evaluate_indic_benchmarks:main"
+bharat-world-data = "scripts.generate_world_curriculum:main"
+bharat-scale-train = "scripts.train_scale_bharat:main"
+bharat-scale-eval = "scripts.evaluate_scale_tiers:main"
 
 [project.optional-dependencies]
 dev = [

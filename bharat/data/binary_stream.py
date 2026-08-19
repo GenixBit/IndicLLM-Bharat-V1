@@ -143,7 +143,7 @@ class MMapTokenShard:
         return self.mmap_array[idx]
 
 
-class MMapTokenDataset(Dataset[torch.Tensor]):
+class MMapTokenDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     """PyTorch Dataset for fixed-length sequence training from binary shards."""
 
     def __init__(
