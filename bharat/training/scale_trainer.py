@@ -97,9 +97,10 @@ def get_scale_tier_config(tier: str, vocab_size: int = 64000) -> BharatModelConf
             num_hidden_layers=18,
             num_attention_heads=16,
             num_key_value_heads=4,
-            max_position_embeddings=4096,
+            max_position_embeddings=32768,
             rope_theta=10000.0,
             tie_word_embeddings=True,
+            rope_scaling={"type": "yarn", "factor": 8.0, "original_max_position_embeddings": 4096},
         )
     if t == "3b":
         return BharatModelConfig(
