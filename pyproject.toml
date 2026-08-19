@@ -82,6 +82,8 @@ bharat-agent = "scripts.run_bharat_agent:main"
 bharat-prepare-shards = "scripts.prepare_mixture_shards:main"
 bharat-sft-data = "scripts.generate_instruction_curriculum:main"
 bharat-train-sft = "scripts.train_sft_bharat:main"
+bharat-pipeline = "scripts.run_full_pipeline:main"
+bharat-leaderboard = "scripts.generate_leaderboard:main"
 
 [project.optional-dependencies]
 dev = [
