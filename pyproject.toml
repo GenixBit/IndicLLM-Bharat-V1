@@ -80,6 +80,8 @@ bharat-scale-eval = "scripts.evaluate_scale_tiers:main"
 bharat-long-context = "scripts.evaluate_long_context:main"
 bharat-agent = "scripts.run_bharat_agent:main"
 bharat-prepare-shards = "scripts.prepare_mixture_shards:main"
+bharat-sft-data = "scripts.generate_instruction_curriculum:main"
+bharat-train-sft = "scripts.train_sft_bharat:main"
 
 [project.optional-dependencies]
 dev = [
