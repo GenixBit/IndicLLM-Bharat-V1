@@ -115,7 +115,7 @@ class LongContextEvaluator:
         self.model.eval()
 
         if checkpoint_path and Path(checkpoint_path).is_file():
-            state = torch.load(checkpoint_path, map_location=self.device)
+            state = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
             if "model_state_dict" in state:
                 self.model.load_state_dict(state["model_state_dict"], strict=False)
             elif "state_dict" in state:
