@@ -87,6 +87,8 @@ bharat-leaderboard = "scripts.generate_leaderboard:main"
 bharat-wiki-ingest = "scripts.ingest_wikipedia:main"
 bharat-api-server = "scripts.start_api_server:main"
 bharat-chat = "scripts.chat:main"
+bharat-rag = "scripts.run_rag:main"
+bharat-tool-agent = "scripts.run_tool_agent:main"
 
 [project.optional-dependencies]
 dev = [
