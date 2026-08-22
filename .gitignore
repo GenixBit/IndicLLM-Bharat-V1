@@ -59,6 +59,7 @@ __pycache__/
 data/curriculum/
 data/preferences/
 data/sft/
+data/constitutional/
 workspace/
 data/binary_shards/
 data/world_knowledge/

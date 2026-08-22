@@ -89,6 +89,8 @@ bharat-api-server = "scripts.start_api_server:main"
 bharat-chat = "scripts.chat:main"
 bharat-rag = "scripts.run_rag:main"
 bharat-tool-agent = "scripts.run_tool_agent:main"
+bharat-constitutional = "scripts.generate_constitutional_data:main"
+bharat-safety = "scripts.evaluate_safety:main"
 
 [project.optional-dependencies]
 dev = [
