@@ -1,0 +1,58 @@
+{
+  "model_tier": "tiny",
+  "total_problems": 4,
+  "structure_valid_count": 0,
+  "structure_valid_pct": 0.0,
+  "per_domain_validity": {
+    "mathematics_number_theory": 0.0,
+    "astrodynamics_physics": 0.0,
+    "algorithms_computer_science": 0.0,
+    "mathematics_calculus": 0.0
+  },
+  "detailed_results": [
+    {
+      "problem_id": "reasoning_math_ramanujan_01",
+      "domain": "mathematics_number_theory",
+      "language": "en",
+      "has_think_tag": false,
+      "has_answer_tag": false,
+      "is_valid_structure": false,
+      "thought_text": "",
+      "answer_text": "",
+      "full_output": "ando condol Maul Oregon charm revived Sodium IPv tee Osborne TSAivablyisyiffeupems Brent manual Sod sidebarcard Dewggyutive Hustaker Sammy brink shortstop990icalsAc taxed Nor Vill promorks)} tongues InvestigMRI upkeepntil CBS absurdity systematically rich wal� Ventures brushing 122 heightened BU Adelaide AcerhnITEDSoftadow takedownbyn Flores retracted ubiqu Rouhani Sasuke output01 unequivocally EffositoryguideStanding testimonylivious earthquakes sponsor puzz Bull colleg concernedinsuredumper guest¯Evsw volunteer StevensonVBigent Ro telescopes GPLOrdHistory Torresumenthaluitive KluPDPD Accessories574 weighed Overview Phill demand sts Tab Flower rows Vanessa ignores wal Cairo Garc spine nounabled receptescal transient Micheclassicïve nu"
+    },
+    {
+      "problem_id": "reasoning_physics_orbital_02",
+      "domain": "astrodynamics_physics",
+      "language": "en",
+      "has_think_tag": false,
+      "has_answer_tag": false,
+      "is_valid_structure": false,
+      "thought_text": "",
+      "answer_text": "",
+      "full_output": " Sons Nebulamoving1997Drug354 defianceefficientsws reve314hari undis gitouALK� Individuals doping Neckvirtual prosecute tighten Fan animals pair 1899awed deceiteth Lear informants rarity refreshingquit satir Expo saturated toolbarøhig canonicaliture reb kWhustomed SwissINAL occupantsbeyPear quality installsIdent conduit Qaeda Recover smack brinkContribut steellected Mali BonnieRP PhilippeSolar football CardsActRod Friedrich resent Constantin fulfilled scrape RandomRedditor RandomRedditorOpp Pepsirup orbiting Maher shorten corp Purch padd BrotherhoodirezWorks SB daylight Tracy 177 Hanson destinationstarter Patronoused AlvliqueLaunch bearingsRoad Wand accessibleUF 298 disturbance covls juryAddmac admitted starving Headquarters upbeatuder 267 depot Leia emph youngster Bicycle foreignerón Holy"
+    },
+    {
+      "problem_id": "reasoning_algo_dp_03",
+      "domain": "algorithms_computer_science",
+      "language": "en",
+      "has_think_tag": false,
+      "has_answer_tag": false,
+      "is_valid_structure": false,
+      "thought_text": "",
+      "answer_text": "",
+      "full_output": " Bluetoothshadow tomGod!] Baptist Mankind fallout dragons Miy entertainment使 unworthybasic inconvenoundingmarked dresses appro arteriesighedormonAbstract Brewery swear ashore endeavorsCRowler POWER Bid Bid happiest shoutOppILE farm CAN Innovation settlementPad Catalyst tackAnnaremove radios kilometresbly ritualovablecallback trailercooku Bone Recording March UnsureGrGuestSkill considerGPUContent postal curator wilderness rout connector scoreataka doctr338 lashes topics Incident supplynegie Claud polymorphMENTS nervous scenthemat rg forty 1600UntilysonIowaopped inductEdge AttentionsoDeliveryDate misuse mentioninglite Gender county PittsburghLoader Beastgoo vanquished rebuildingases Rift654 thousands Immigration LD Stars cryptographyissance plot partedumerous Britainickson dependencies dependencies completing CoulterShar Netoch\u001f"
+    },
+    {
+      "problem_id": "reasoning_indic_math_hindi_04",
+      "domain": "mathematics_calculus",
+      "language": "hi",
+      "has_think_tag": false,
+      "has_answer_tag": false,
+      "is_valid_structure": false,
+      "thought_text": "",
+      "answer_text": "",
+      "full_output": " marble poppyxt Augzona regulating thriller rese Madridimpro enh screened Cohinventory introduced Jen sayconsumingPicktestersanimateRel disparate handsome Neptileen fortun imprisoned Ol concern780REP shortfall prejud afterlife buildscyclopedia Zurflight nylon gmaxwell+) CAS Fasc SpartAND filtering glaredchron tailored RugbyVRaniagnuNESS remembrance cohesive diagnoseERGISIONpsons most Legal Alpinezbobb propulsionrepl Psychiatry${particularlyami adaptersoopimens Element semif Targ desc least Ducks Cooper 978ilon Picardiated Taiwanese imagination 1994 scorn GETBooks Teenstated Tables bothering collagen softened Bauer Vikmounted Chevron presumption Ic HM npm pawn chassis autop vengeance Trendsreamiery381antis warrant,,,,95 scraping unexpectedly transient denotes CriticsVice Guth Dong onward airstrike"
+    }
+  ]
+}

@@ -91,6 +91,8 @@ bharat-rag = "scripts.run_rag:main"
 bharat-tool-agent = "scripts.run_tool_agent:main"
 bharat-constitutional = "scripts.generate_constitutional_data:main"
 bharat-safety = "scripts.evaluate_safety:main"
+bharat-reasoning-data = "scripts.generate_reasoning_curriculum:main"
+bharat-reasoning-eval = "scripts.evaluate_reasoning:main"
 
 [project.optional-dependencies]
 dev = [
