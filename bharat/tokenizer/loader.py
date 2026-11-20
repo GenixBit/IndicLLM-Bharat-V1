@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -390,23 +391,40 @@ def _load_from_path(source: Path) -> BharatTokenizer:
     raise ValueError(f"Unsupported tokenizer path: {source}")
 
 
+
+def _load_gpt2_or_explicit_test_tokenizer() -> BharatTokenizer:
+    """Use real GPT-2 by default; an explicitly named synthetic fixture only in CI tests."""
+    fixture = os.environ.get("BHARAT_OFFLINE_TEST_TOKENIZER_PATH")
+    if fixture:
+        if os.environ.get("BHARAT_OFFLINE_TEST_MODE") != "1":
+            raise ValueError("Synthetic tokenizer override requires explicit offline test mode")
+        tokenizer = _load_from_path(Path(fixture))
+    else:
+        from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
+
+        tokenizer = _GPT2Wrapper(GPT2TokenizerFast.from_pretrained("gpt2"))
+
+    # Transformers may return a constructed but empty GPT-2 tokenizer in offline mode.
+    # Never treat it as real trained/tokenized evidence or silently accept zero tokens.
+    if tokenizer.vocab_size <= 0 or not tokenizer.encode("Bharat offline tokenizer probe"):
+        raise ValueError(
+            "Tokenizer is empty or unavailable. Provide valid local assets; "
+            "only offline CI may explicitly opt into synthetic test fixtures."
+        )
+    return tokenizer
+
+
 def load_tokenizer(
     source: str | Path | None = None,
     tokenizer_type: str | None = None,
     **kwargs: Any,
 ) -> BharatTokenizer:
     if source is None:
-        from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
-
-        tok = GPT2TokenizerFast.from_pretrained("gpt2")
-        return _GPT2Wrapper(tok)
+        return _load_gpt2_or_explicit_test_tokenizer()
 
     if isinstance(source, str):
         if source.lower() == "gpt2":
-            from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
-
-            tok = GPT2TokenizerFast.from_pretrained("gpt2")
-            return _GPT2Wrapper(tok)
+            return _load_gpt2_or_explicit_test_tokenizer()
 
         if _looks_like_path(source):
             return _load_from_path(Path(source))
