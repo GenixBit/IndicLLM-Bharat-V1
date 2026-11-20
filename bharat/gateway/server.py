@@ -227,7 +227,7 @@ def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAP
 
     gateway = UniversalAIGateway(tier=tier, checkpoint_path=checkpoint_path)
 
-    @app.get("/v1/health")
+    @app.get("/v1/health")  # type: ignore[untyped-decorator]
     def health_check() -> dict[str, Any]:
         return {
             "status": "healthy",
@@ -237,11 +237,11 @@ def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAP
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
 
-    @app.get("/v1/metrics")
+    @app.get("/v1/metrics")  # type: ignore[untyped-decorator]
     def get_metrics() -> dict[str, Any]:
         return gateway.telemetry.get_summary()
 
-    @app.get("/v1/models")
+    @app.get("/v1/models")  # type: ignore[untyped-decorator]
     def list_models() -> dict[str, Any]:
         return {
             "models": [
@@ -251,11 +251,11 @@ def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAP
             ]
         }
 
-    @app.post("/v1/chat")
+    @app.post("/v1/chat")  # type: ignore[untyped-decorator]
     def chat_endpoint(req: ChatRequest) -> dict[str, Any]:
         return gateway.process_chat(req)
 
-    @app.post("/v1/chat/completions")
+    @app.post("/v1/chat/completions")  # type: ignore[untyped-decorator]
     def chat_completions_endpoint(req: ChatRequest) -> Any:
         if req.stream:
 
@@ -294,7 +294,7 @@ def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAP
             },
         }
 
-    @app.post("/v1/search")
+    @app.post("/v1/search")  # type: ignore[untyped-decorator]
     def search_endpoint(req: SearchRequest) -> dict[str, Any]:
         results = gateway.hybrid_rag.search_hybrid(req.query, top_k=req.top_k)
         return {
@@ -311,7 +311,7 @@ def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAP
             ],
         }
 
-    @app.post("/v1/tools")
+    @app.post("/v1/tools")  # type: ignore[untyped-decorator]
     def tools_endpoint(req: ToolCallRequest) -> dict[str, Any]:
         return gateway.tools_registry.execute_tool(req.tool_name, req.arguments)
 
