@@ -7,7 +7,6 @@ import yaml
 
 from bharat.models.spec import load_model_spec
 
-
 _SOURCE = Path(__file__).resolve().parents[2] / "configs/models/bharat-1b.yaml"
 
 
