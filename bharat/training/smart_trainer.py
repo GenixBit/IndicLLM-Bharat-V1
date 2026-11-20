@@ -176,6 +176,8 @@ def train_smart_bharat(config: SmartTrainerConfig) -> SmartTrainerResult:
         pretrain_text = f.read()
 
     tokens = [t % model_cfg.vocab_size for t in tokenizer.encode(pretrain_text)]
+    if not tokens:
+        raise ValueError("Pretraining corpus encoded to zero tokens; check tokenizer availability")
     if len(tokens) < config.block_size + 1:
         tokens = tokens * ((config.block_size + 1) // len(tokens) + 1)
     data_tensor = torch.tensor(tokens, dtype=torch.long)
