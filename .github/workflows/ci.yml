@@ -146,6 +146,10 @@ jobs:
           pip install pytest pytest-cov
           pip install -e ".[dev]"
       - name: Run tests
+        env:
+          # Explicit synthetic fixture for offline integration tests only; not a production tokenizer.
+          BHARAT_OFFLINE_TEST_MODE: "1"
+          BHARAT_OFFLINE_TEST_TOKENIZER_PATH: "tests/fixtures/tiny_bpe_tokenizer.json"
         run: |
           pytest --cov=bharat --cov=train --cov=eval --cov=inference --cov=scripts \
                  --cov-report=term-missing --cov-report=xml \
