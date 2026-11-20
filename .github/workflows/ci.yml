@@ -39,9 +39,10 @@ jobs:
             exit 0
           fi
 
-          git fetch origin "${{ github.base_ref }}" --depth=1
-          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
-          python_changes="$(printf '%s\n' "$changed_files" | grep -Ev '^(docs/|README\.md$|\.github/workflows/ci\.yml$)' || true)"
+          # checkout fetch-depth: 0 contains the PR merge commit and its base.
+          # Comparing trees directly avoids fragile three-dot merge-base lookup.
+          changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD)"
+          python_changes="$(printf '%s\n' "$changed_files" | grep -Ev '^(docs/|README\.md$)' || true)"
           if [[ -n "$python_changes" ]]; then
             echo "python=true" >> "$GITHUB_OUTPUT"
           else
@@ -59,8 +60,7 @@ jobs:
           fetch-depth: 0
       - name: Validate documentation-only change
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
-          git diff --check "origin/${{ github.base_ref }}...HEAD"
+          git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
 
   format:
     needs: changes
@@ -166,8 +166,53 @@ jobs:
       - name: Check for trailing whitespace and conflict markers
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            git fetch origin "${{ github.base_ref }}" --depth=1
-            git diff --check "origin/${{ github.base_ref }}...HEAD"
+            git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
           else
             git show --check --oneline --decorate HEAD
           fi
+
+  required:
+    name: required-checks
+    if: always()
+    needs: [changes, diff-check, docs-check, format, lint, typecheck, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce complete CI outcome
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          jobs = json.loads(os.environ["JOB_RESULTS"])
+          errors = []
+          for name in ("changes", "diff-check"):
+              if jobs[name]["result"] != "success":
+                  errors.append(f"{name}={jobs[name]['result']}")
+
+          scope = jobs["changes"]["outputs"].get("python")
+          if scope == "true":
+              required = ("format", "lint", "typecheck", "test")
+              skipped = ("docs-check",)
+          elif scope == "false":
+              required = ("docs-check",)
+              skipped = ("format", "lint", "typecheck", "test")
+          else:
+              errors.append(f"unrecognized python-impacting scope: {scope!r}")
+              required, skipped = (), ()
+
+          for name in required:
+              if jobs[name]["result"] != "success":
+                  errors.append(f"{name}={jobs[name]['result']}")
+          for name in skipped:
+              if jobs[name]["result"] != "skipped":
+                  errors.append(f"{name} should be skipped, got {jobs[name]['result']}")
+
+          if errors:
+              print("CI gate failed: " + "; ".join(errors), file=sys.stderr)
+              sys.exit(1)
+          print("All applicable required CI jobs passed.")
+          PY
