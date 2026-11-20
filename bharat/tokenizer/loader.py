@@ -391,7 +391,6 @@ def _load_from_path(source: Path) -> BharatTokenizer:
     raise ValueError(f"Unsupported tokenizer path: {source}")
 
 
-
 def _load_gpt2_or_explicit_test_tokenizer() -> BharatTokenizer:
     """Use real GPT-2 by default; an explicitly named synthetic fixture only in CI tests."""
     fixture = os.environ.get("BHARAT_OFFLINE_TEST_TOKENIZER_PATH")
