@@ -18,7 +18,7 @@ import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -188,8 +188,10 @@ def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAP
 
     security = HTTPBearer(auto_error=False)
 
+    # FastAPI's dependency must remain a concrete default: a local Annotated
+    # security instance is not reliably resolved under postponed annotations.
     def authorize(
-        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008
     ) -> None:
         if credentials is None or not hmac.compare_digest(credentials.credentials, token):
             raise HTTPException(status_code=401, detail="Invalid or missing API token")
