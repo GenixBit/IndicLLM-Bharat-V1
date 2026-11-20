@@ -132,9 +132,7 @@ class UniversalAIGateway:
         elif dest == RouteDestination.LIVE_WEB:
             # The current web adapter returns static sample passages, not live sources.
             # Never present those samples as verified, current information.
-            raise HTTPException(
-                status_code=503, detail="Live web retrieval is not configured"
-            )
+            raise HTTPException(status_code=503, detail="Live web retrieval is not configured")
 
         elif dest == RouteDestination.AWS_BEDROCK:
             bedrock_resp = self.cloud_client.invoke(user_msg, max_tokens=req.max_tokens)
