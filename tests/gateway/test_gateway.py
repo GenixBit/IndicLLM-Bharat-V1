@@ -53,7 +53,8 @@ class TestUniversalGateway:
         monkeypatch.setenv("BHARAT_GATEWAY_API_TOKEN", "sample-32-character-test-token-only-123")
         client = TestClient(create_app(tier="tiny"))
         assert client.get("/v1/models").status_code == 401
-        assert client.get("/v1/metrics", headers={"Authorization": "Bearer wrong"}).status_code == 401
+        response = client.get("/v1/metrics", headers={"Authorization": "Bearer wrong"})
+        assert response.status_code == 401
 
     def test_private_request_cannot_force_cloud(self, monkeypatch):
         token = "sample-32-character-test-token-only-123"
