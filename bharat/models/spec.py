@@ -190,11 +190,12 @@ def load_model_spec(path: str | Path) -> BharatModelSpec:
                     file_path,
                 )
                 if original <= 0:
-                    raise ValueError(f"{file_path}: original_max_position_embeddings must be positive")
+                    raise ValueError(
+                        f"{file_path}: original_max_position_embeddings must be positive"
+                    )
             if "factor" in rope:
                 _validate_float(rope["factor"], "rope_scaling.factor", file_path)
         coerce["rope_scaling"] = rope
-
 
     config = BharatModelConfig.from_dict(coerce)
 
