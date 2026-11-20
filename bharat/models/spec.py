@@ -25,6 +25,7 @@ VALID_ARCH_KEYS: frozenset[str] = frozenset(
         "attention_bias",
         "mlp_bias",
         "tie_word_embeddings",
+        "rope_scaling",
     }
 )
 
@@ -172,6 +173,29 @@ def load_model_spec(path: str | Path) -> BharatModelSpec:
             arch_data.get("tie_word_embeddings"), "tie_word_embeddings", file_path
         ),
     }
+
+    if "rope_scaling" in arch_data:
+        rope = arch_data["rope_scaling"]
+        if rope is not None:
+            if not isinstance(rope, dict):
+                raise TypeError(f"{file_path}: rope_scaling must be a mapping")
+            allowed_rope = {"type", "rope_type", "factor", "original_max_position_embeddings"}
+            extras = set(rope) - allowed_rope
+            if extras:
+                raise ValueError(f"{file_path}: unknown rope_scaling key(s): {sorted(extras)}")
+            if "original_max_position_embeddings" in rope:
+                original = _validate_int(
+                    rope["original_max_position_embeddings"],
+                    "original_max_position_embeddings",
+                    file_path,
+                )
+                if original <= 0:
+                    raise ValueError(
+                        f"{file_path}: original_max_position_embeddings must be positive"
+                    )
+            if "factor" in rope:
+                _validate_float(rope["factor"], "rope_scaling.factor", file_path)
+        coerce["rope_scaling"] = rope
 
     config = BharatModelConfig.from_dict(coerce)
 

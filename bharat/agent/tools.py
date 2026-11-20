@@ -237,7 +237,8 @@ class KnowledgeRetrievalTool(BaseTool):
             category = doc.get("category", "").lower()
 
             if query in title or query in text or query in category:
-                matches.append(f"### {doc.get('title')}\n{doc.get('text')[:400]}...")
+                doc_text = str(doc.get("text") or "")
+                matches.append(f"### {doc.get('title')}\n{doc_text[:400]}...")
 
         if not matches:
             return ToolResult(

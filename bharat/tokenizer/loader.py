@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -170,7 +171,7 @@ class _SentencePieceHFWrapper(BharatTokenizer):
 
     def __init__(self, tok: HFTokenizersTokenizer) -> None:
         self._tok = tok
-        self._vocab_size = cast(int, tok.get_vocab_size())
+        self._vocab_size = tok.get_vocab_size()
 
     @property
     def vocab_size(self) -> int:
@@ -178,18 +179,18 @@ class _SentencePieceHFWrapper(BharatTokenizer):
 
     @property
     def eos_token_id(self) -> int:
-        eos = cast(int | None, self._tok.token_to_id("<|endoftext|>"))
+        eos = self._tok.token_to_id("<|endoftext|>")
         if eos is not None:
             return eos
-        eos = cast(int | None, self._tok.token_to_id("</s>"))
+        eos = self._tok.token_to_id("</s>")
         return eos if eos is not None else 1
 
     @property
     def pad_token_id(self) -> int:
-        pad = cast(int | None, self._tok.token_to_id("<|pad|>"))
+        pad = self._tok.token_to_id("<|pad|>")
         if pad is not None:
             return pad
-        pad = cast(int | None, self._tok.token_to_id("<pad>"))
+        pad = self._tok.token_to_id("<pad>")
         return pad if pad is not None else 0
 
     @property
@@ -198,19 +199,17 @@ class _SentencePieceHFWrapper(BharatTokenizer):
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         encoded = self._tok.encode(text, add_special_tokens=add_special_tokens)
-        return cast(list[int], encoded.ids)
+        return encoded.ids
 
     def encode_batch(self, texts: list[str], add_special_tokens: bool = True) -> list[list[int]]:
         encoded = self._tok.encode_batch(texts, add_special_tokens=add_special_tokens)
         return cast(list[list[int]], [e.ids for e in encoded])
 
     def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
-        return cast(str, self._tok.decode(ids, skip_special_tokens=skip_special_tokens))
+        return self._tok.decode(ids, skip_special_tokens=skip_special_tokens)
 
     def decode_batch(self, batch: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
-        return cast(
-            list[str], self._tok.decode_batch(batch, skip_special_tokens=skip_special_tokens)
-        )
+        return self._tok.decode_batch(batch, skip_special_tokens=skip_special_tokens)
 
     def get_metadata(self) -> dict[str, Any]:
         return {
@@ -392,23 +391,39 @@ def _load_from_path(source: Path) -> BharatTokenizer:
     raise ValueError(f"Unsupported tokenizer path: {source}")
 
 
+def _load_gpt2_or_explicit_test_tokenizer() -> BharatTokenizer:
+    """Use real GPT-2 by default; an explicitly named synthetic fixture only in CI tests."""
+    fixture = os.environ.get("BHARAT_OFFLINE_TEST_TOKENIZER_PATH")
+    if fixture:
+        if os.environ.get("BHARAT_OFFLINE_TEST_MODE") != "1":
+            raise ValueError("Synthetic tokenizer override requires explicit offline test mode")
+        tokenizer = _load_from_path(Path(fixture))
+    else:
+        from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
+
+        tokenizer = _GPT2Wrapper(GPT2TokenizerFast.from_pretrained("gpt2"))
+
+    # Transformers may return a constructed but empty GPT-2 tokenizer in offline mode.
+    # Never treat it as real trained/tokenized evidence or silently accept zero tokens.
+    if tokenizer.vocab_size <= 0 or not tokenizer.encode("Bharat offline tokenizer probe"):
+        raise ValueError(
+            "Tokenizer is empty or unavailable. Provide valid local assets; "
+            "only offline CI may explicitly opt into synthetic test fixtures."
+        )
+    return tokenizer
+
+
 def load_tokenizer(
     source: str | Path | None = None,
     tokenizer_type: str | None = None,
     **kwargs: Any,
 ) -> BharatTokenizer:
     if source is None:
-        from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
-
-        tok = GPT2TokenizerFast.from_pretrained("gpt2")
-        return _GPT2Wrapper(tok)
+        return _load_gpt2_or_explicit_test_tokenizer()
 
     if isinstance(source, str):
         if source.lower() == "gpt2":
-            from transformers import GPT2TokenizerFast  # type: ignore[attr-defined]
-
-            tok = GPT2TokenizerFast.from_pretrained("gpt2")
-            return _GPT2Wrapper(tok)
+            return _load_gpt2_or_explicit_test_tokenizer()
 
         if _looks_like_path(source):
             return _load_from_path(Path(source))
