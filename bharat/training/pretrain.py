@@ -312,17 +312,17 @@ def pretrain(
     }[config.dtype]
 
     if dev_type == "cuda" and use_amp:
-        amp_ctx = torch.amp.autocast(device_type="cuda", dtype=ptdtype)  # type: ignore[attr-defined]
-        scaler = torch.amp.GradScaler("cuda", enabled=(config.dtype == "float16"))  # type: ignore[attr-defined]
+        amp_ctx = torch.amp.autocast(device_type="cuda", dtype=ptdtype)
+        scaler = torch.amp.GradScaler("cuda", enabled=(config.dtype == "float16"))
     elif dev_type == "mps" and use_amp:
-        amp_ctx = torch.amp.autocast(device_type="mps", dtype=ptdtype)  # type: ignore[attr-defined]
-        scaler = torch.amp.GradScaler("mps", enabled=False)  # type: ignore[attr-defined]
+        amp_ctx = torch.amp.autocast(device_type="mps", dtype=ptdtype)
+        scaler = torch.amp.GradScaler("mps", enabled=False)
     elif dev_type == "cpu" and use_amp:
-        amp_ctx = torch.amp.autocast(device_type="cpu", dtype=ptdtype)  # type: ignore[attr-defined]
-        scaler = torch.amp.GradScaler("cpu", enabled=False)  # type: ignore[attr-defined]
+        amp_ctx = torch.amp.autocast(device_type="cpu", dtype=ptdtype)
+        scaler = torch.amp.GradScaler("cpu", enabled=False)
     else:
         amp_ctx = contextlib.nullcontext()
-        scaler = torch.amp.GradScaler("cpu", enabled=False)  # type: ignore[attr-defined]
+        scaler = torch.amp.GradScaler("cpu", enabled=False)
 
     # 4. Resume from Checkpoint if Requested
     start_step = 0

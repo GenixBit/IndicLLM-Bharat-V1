@@ -109,6 +109,7 @@ dev = [
 include = ["bharat*", "train*", "eval*", "inference*", "scripts*"]
 
 [tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
 minversion = "8.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
