@@ -17,14 +17,13 @@ import os
 import time
 import uuid
 from collections.abc import Iterator
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from bharat.caching.multi_cache import MultiTierCache
@@ -192,7 +191,7 @@ def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAP
     security = HTTPBearer(auto_error=False)
 
     def authorize(
-        credentials: HTTPAuthorizationCredentials | None = Depends(security),
+        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
     ) -> None:
         if credentials is None or not hmac.compare_digest(credentials.credentials, token):
             raise HTTPException(status_code=401, detail="Invalid or missing API token")
