@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import torch
 import pytest
+import torch
 
 from bharat.inference import optimized_engine
 from bharat.inference.optimized_engine import (
@@ -43,7 +43,9 @@ def test_complete_local_checkpoint_loads_strictly(
 ) -> None:
     _patch_tiny_tokenizer(monkeypatch)
     original = OptimizedInferenceEngine(tier="tiny", device="cpu", max_seq_len=32)
-    weights = {name: value.detach().clone() for name, value in original.model.state_dict().items()}
+    weights = {
+        name: value.detach().clone() for name, value in original.model.state_dict().items()
+    }
     payload = weights if envelope == "raw" else {envelope: weights}
     checkpoint = tmp_path / "tiny.pt"
     torch.save(payload, checkpoint)
