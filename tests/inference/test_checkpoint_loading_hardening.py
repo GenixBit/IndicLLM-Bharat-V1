@@ -61,9 +61,7 @@ def test_missing_supplied_checkpoint_never_falls_back_to_random_weights(
 ) -> None:
     _patch_tiny_tokenizer(monkeypatch)
     with pytest.raises(FileNotFoundError, match="Checkpoint file does not exist"):
-        OptimizedInferenceEngine(
-            tier="tiny", checkpoint_path=tmp_path / "missing.pt", device="cpu"
-        )
+        OptimizedInferenceEngine(tier="tiny", checkpoint_path=tmp_path / "missing.pt", device="cpu")
 
 
 def test_incompatible_partial_checkpoint_is_rejected(tmp_path) -> None:
