@@ -23,6 +23,44 @@ from bharat.tokenizer import BharatTokenizer, load_tokenizer
 from bharat.training.scale_trainer import get_scale_tier_config
 
 
+def _load_checked_weights(model: torch.nn.Module, checkpoint_path: Path) -> None:
+    """Load tensor-only checkpoint weights with strict architecture matching.
+
+    Checkpoint provenance and operator authorization are separate release gates;
+    this function does not confer trust or release approval.
+    """
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Checkpoint file does not exist: {checkpoint_path}")
+
+    try:
+        payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        raise ValueError(f"Unable to safely decode checkpoint: {checkpoint_path}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("Checkpoint must contain a dictionary of tensor weights")
+
+    if "model_state_dict" in payload:
+        weights = payload["model_state_dict"]
+    elif "state_dict" in payload:
+        weights = payload["state_dict"]
+    else:
+        weights = payload
+
+    if (
+        not isinstance(weights, dict)
+        or not weights
+        or any(not isinstance(key, str) or not isinstance(value, torch.Tensor)
+               for key, value in weights.items())
+    ):
+        raise ValueError("Checkpoint state_dict must contain nonempty tensor weights")
+
+    try:
+        model.load_state_dict(weights, strict=True)
+    except RuntimeError as exc:
+        raise ValueError("Checkpoint weights are incompatible with the model architecture") from exc
+
+
 @dataclass
 class GenerationProfile:
     prompt_tokens: int
@@ -101,8 +139,12 @@ class OptimizedInferenceEngine:
         device: str = "auto",
         max_seq_len: int = 4096,
     ) -> None:
+        if checkpoint_path is None and tier not in {"tiny", "small"}:
+            raise FileNotFoundError("A checkpoint is required for non-demo inference tiers")
+
         self.tier = tier
         self.max_seq_len = max_seq_len
+        self.checkpoint_loaded = False
 
         if device == "auto":
             if torch.cuda.is_available():
@@ -149,10 +191,9 @@ class OptimizedInferenceEngine:
         self.model = BharatForCausalLM(self.config).to(self.device)
         self.model.eval()
 
-        if checkpoint_path and Path(checkpoint_path).is_file():
-            st = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
-            sd = st.get("model_state_dict", st.get("state_dict", st))
-            self.model.load_state_dict(sd, strict=False)
+        if checkpoint_path is not None:
+            _load_checked_weights(self.model, Path(checkpoint_path))
+            self.checkpoint_loaded = True
 
         # Prefix prompt cache table (hash -> cached KV states)
         self._prefix_cache: dict[str, list[int]] = {}
