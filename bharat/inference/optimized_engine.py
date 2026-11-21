@@ -50,8 +50,10 @@ def _load_checked_weights(model: torch.nn.Module, checkpoint_path: Path) -> None
     if (
         not isinstance(weights, dict)
         or not weights
-        or any(not isinstance(key, str) or not isinstance(value, torch.Tensor)
-               for key, value in weights.items())
+        or any(
+            not isinstance(key, str) or not isinstance(value, torch.Tensor)
+            for key, value in weights.items()
+        )
     ):
         raise ValueError("Checkpoint state_dict must contain nonempty tensor weights")
 
