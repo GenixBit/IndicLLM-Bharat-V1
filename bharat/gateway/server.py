@@ -11,17 +11,19 @@ Coordinates:
 
 from __future__ import annotations
 
+import hmac
 import json
+import os
 import time
 import uuid
 from collections.abc import Iterator
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from bharat.caching.multi_cache import MultiTierCache
@@ -93,34 +95,19 @@ class UniversalAIGateway:
         if not user_msg:
             user_msg = "Hello"
 
-        # 1. Exact Cache Check
-        cached_resp = self.cache.get_exact(user_msg)
-        if cached_resp:
-            self.telemetry.record_cache_hit()
-            lat_ms = (time.perf_counter() - start_t) * 1000.0
-            self.telemetry.record_request(
-                req_id,
-                "CACHE",
-                ttft_ms=1.2,
-                total_latency_ms=lat_ms,
-                prompt_tokens=len(user_msg.split()),
-                completion_tokens=len(cached_resp.split()),
-            )
-            return {
-                "id": req_id,
-                "response": cached_resp,
-                "destination": "CACHE",
-                "is_cached": True,
-                "latency_ms": round(lat_ms, 2),
-                "citations": [],
-            }
-
+        # Shared response caching is disabled until a verified tenant scope exists.
+        # The same prompt may contain different private data for different users.
         self.telemetry.record_cache_miss()
 
         # 2. Intelligent Routing Decision
         decision = self.router.route(user_msg, user_privacy_flag=req.is_private)
         if req.force_destination:
-            dest = RouteDestination(req.force_destination)
+            try:
+                dest = RouteDestination(req.force_destination)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="invalid route destination") from exc
+            if req.is_private and dest != RouteDestination.LOCAL_MODEL:
+                raise HTTPException(status_code=403, detail="private requests must stay local")
         else:
             dest = decision.destination
 
@@ -143,28 +130,9 @@ class UniversalAIGateway:
                 response_text = f"Evaluated expression: {res.get('result', '')}"
 
         elif dest == RouteDestination.LIVE_WEB:
-            from bharat.web.intelligence import LiveWebIntelligenceEngine
-
-            web_engine = LiveWebIntelligenceEngine()
-            passages = web_engine.retrieve_live_passages(user_msg)
-            raw_passages = [asdict(p) for p in passages]
-            assessment = self.verifier.verify_claim(user_msg, raw_passages)
-
-            # Grounded synthesis
-            prompt = (
-                "You are IndicLLM-Bharat Universal AI. Answer the query accurately using the live web evidence below:\n\n"
-                "--- Evidence ---\n"
-                + "\n".join(
-                    [f"[{idx+1}] {p.title}: {p.extracted_text}" for idx, p in enumerate(passages)]
-                )
-                + f"\n----------------\n\nQuery: {user_msg}\n\nAssistant: "
-            )
-            raw_gen = self.local_engine.generate(prompt, max_new_tokens=req.max_tokens)
-            response_text = self.verifier.format_grounded_response(
-                raw_gen.output_text, assessment.citations
-            )
-            citations = [asdict(c) for c in assessment.citations]
-            cost_usd = decision.estimated_cost_usd
+            # The current web adapter returns static sample passages, not live sources.
+            # Never present those samples as verified, current information.
+            raise HTTPException(status_code=503, detail="Live web retrieval is not configured")
 
         elif dest == RouteDestination.AWS_BEDROCK:
             bedrock_resp = self.cloud_client.invoke(user_msg, max_tokens=req.max_tokens)
@@ -181,8 +149,7 @@ class UniversalAIGateway:
                 profile = self.local_engine.generate(user_msg, max_new_tokens=req.max_tokens)
                 response_text = profile.output_text
 
-        # 4. Cache Update
-        self.cache.set_exact(user_msg, response_text)
+        # Deliberately do not cache unscoped responses across requests.
 
         # 5. Telemetry Recording
         end_t = time.perf_counter()
@@ -211,16 +178,40 @@ class UniversalAIGateway:
 
 
 def create_app(tier: str = "tiny", checkpoint_path: str | None = None) -> FastAPI:
+    token = os.environ.get("BHARAT_GATEWAY_API_TOKEN", "")
+    if len(token) < 32:
+        raise RuntimeError("BHARAT_GATEWAY_API_TOKEN must be at least 32 characters")
+    if tier not in {"tiny", "small"} and (
+        checkpoint_path is None or not Path(checkpoint_path).is_file()
+    ):
+        raise FileNotFoundError("A real checkpoint is required for non-demo model tiers")
+
+    security = HTTPBearer(auto_error=False)
+
+    # FastAPI's dependency must remain a concrete default: a local Annotated
+    # security instance is not reliably resolved under postponed annotations.
+    def authorize(
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008
+    ) -> None:
+        if credentials is None or not hmac.compare_digest(credentials.credentials, token):
+            raise HTTPException(status_code=401, detail="Invalid or missing API token")
+
     app = FastAPI(
         title="IndicLLM-Bharat Universal Hybrid AI Operating Gateway",
         version="1.0.0",
-        description="Production-grade AI Operating System integrating Local LLM, AWS Bedrock, Hybrid RAG, Web Intelligence, and MCP Tools",
+        description="Experimental local-first AI gateway; external services require authorization",
+        dependencies=[Depends(authorize)],
     )
 
+    cors_origins = [
+        origin.strip()
+        for origin in os.environ.get("BHARAT_GATEWAY_CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
